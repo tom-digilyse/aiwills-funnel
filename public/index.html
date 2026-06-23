@@ -342,6 +342,7 @@ function awMeasure(){
     var bodyFont=commonFont(paras)||firstReal(getComputedStyle(document.body).fontFamily);
     var heads=[].slice.call(document.querySelectorAll('h1,h2,h3')).filter(function(e){return vis(e)&&(e.textContent||'').trim().length>2;}).slice(0,40);
     var headingFont=commonFont(heads)||bodyFont;
+    var GFRE=/^(google sans|product sans|roboto flex|roboto)$/i; if(GFRE.test(bodyFont))bodyFont='DM Sans'; if(GFRE.test(headingFont))headingFont=bodyFont;
     var bc={};paras.forEach(function(el){var p=rgb(getComputedStyle(el).color);if(!p||lum(p)>=0.6)return;var h=hx(getComputedStyle(el).color);if(h)bc[h]=(bc[h]||0)+1;});
     var bodyColor=Object.keys(bc).sort(function(a,b){return bc[b]-bc[a];})[0]||'#303133';
     var hcc={};heads.forEach(function(el){var p=rgb(getComputedStyle(el).color);if(!p||lum(p)>0.7)return;var h=hx(getComputedStyle(el).color);if(h)hcc[h]=(hcc[h]||0)+1;});
