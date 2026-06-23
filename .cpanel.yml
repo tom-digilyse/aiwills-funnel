@@ -3,5 +3,6 @@ deployment:
   tasks:
     - export DEPLOYPATH=/home/digiiics/aiwills.digilyse.co
     - /bin/cp -R public/. $DEPLOYPATH/public/
+    - /bin/cp -f server.js will-pdf.js package.json $DEPLOYPATH/
     - /bin/mkdir -p $DEPLOYPATH/tmp
     - /bin/touch $DEPLOYPATH/tmp/restart.txt
