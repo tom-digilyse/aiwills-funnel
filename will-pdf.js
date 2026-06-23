@@ -1,0 +1,384 @@
+/* will-pdf.js - server-side Will PDF generator for AI Wills (pdfkit, built-in Times).
+ * Wording ported verbatim from the live APITemplate will template (id 19a77b23ea0ffd2c).
+ * Consumes the clean internal data contract documented in AiWills_will-data-contract_v1.md.
+ * Renders the primary will, plus a mirror will for the spouse/partner when requested.
+ */
+var PDFDocument = require('pdfkit');
+
+/* ---------- helpers ---------- */
+function esc(v){ return (v == null ? '' : String(v)).trim(); }
+function NA(v){ var s = esc(v); return s ? s : 'Not Available'; }
+function tc(v){ // title-case, mirrors Jinja | title
+  var s = esc(v); if(!s) return s;
+  return s.toLowerCase().replace(/\b([a-z])/g, function(m,c){ return c.toUpperCase(); });
+}
+function tcNA(v){ var s = esc(v); return s ? tc(s) : 'Not Available'; }
+function arr(a){ return Array.isArray(a) ? a : []; }
+function yes(v){ return esc(v).toLowerCase() === 'yes' || v === true; }
+
+/* build a person's full display name with optional title/middle */
+function personName(p){
+  p = p || {};
+  var parts = [];
+  if (esc(p.title)) parts.push(tc(p.title));
+  parts.push(esc(p.firstName) ? tc(p.firstName) : 'Not Available');
+  if (esc(p.middleName)) parts.push(tc(p.middleName));
+  parts.push(esc(p.lastName) ? tc(p.lastName) : 'Not Available');
+  return parts.join(' ');
+}
+function partnerName(p){
+  p = p || {};
+  return (esc(p.firstName) ? tc(p.firstName) : 'Not Available') + ' ' +
+         (esc(p.lastName) ? tc(p.lastName) : 'Not Available');
+}
+function personalAddress(p){
+  p = p || {};
+  var s = esc(p.address) ? tc(p.address) : 'Not Available';
+  if (esc(p.city)) s += ', ' + tc(p.city);
+  if (esc(p.county)) s += ', ' + tc(p.county);
+  if (esc(p.postcode)) s += ', ' + esc(p.postcode);
+  return s;
+}
+
+/* ---------- document plumbing ---------- */
+function buildWillPdf(data, brand){
+  data = data || {}; brand = brand || {};
+  return new Promise(function(resolve, reject){
+    try {
+      var doc = new PDFDocument({ size:'A4', margins:{ top:64, bottom:72, left:70, right:70 }, bufferPages:true });
+      var chunks=[];
+      doc.on('data', function(c){ chunks.push(c); });
+      doc.on('end', function(){ resolve(Buffer.concat(chunks)); });
+      doc.on('error', reject);
+
+      renderWill(doc, data, false);
+      if (yes((data.personal||{}).mirrorWill)){
+        doc.addPage();
+        renderWill(doc, data, true);
+      }
+      finishPages(doc, brand);
+      doc.end();
+    } catch(e){ reject(e); }
+  });
+}
+
+/* ---------- typographic primitives ---------- */
+function willTitle(doc, name){
+  doc.font('Times-Bold').fontSize(22).fillColor('black').text('Last Will', { align:'center' });
+  doc.text('and Testament', { align:'center' });
+  doc.font('Times-Italic').fontSize(12).text('- of -', { align:'center' });
+  doc.moveDown(0.3);
+  doc.font('Times-Bold').fontSize(15).text(name, { align:'center' });
+  doc.moveDown(1.1);
+}
+function H(doc, t){ doc.moveDown(0.7); doc.font('Times-Bold').fontSize(12.5).fillColor('black').text(t); doc.moveDown(0.25); }
+function P(doc, t){ doc.font('Times-Roman').fontSize(11).fillColor('black').text(t, { align:'justify', lineGap:2.5 }); doc.moveDown(0.45); }
+
+/* ---------- shared clause builders ---------- */
+function execClause(doc, d){
+  var execs = arr(d.executors).filter(function(e){ return esc(e.firstName)||esc(e.lastName)||esc(e.relationship); });
+  if (!execs.length) execs = [{}]; // template always names at least a first executor
+  var count = execs.length;
+  var s = 'I appoint my ';
+  execs.forEach(function(e, i){
+    if (i > 0) s += ', my ';
+    s += NA(tc(e.relationship)) + ', ' + tcNA(e.firstName) + ' ' + tcNA(e.lastName) + ', of ' + tcNA(e.address);
+  });
+  s += ' to be ' + (count === 1 ? 'executor and trustee' : 'joint executors and trustees') + '.';
+  H(doc, 'Appointment of Executors and Trustees');
+  P(doc, s);
+  return count;
+}
+
+function guardianClause(doc, d){
+  var ch = d.children || {};
+  if (!yes(ch.appointGuardians)) return;
+  var g = d.guardian || {};
+  var s = 'If at my death any of my children are under 18, I appoint my ' + NA(tc(g.relationship)) +
+          ', ' + tcNA(g.firstName) + ' ' + tcNA(g.lastName) + ', of ' + tcNA(g.address) + ' as guardian of such children';
+  var sub = g.substitute || {};
+  if (yes(sub.has)){
+    s += ', with ' + NA(tc(sub.relationship)) + ', ' + tcNA(sub.firstName) + ' ' + tcNA(sub.lastName) +
+         ', of ' + tcNA(sub.address) + ' as substitute guardian';
+  }
+  s += '.';
+  H(doc, 'Appointment of Guardians');
+  P(doc, s);
+}
+
+function giftsClauses(doc, gifts){
+  gifts = gifts || {};
+  var items = arr(gifts.items), cash = arr(gifts.cash), char = arr(gifts.charities), pets = arr(gifts.pets);
+
+  if (items.length){
+    H(doc, 'Gifts and Legacies (Items)');
+    items.forEach(function(x){
+      P(doc, 'I give my ' + tcNA(x.description) + ', to my ' + tcNA(x.recipientRelationship) + ', ' +
+              tcNA(x.recipientName) + ', of ' + tcNA(x.recipientAddress) + ', free of inheritance tax.');
+    });
+    P(doc, 'If any gift or legacy in this Will fails for any reason and is not otherwise disposed of by this Will or any codicil to it, then (subject to any specific provision to the contrary) that gift or legacy shall form part of my residuary estate and shall be distributed in accordance with the terms relating to the residue of my estate.');
+  }
+
+  if (cash.length){
+    H(doc, 'Cash Gifts');
+    cash.forEach(function(x){
+      P(doc, 'I give the sum of £' + esc(x.amount) + ' to my ' + tcNA(x.beneficiaryRelationship) + ', ' +
+              tcNA(x.beneficiaryName) + ', of ' + tcNA(x.beneficiaryAddress) + ', free of inheritance tax.');
+    });
+  }
+
+  if (char.length){
+    H(doc, 'Charitable Donations');
+    char.forEach(function(x){
+      var s = 'I give the sum of £' + esc(x.amount) + ' to ' + tcNA(x.name);
+      if (esc(x.number)) s += ', Registered Charity Number ' + esc(x.number);
+      s += ' (a registered charity in England and Wales) or, if that charity shall have ceased to exist or amalgamated with another charity, to such charitable organisation as my executors shall in their absolute discretion determine whose objects most closely resemble those of that charity, and a receipt from the proper officer of such charity shall be a full discharge to my executors.';
+      P(doc, s);
+    });
+  }
+
+  if (pets.length){
+    H(doc, 'Pets');
+    pets.forEach(function(x){
+      P(doc, 'I give the sum of £' + esc(x.amount) + ' to ' + tcNA(x.guardian) +
+              ' on the condition that they take possession of and care for my pet(s) known as ' + tcNA(x.description) +
+              ' and if they shall fail or be unwilling to do so, this gift shall lapse and fall into my residuary estate.');
+    });
+  }
+}
+
+/* residuary estate; spouseName is who fills the "spouse/partner" slot for this will */
+function residuaryClause(doc, d, spouseName){
+  var r = d.residual || {};
+  var distrib = esc(r.distribution);
+  if (!distrib) return;
+  var step = yes(r.includeStepChildren) ? ' (which expression shall include my stepchildren)' : '';
+  H(doc, 'The Residuary Estate');
+
+  if (distrib === 'All to my spouse/partner, then equally between my children'){
+    P(doc, 'I give the whole of my residuary estate to my spouse/partner, ' + spouseName + ', if they survive me by 28 days.');
+    P(doc, 'If my said spouse/partner does not survive me by 28 days, then I give the whole of my residuary estate equally between such of my children' + step + ' as shall survive me, and if more than one, in equal shares.');
+    P(doc, 'If any of my children predecease me leaving issue who survive me, such issue shall take (in equal shares between them) the share their parent would have taken had they survived me.');
+    P(doc, 'If any of my children predecease me leaving no issue who survive me, their share shall accrue to the surviving children in equal shares.');
+    P(doc, 'If the foregoing provisions fail to dispose of the whole or any part of my residuary estate, I give such residuary estate (or such part thereof) to such persons as would be entitled under the intestacy rules in force in England and Wales at my death.');
+
+  } else if (distrib === 'To be shared equally between my children only'){
+    P(doc, 'I give the whole of my residuary estate to such of my children' + step + ' as shall survive me, and if more than one, in equal shares.');
+    P(doc, 'If any of my children shall predecease me leaving issue who survive me, such issue shall take (in equal shares between them) the share their parent would have taken had they survived me.');
+    P(doc, 'If any of my children shall predecease me leaving no issue who survive me, their share shall accrue to the surviving children in equal shares.');
+    P(doc, 'If the foregoing provisions fail to dispose of the whole or any part of my residuary estate, I give such residuary estate (or such part thereof) to such persons as would be entitled under the intestacy rules in force in England and Wales at my death.');
+
+  } else if (distrib === 'All to my spouse/partner'){
+    P(doc, 'I give the whole of my residuary estate (being all my real and personal property whatsoever and wheresoever not otherwise effectively disposed of by this my Will) to my spouse/partner, ' + spouseName + ' absolutely, provided that he/she survives me by a period of 28 days.');
+
+  } else if (distrib === 'To my spouse/partner then to those who I have listed below'){
+    P(doc, 'I give all my residuary estate (being all my real and personal property whatsoever and wheresoever not otherwise effectively disposed of by this my Will) to my spouse/partner, ' + spouseName + ' absolutely, provided that he/she survives me by a period of 28 days.');
+    P(doc, 'But if my said spouse/partner shall fail to survive me by such period, then I give my residuary estate to the following beneficiaries in the proportions specified below:');
+    arr(r.beneficiaries).forEach(function(b){
+      P(doc, tcNA(b.name) + ' of ' + tcNA(b.address) + ' — ' + esc(b.share) + '%');
+    });
+    P(doc, 'And if any such beneficiary shall fail to survive me by a period of 28 days leaving issue who survive me, such issue shall take (in equal shares between them) the share their parent would have taken had they survived me.');
+    P(doc, 'And if any such beneficiary shall fail to survive me by a period of 28 days leaving no issue who survive me, their share shall pass to the surviving beneficiaries in proportion to their respective shares.');
+    P(doc, 'And if the foregoing provisions fail to dispose of the whole or any part of my residuary estate, I give such residuary estate (or such part thereof) to such persons as would be entitled under the intestacy rules in force in England and Wales at my death.');
+
+  } else if (distrib === 'Between other persons who are listed below'){
+    P(doc, 'I give the whole of my residuary estate to the following individuals, in the shares specified:');
+    arr(r.beneficiaries).forEach(function(b){
+      P(doc, '- ' + esc(b.share) + '% to my ' + tcNA(b.relationship) + ', ' + tcNA(b.name) + ', of ' + tcNA(b.address) + ';');
+    });
+    P(doc, 'If any such beneficiary dies before me, that share shall pass to their issue in equal shares per stirpes.');
+    P(doc, 'If any such beneficiary shall predecease me leaving no issue who survive me, their share shall accrue to the surviving beneficiaries in proportion to their respective shares.');
+    P(doc, 'If the foregoing provisions fail to dispose of the whole or any part of my residuary estate, I give such residuary estate (or such part thereof) to such persons as would be entitled under the intestacy rules in force in England and Wales at my death.');
+  }
+
+  var age = parseInt(esc(r.ageOfBenefit), 10);
+  if (!isNaN(age) && age > 18){
+    P(doc, 'If any beneficiary named above is under the age of 18 at my death, I direct that their share be held on trust by my trustees until they reach the age of 18. My trustees may use trust capital or income for the beneficiary’s education, maintenance, or welfare.');
+  }
+  P(doc, 'If the foregoing provisions of this Will shall fail to dispose of the whole or any part of my estate, I give such estate (or such part thereof) absolutely to such persons as would be entitled to it under the intestacy rules in force in England and Wales at the date of my death.');
+}
+
+function funeralPrimary(doc, f){
+  f = f || {};
+  H(doc, 'Funeral Wishes');
+  var s = 'I express my wish to be: ';
+  if (esc(f.arrangements)) s += esc(f.arrangements);
+  if (esc(f.music)) s += '; with music ' + esc(f.music);
+  if (yes((f.plan||{}).has) && esc((f.plan||{}).details)) s += '; with funeral plan details ' + esc(f.plan.details);
+  if (esc(f.additional)) s += '; with readings from: ' + esc(f.additional);
+  s += '.';
+  P(doc, s);
+  organClause(doc, f.organDonation);
+}
+
+function funeralMirror(doc, f){
+  f = f || {};
+  H(doc, 'Funeral Wishes');
+  var s = 'I express my wish to be: ';
+  if (esc(f.arrangements)) s += esc(f.arrangements);
+  if (esc(f.location)) s += '; at ' + esc(f.location);
+  if (esc(f.music)) s += '; with music ' + esc(f.music);
+  if (yes((f.plan||{}).has)) s += '; with a funeral plan in place';
+  if (esc(f.readings)) s += '; with readings from: ' + esc(f.readings);
+  s += '.';
+  P(doc, s);
+  organClause(doc, f.organDonation);
+}
+
+function organClause(doc, v){
+  if (yes(v)){
+    P(doc, 'I express my wish that, upon my death, any of my organs and/or tissue may be used for transplantation, therapy, medical education, or research purposes. I request that my Executors and family members give effect to this wish so far as is practicable.');
+  } else {
+    P(doc, 'I express my wish that none of my organs or tissue be used for transplantation, therapy, medical education, or research purposes after my death. I request that my Executors and family members respect this wish.');
+  }
+}
+
+function signatureBlock(doc){
+  doc.moveDown(0.8);
+  P(doc, 'Signed by me in the presence of the undersigned witnesses, who both attest and witness my signature in my presence, and in the presence of each other.');
+  doc.moveDown(0.3);
+  doc.font('Times-Roman').fontSize(11).fillColor('black');
+  doc.text('Date: ___________________________');
+  doc.moveDown(0.4);
+  doc.text('Signature: ___________________________');
+  doc.moveDown(0.8);
+  [['Witness 1'],['Witness 2']].forEach(function(w){
+    doc.font('Times-Bold').fontSize(11).text(w[0]);
+    doc.moveDown(0.2);
+    doc.font('Times-Roman').fontSize(10.5).fillColor('#222')
+       .text('Name: ______________________________________________')
+       .text('Address: ____________________________________________')
+       .text('Profession: _________________________________________')
+       .text('Signature: __________________________________________');
+    doc.fillColor('black').moveDown(0.7);
+  });
+}
+
+/* ---------- one complete will (primary or mirror) ---------- */
+function renderWill(doc, d, isMirror){
+  var personal = d.personal || {};
+  var partner = d.partner || {};
+
+  /* who is the testator of THIS will, and who is their spouse slot */
+  var testatorName, testatorAddr, spouseSlotName, akaIntro;
+  if (!isMirror){
+    testatorName = personName(personal);
+    testatorAddr = personalAddress(personal);
+    spouseSlotName = spouseDisplay(partner, partner.aka); // partner is the spouse in the primary will
+    if (yes(personal.aka && personal.aka.has)){
+      akaIntro = 'previously known as ' + tcNA((personal.aka||{}).firstName) + ' ' + tcNA((personal.aka||{}).lastName);
+    }
+  } else {
+    testatorName = partnerName(partner);
+    testatorAddr = esc(partner.address) ? tc(partner.address) : 'Not Available';
+    spouseSlotName = spouseDisplay(personal, personal.aka); // primary person is the spouse in the mirror will
+    akaIntro = null; // mirror intro has no AKA in the source template
+  }
+
+  /* title + intro */
+  willTitle(doc, testatorName);
+
+  H(doc, 'Introduction and Revocation');
+  var intro = 'This is the last Will and Testament of me, ' + testatorName + ' of ' + testatorAddr;
+  if (akaIntro) intro += ', ' + akaIntro;
+  intro += '. I hereby revoke all previous Wills and codicils made by me and declare this to be my last Will.';
+  P(doc, intro);
+
+  /* domicile + IHT */
+  H(doc, 'Domicile Declaration');
+  P(doc, 'I declare that at the date of this Will I am domiciled and habitually resident in England and Wales. If I later cease to be so domiciled, this clause is without prejudice to the validity of this Will as regards property in England & Wales.');
+  P(doc, 'All inheritance tax (and any other duties or taxes payable on my death) arising in respect of my estate or any gift made by this Will shall be paid out of my residuary estate without apportionment, and my executors shall not be required to recover any part of such tax from any beneficiary.');
+
+  /* executors (same appointees in both wills) */
+  execClause(doc, d);
+
+  /* guardians */
+  guardianClause(doc, d);
+
+  /* gifts: primary uses d.gifts, mirror uses d.mirrorGifts */
+  giftsClauses(doc, isMirror ? d.mirrorGifts : d.gifts);
+
+  /* simultaneous death: always in mirror; in primary only when a mirror will is being made */
+  if (isMirror || yes(personal.mirrorWill)){
+    H(doc, 'Simultaneous Death Provision');
+    P(doc, 'If my spouse/partner and I die in circumstances where it is uncertain which of us survived the other, my spouse/partner shall be deemed to have predeceased me for the purposes of this Will.');
+  }
+
+  /* residuary */
+  residuaryClause(doc, d, spouseSlotName);
+
+  /* funeral */
+  if (!isMirror) funeralPrimary(doc, d.funeral);
+  else funeralMirror(doc, d.mirrorFuneral);
+
+  /* signature */
+  signatureBlock(doc);
+}
+
+function spouseDisplay(p, aka){
+  p = p || {};
+  var s = (esc(p.firstName) ? tc(p.firstName) : 'Not Available') + ' ' + (esc(p.lastName) ? tc(p.lastName) : 'Not Available');
+  if (yes(aka && aka.has)){
+    s += ', also known as ' + tcNA((aka||{}).firstName) + ' ' + tcNA((aka||{}).lastName);
+  }
+  return s;
+}
+
+/* ---------- footer ---------- */
+function finishPages(doc, brand){
+  var range = doc.bufferedPageRange();
+  var credit = (brand && brand.company_name) ? ('Prepared via ' + brand.company_name) : 'Prepared via AI Wills';
+  for (var i = range.start; i < range.start + range.count; i++){
+    doc.switchToPage(i);
+    var keep = doc.page.margins.bottom;
+    doc.page.margins.bottom = 0;
+    doc.font('Times-Italic').fontSize(8).fillColor('#888')
+       .text(credit + '    •    Page ' + (i - range.start + 1) + ' of ' + range.count,
+             doc.page.margins.left, doc.page.height - 34,
+             { width: doc.page.width - doc.page.margins.left - doc.page.margins.right, align:'center', lineBreak:false });
+    doc.fillColor('black');
+    doc.page.margins.bottom = keep;
+  }
+}
+
+/* ---------- normalize: engine funnel state -> PDF data contract ----------
+ * The funnel engine emits state keyed by step id with flat field keys and
+ * repeaters keyed `list`. This maps that to the clean contract will-pdf consumes.
+ * Safe to run on an already-normalized object (missing keys just stay blank). */
+function _o(x){ return (x && typeof x === 'object') ? x : {}; }
+function _gifts(g){ g = _o(g); return { items:Array.isArray(g.items)?g.items:[], cash:Array.isArray(g.cash)?g.cash:[], charities:Array.isArray(g.charities)?g.charities:[], pets:Array.isArray(g.pets)?g.pets:[] }; }
+
+function normalizeWill(s){
+  s = _o(s);
+  var P=_o(s.personal), SI=_o(s.situation), PT=_o(s.partner), CH=_o(s.children),
+      G=_o(s.guardian), EX=_o(s.executors), R=_o(s.residual), F=_o(s.funeral), MF=_o(s.mirrorFuneral);
+  return {
+    personal: {
+      title:P.title, firstName:P.firstName, middleName:P.middleName, lastName:P.lastName,
+      aka:{ has:P.akaHas, firstName:P.akaFirstName, lastName:P.akaLastName },
+      address:P.address, city:P.city, county:P.county, postcode:P.postcode,
+      domicileElsewhere:SI.domicileElsewhere, propertyAbroad:SI.propertyAbroad,
+      previousWill:{ has:SI.previousWillHas, firm:SI.previousWillFirm },
+      hasPartner:PT.hasPartner, mirrorWill:PT.mirrorWill, hasChildren:CH.hasChildren,
+      email:P.email, phone:P.phone
+    },
+    partner: {
+      firstName:PT.firstName, lastName:PT.lastName,
+      aka:{ has:PT.akaHas, firstName:PT.akaFirstName, lastName:PT.akaLastName },
+      dob:PT.dob, status:PT.status, address:PT.address, phone:PT.phone
+    },
+    children: { anyUnder18:CH.anyUnder18, appointGuardians:CH.appointGuardians, count:CH.count },
+    guardian: {
+      firstName:G.firstName, lastName:G.lastName, address:G.address, relationship:G.relationship,
+      substitute:{ has:G.subHas, firstName:G.subFirstName, lastName:G.subLastName, address:G.subAddress, relationship:G.subRelationship }
+    },
+    executors: Array.isArray(EX.list) ? EX.list : (Array.isArray(s.executors) ? s.executors : []),
+    gifts: _gifts(s.gifts),
+    mirrorGifts: _gifts(s.mirrorGifts),
+    residual: { distribution:R.distribution, includeStepChildren:R.includeStepChildren, ageOfBenefit:R.ageOfBenefit, beneficiaries:Array.isArray(R.beneficiaries)?R.beneficiaries:[] },
+    funeral: { arrangements:F.arrangements, music:F.music, additional:F.additional, organDonation:F.organDonation, plan:{ has:F.planHas, details:F.planDetails } },
+    mirrorFuneral: { arrangements:MF.arrangements, location:MF.location, music:MF.music, readings:MF.readings, organDonation:MF.organDonation, plan:{ has:MF.planHas } }
+  };
+}
+
+module.exports = { buildWillPdf: buildWillPdf, normalizeWill: normalizeWill };

@@ -1,0 +1,13 @@
+{
+  "name": "aiwills-onboarding-tool",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AI Wills client onboarding: scrape a client site for brand tokens and write them to a GHL sub-account's custom values.",
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "pdfkit": "^0.15.0"
+  }
+}

@@ -1,0 +1,439 @@
+/* AI Wills - onboarding tool
+   Scrape a client website for brand tokens, review them in the UI, then write
+   them to a GHL sub-account's custom values.
+   Node 18+ (uses built-in fetch). No npm install needed.
+
+   Local:   GHL_PIT=pit-xxxx node server.js   then open http://localhost:4321
+   Hosted:  set GHL_PIT, APP_USER and APP_PASS as the host's secrets (see DEPLOY.md).
+   The token and login are read from the environment, never hard-coded. */
+
+const http = require('http');
+const fs = require('fs');
+const path = require('path');
+
+// Safety net: never let a stray error crash the process (which makes the host return 503).
+process.on('uncaughtException', function(e){ try { console.error('uncaughtException:', e && e.stack || e); } catch(_){} });
+process.on('unhandledRejection', function(e){ try { console.error('unhandledRejection:', e && e.stack || e); } catch(_){} });
+
+const PORT = process.env.PORT || 4321;
+const GHL_BASE = 'https://services.leadconnectorhq.com';
+const GHL_VERSION = process.env.GHL_API_VERSION || '2021-07-28';
+
+/* ---------- agency OAuth ----------
+   One Marketplace app installed on the agency. Its agency token mints a
+   short-lived per-sub-account (location) token on demand, so the tool can
+   write to ANY client sub-account with no per-client token. See
+   AiWills_ghl-agency-oauth-spec_v1.md. */
+const REDIRECT_URI = process.env.GHL_REDIRECT_URI || 'https://aiwills.digilyse.co/oauth/callback';
+const GHL_SCOPES = 'locations/customValues.readonly locations/customValues.write contacts.readonly contacts.write';
+const TOKENS_FILE = path.join(__dirname, 'ghl_tokens.json');
+function loadTokens(){ try { return JSON.parse(fs.readFileSync(TOKENS_FILE, 'utf8')); } catch(e){ return null; } }
+function saveTokens(t){ try { fs.writeFileSync(TOKENS_FILE, JSON.stringify(t)); } catch(e){ console.error('saveTokens:', e.message); } }
+async function oauthToken(params){
+  const r = await fetch(GHL_BASE + '/oauth/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' }, body: new URLSearchParams(params).toString() });
+  const text = await r.text(); let j; try { j = JSON.parse(text); } catch(e){ j = { raw: text }; }
+  if (!r.ok) throw new Error('OAuth token -> ' + r.status + ' ' + text.slice(0,300));
+  return j;
+}
+async function exchangeCode(code){
+  const j = await oauthToken({ client_id: process.env.GHL_CLIENT_ID, client_secret: process.env.GHL_CLIENT_SECRET, grant_type: 'authorization_code', code: code, user_type: 'Company', redirect_uri: REDIRECT_URI });
+  const t = { access_token: j.access_token, refresh_token: j.refresh_token, companyId: j.companyId || '', expires_at: Date.now() + ((j.expires_in || 86399) * 1000) };
+  saveTokens(t); return t;
+}
+async function getAgencyToken(){
+  let t = loadTokens();
+  if (!t || !t.refresh_token) throw new Error('Agency app not connected. Open /oauth/start to install it.');
+  if (t.expires_at && t.expires_at > Date.now() + 60000) return t;
+  const j = await oauthToken({ client_id: process.env.GHL_CLIENT_ID, client_secret: process.env.GHL_CLIENT_SECRET, grant_type: 'refresh_token', refresh_token: t.refresh_token, user_type: 'Company' });
+  t = { access_token: j.access_token, refresh_token: j.refresh_token || t.refresh_token, companyId: j.companyId || t.companyId, expires_at: Date.now() + ((j.expires_in || 86399) * 1000) };
+  saveTokens(t); return t;
+}
+const _locTokens = {};
+async function getLocationToken(locationId){
+  const c = _locTokens[locationId];
+  if (c && c.exp > Date.now() + 60000) return c.token;
+  const a = await getAgencyToken();
+  const r = await fetch(GHL_BASE + '/oauth/locationToken', { method: 'POST', headers: { Authorization: 'Bearer ' + a.access_token, Version: GHL_VERSION, 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' }, body: new URLSearchParams({ companyId: a.companyId, locationId: locationId }).toString() });
+  const text = await r.text(); let j; try { j = JSON.parse(text); } catch(e){ j = { raw: text }; }
+  if (!r.ok) throw new Error('locationToken -> ' + r.status + ' ' + text.slice(0,300));
+  _locTokens[locationId] = { token: j.access_token, exp: Date.now() + ((j.expires_in || 3600) * 1000) };
+  return j.access_token;
+}
+async function getWriteToken(locationId){
+  if (process.env.GHL_CLIENT_ID && process.env.GHL_CLIENT_SECRET) return await getLocationToken(locationId);
+  if (process.env.GHL_PIT) return process.env.GHL_PIT;
+  throw new Error('No GHL credentials. Set GHL_CLIENT_ID and GHL_CLIENT_SECRET and install via /oauth/start, or set GHL_PIT.');
+}
+
+/* ---------- access control ----------
+   If APP_USER and APP_PASS are set, every request needs that login (browser
+   prompt). If they are not set (local use), the tool is open. Always set them
+   when hosted, because this tool can write to GHL. */
+function authed(req){
+  if (!process.env.APP_USER || !process.env.APP_PASS) return true;
+  const h = req.headers['authorization'] || '';
+  const m = /^Basic (.+)$/.exec(h);
+  if (!m) return false;
+  const decoded = Buffer.from(m[1], 'base64').toString();
+  const i = decoded.indexOf(':');
+  const u = decoded.slice(0, i), p = decoded.slice(i + 1);
+  return u === process.env.APP_USER && p === process.env.APP_PASS;
+}
+
+/* ---------- scraper ---------- */
+function abs(href, base){ try { return new URL(href, base).href; } catch(e){ return href || ''; } }
+function firstMatch(re, s){ const m = re.exec(s); return m ? m[1].trim() : ''; }
+
+function pickColors(html, css){
+  const blob = html + '\n' + css;
+  const hexes = blob.match(/#[0-9a-fA-F]{6}\b/g) || [];
+  const counts = {};
+  hexes.forEach(h => { h = h.toLowerCase(); counts[h] = (counts[h] || 0) + 1; });
+  function rgb(h){ return [parseInt(h.slice(1,3),16), parseInt(h.slice(3,5),16), parseInt(h.slice(5,7),16)]; }
+  function sat(h){ const c = rgb(h); const mx = Math.max.apply(null,c), mn = Math.min.apply(null,c); return mx === 0 ? 0 : (mx-mn)/mx; }
+  function lum(h){ const c = rgb(h); return (0.299*c[0] + 0.587*c[1] + 0.114*c[2]) / 255; }
+  const brand = Object.keys(counts)
+    .filter(h => sat(h) > 0.35 && lum(h) > 0.12 && lum(h) < 0.85)
+    .sort((a,b) => counts[b] - counts[a]);
+  const theme = firstMatch(/<meta[^>]+name=["']theme-color["'][^>]+content=["']([^"']+)["']/i, html);
+  const primary = (theme && /^#[0-9a-fA-F]{6}$/.test(theme)) ? theme.toLowerCase() : (brand[0] || '');
+  const darks = Object.keys(counts).filter(h => lum(h) < 0.25).sort((a,b) => counts[b] - counts[a]);
+  return { primary: primary, headingColor: darks[0] || '', bodyColor: darks[1] || darks[0] || '' };
+}
+
+function pickFonts(html, css){
+  const blob = html + '\n' + css;
+  function clean(s){ return (s || '').replace(/!important/ig,'').split(',')[0].replace(/["']/g,'').trim(); }
+  // Body font: the main Google Font the site loads.
+  const loaded = []; let m;
+  const linkRe = /fonts\.googleapis\.com\/css2?\?([^"']+)/gi;
+  while ((m = linkRe.exec(blob))){ const fr = /family=([^&:]+)/g; let f; while ((f = fr.exec(m[1]))) loaded.push(decodeURIComponent(f[1].replace(/\+/g,' ')).split(':')[0]); }
+  let body = loaded[0] || '';
+  if (!body){ const ff = (css.match(/font-family\s*:\s*([^;}{]+)/i) || [])[1]; if (ff){ const n = clean(ff); if (typeof realFont === 'function' ? realFont(n) : (n && !/inherit|sans-serif|serif|monospace/i.test(n))) body = n; } }
+  // Heading font: prefer a font-family set on heading-style selectors, else a known serif/display font.
+  function realFont(n){ return n && n.indexOf('var(') !== 0 && !/^(-apple-system|blinkmacsystemfont|segoe ui|roboto|helvetica( neue)?|arial|tahoma|verdana|system-ui|ui-sans-serif|sans-serif|serif|monospace|inherit|initial|unset)$/i.test(n); }
+  let heading = '';
+  const blocks = css.split('}');
+  for (let i = 0; i < blocks.length; i++){
+    const b = blocks[i];
+    if (/(^|[\s,>])h[1-6]\b|heading|headline|title|\.has-[a-z-]*-font-family/i.test(b)){
+      const fm = b.match(/font-family\s*:\s*([^;{]+)/i);
+      if (fm){ const n = clean(fm[1]); if (realFont(n)){ heading = n; break; } }
+    }
+  }
+  if (!heading){
+    const serif = (blob.match(/['"]?(Playfair Display|Merriweather|Lora|Cormorant[^'",;:}]*|Libre Baskerville|EB Garamond|Crimson[^'",;:}]*|DM Serif[^'",;:}]*|Source Serif[^'",;:}]*)['"]?/i) || [])[1];
+    if (serif) heading = serif.trim();
+  }
+  if (!heading) heading = body;
+  if (!body) body = heading;
+  return { heading: heading, body: body };
+}
+
+// Capture the client's primary navigation links (label + url) so the engine can
+// rebuild a clean, branded header. We do NOT import their markup, only the items.
+function scrapeNav(html, origin){
+  function items(scope){
+    const out = []; const re = /<a\b[^>]*href=["']([^"'#?]+)["'][^>]*>([\s\S]*?)<\/a>/gi; let m;
+    while ((m = re.exec(scope)) && out.length < 14){
+      const href = m[1].trim();
+      if (/^(tel:|mailto:|javascript:|#)/i.test(href)) continue;
+      let label = m[2].replace(/<[^>]+>/g,' ').replace(/&[a-z]+;/gi,' ').replace(/\s+/g,' ').trim();
+      if (!label || label.length > 28) continue;
+      out.push({ label: label, url: abs(href, origin) });
+    }
+    return out;
+  }
+  let scope = (/<nav[\s\S]*?<\/nav>/i.exec(html) || [])[0] || '';
+  if (!scope) scope = (/<header[\s\S]*?<\/header>/i.exec(html) || [])[0] || '';
+  let list = items(scope);
+  const seen = {}; list = list.filter(it => { const k = it.label.toLowerCase(); if (seen[k]) return false; seen[k] = 1; return true; });
+  return list.slice(0, 7);
+}
+
+function scrapeBrand(html, css, baseUrl){
+  let origin = baseUrl; try { origin = new URL(baseUrl).origin; } catch(e){}
+  const colors = pickColors(html, css);
+  const fonts = pickFonts(html, css);
+  const nav = scrapeNav(html, origin);
+
+  const ogImage = firstMatch(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i, html);
+  const apple = firstMatch(/<link[^>]+rel=["']apple-touch-icon["'][^>]+href=["']([^"']+)["']/i, html);
+  const icon = firstMatch(/<link[^>]+rel=["'][^"']*icon[^"']*["'][^>]+href=["']([^"']+)["']/i, html);
+  let logo = '';
+  const logoImg = /<img[^>]+(?:src|class|alt)=["'][^"']*logo[^"']*["'][^>]*>/i.exec(html);
+  if (logoImg){ logo = firstMatch(/src=["']([^"']+)["']/i, logoImg[0]); }
+  logo = abs(logo || ogImage || apple || icon, origin);
+
+  const title = firstMatch(/<title[^>]*>([^<]+)<\/title>/i, html);
+  const ogSite = firstMatch(/<meta[^>]+property=["']og:site_name["'][^>]+content=["']([^"']+)["']/i, html);
+  const company = (ogSite || title).split(/[|:]/)[0].split(' - ')[0].trim();
+
+  const tel = firstMatch(/href=["']tel:([^"']+)["']/i, html);
+  let phone = (tel || '').trim();
+  if (!phone){
+    const cand = (html.replace(/<[^>]+>/g,' ').match(/(\+44\s?\d[\d\s()-]{7,}\d|0\d[\d\s()-]{7,}\d)/) || [])[1];
+    if (cand){ const digits = cand.replace(/\D/g,''); if (digits.length >= 10 && digits.length <= 13) phone = cand.trim(); }
+  }
+  const email = firstMatch(/href=["']mailto:([^"'?]+)["']/i, html);
+
+  const facebook = abs(firstMatch(/href=["'](https?:\/\/(?:www\.)?facebook\.com\/[^"']+)["']/i, html), origin);
+  const instagram = abs(firstMatch(/href=["'](https?:\/\/(?:www\.)?instagram\.com\/[^"']+)["']/i, html), origin);
+  let privacyHref = '';
+  const pr = /href=["']([^"']*privacy[^"']*)["']/gi; let pm;
+  while ((pm = pr.exec(html))){ if (!/\.(css|js|png|jpe?g|svg|gif|woff2?|ico)(\?|#|$)/i.test(pm[1])){ privacyHref = pm[1]; break; } }
+  const privacy = abs(privacyHref, origin);
+
+  return {
+    company_name: company,
+    client_logo_url: logo,
+    client_primary_color: colors.primary,
+    client_heading_color: colors.headingColor,
+    client_body_color: colors.bodyColor,
+    client_heading_font: fonts.heading,
+    client_body_font: fonts.body,
+    footer_phone: phone,
+    company_email: email,
+    company_website: origin,
+    facebook_link: facebook,
+    instagram_link: instagram,
+    privacy_url: privacy,
+    nav_menu_json: JSON.stringify(nav),
+    company_address: '',
+    will_price: '',
+    legal_footer: ''
+  };
+}
+
+async function fetchText(url){
+  const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 AiWillsOnboarding' }, redirect: 'follow' });
+  if (!r.ok) throw new Error('Fetch ' + url + ' returned ' + r.status);
+  return await r.text();
+}
+
+async function handleScrape(url){
+  const html = await fetchText(url);
+  const origin = new URL(url).origin;
+  const hrefs = [];
+  const linkRe = /<link[^>]+rel=["']stylesheet["'][^>]+href=["']([^"']+)["']/gi; let m;
+  while ((m = linkRe.exec(html)) && hrefs.length < 3){ if (!/googleapis|gstatic/.test(m[1])) hrefs.push(abs(m[1], origin)); }
+  let css = '';
+  for (const h of hrefs){ try { css += '\n' + await fetchText(h); } catch(e){} }
+  return scrapeBrand(html, css, url);
+}
+
+/* ---------- GHL write ---------- */
+async function ghl(method, pathname, token, body){
+  const r = await fetch(GHL_BASE + pathname, {
+    method: method,
+    headers: { Authorization: 'Bearer ' + token, Version: GHL_VERSION, Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined
+  });
+  const text = await r.text();
+  let json; try { json = JSON.parse(text); } catch(e){ json = { raw: text }; }
+  if (!r.ok) throw new Error('GHL ' + method + ' ' + pathname + ' -> ' + r.status + ' ' + text.slice(0,300));
+  return json;
+}
+
+async function handleWrite(locationId, values){
+  if (!locationId) throw new Error('locationId is required.');
+  const token = await getWriteToken(locationId);
+  const existing = await ghl('GET', '/locations/' + locationId + '/customValues', token);
+  const list = existing.customValues || existing.customValue || [];
+  const byName = {};
+  list.forEach(cv => { byName[(cv.name || '').toLowerCase()] = cv.id; });
+  const results = [];
+  for (const name of Object.keys(values)){
+    const value = values[name];
+    if (value === '' || value == null){ results.push({ name: name, skipped: true }); continue; }
+    try {
+      const id = byName[name.toLowerCase()];
+      if (id){ await ghl('PUT', '/locations/' + locationId + '/customValues/' + id, token, { name: name, value: value }); results.push({ name: name, action: 'updated' }); }
+      else { await ghl('POST', '/locations/' + locationId + '/customValues', token, { name: name, value: value }); results.push({ name: name, action: 'created' }); }
+    } catch(e){ results.push({ name: name, error: e.message }); }
+  }
+  return results;
+}
+
+/* ---------- payment (Stripe), will store, PDF helpers ---------- */
+const crypto = require('crypto');
+const WILL_DIR = path.join(__dirname, 'will_data');
+function willStorePut(id, obj){ try { fs.mkdirSync(WILL_DIR, { recursive: true }); fs.writeFileSync(path.join(WILL_DIR, id.replace(/[^a-f0-9]/gi,'') + '.json'), JSON.stringify(obj)); } catch(e){ console.error('willStorePut', e.message); } }
+function willStoreGet(id){ try { return JSON.parse(fs.readFileSync(path.join(WILL_DIR, id.replace(/[^a-f0-9]/gi,'') + '.json'), 'utf8')); } catch(e){ return null; } }
+
+function formEncode(obj){ const out = []; for (const k in obj){ const v = obj[k]; if (v === undefined || v === null || v === '') continue; out.push(encodeURIComponent(k) + '=' + encodeURIComponent(v)); } return out.join('&'); }
+async function stripeReq(method, pathname, params, key){
+  const opts = { method: method, headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/x-www-form-urlencoded' } };
+  if (params) opts.body = formEncode(params);
+  const r = await fetch('https://api.stripe.com' + pathname, opts);
+  const text = await r.text(); let j; try { j = JSON.parse(text); } catch(e){ j = { raw: text }; }
+  if (!r.ok) throw new Error('Stripe ' + pathname + ' -> ' + r.status + ' ' + text.slice(0,300));
+  return j;
+}
+function verifyStripeSig(raw, sigHeader, secret){
+  try {
+    const parts = {}; (sigHeader || '').split(',').forEach(function(p){ const i = p.indexOf('='); if (i > 0) parts[p.slice(0,i)] = p.slice(i+1); });
+    if (!parts.t || !parts.v1) return false;
+    const expected = crypto.createHmac('sha256', secret).update(parts.t + '.' + raw, 'utf8').digest('hex');
+    const a = Buffer.from(expected), b = Buffer.from(parts.v1);
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
+  } catch(e){ return false; }
+}
+async function getCustomValuesMap(locationId, token){
+  const ex = await ghl('GET', '/locations/' + locationId + '/customValues', token);
+  const list = ex.customValues || ex.customValue || []; const byName = {};
+  list.forEach(function(cv){ byName[(cv.name || '').toLowerCase()] = cv.value; });
+  return byName;
+}
+
+/* ---------- server ---------- */
+function send(res, code, obj){ if (res.headersSent) { try { res.end(); } catch(_){} return; } res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(obj)); }
+function readBody(req){ return new Promise(resolve => { let d = ''; req.on('data', c => d += c); req.on('end', () => resolve(d)); }); }
+
+const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css' };
+
+const server = http.createServer(async (req, res) => {
+  try {
+    const pathOnly = req.url.split('?')[0];
+    if (req.method === 'GET' && pathOnly === '/oauth/start'){
+      if (!process.env.GHL_CLIENT_ID) return send(res, 400, { error: 'GHL_CLIENT_ID not set' });
+      const u = 'https://marketplace.gohighlevel.com/oauth/chooselocation?response_type=code&redirect_uri=' + encodeURIComponent(REDIRECT_URI) + '&client_id=' + encodeURIComponent(process.env.GHL_CLIENT_ID) + '&scope=' + encodeURIComponent(GHL_SCOPES);
+      res.writeHead(302, { Location: u }); return res.end();
+    }
+    if (req.method === 'GET' && pathOnly === '/oauth/callback'){
+      const code = (new URL(req.url, 'http://x')).searchParams.get('code');
+      if (!code){ res.writeHead(400, { 'Content-Type': 'text/html' }); return res.end('Missing code'); }
+      try { const t = await exchangeCode(code); res.writeHead(200, { 'Content-Type': 'text/html' }); return res.end('<h2>Connected to the GHL agency.</h2><p>companyId ' + (t.companyId || '') + '. You can close this tab and use the tool.</p>'); }
+      catch(e){ res.writeHead(500, { 'Content-Type': 'text/html' }); return res.end('OAuth failed: ' + e.message); }
+    }
+    if (req.method === 'GET' && (pathOnly === '/engine.js' || pathOnly === '/api/engine')){
+      // /api/engine is the cross-origin-safe path: the host blocks cross-domain .js requests (503),
+      // but non-.js paths under /api/ pass (same as /api/brand). The GHL loader uses /api/engine.
+      res.setHeader('Access-Control-Allow-Origin','*');
+      try { const ejs = fs.readFileSync(path.join(__dirname,'public','engine.js')); res.writeHead(200, { 'Content-Type':'text/javascript', 'Cache-Control':'public, max-age=300' }); return res.end(ejs); }
+      catch(e){ res.writeHead(404, { 'Content-Type':'text/plain' }); return res.end('engine not found'); }
+    }
+    if (req.method === 'GET' && pathOnly === '/api/brand'){
+      res.setHeader('Access-Control-Allow-Origin','*');
+      const locId = ((new URL(req.url,'http://x')).searchParams.get('locationId')||'').replace(/[^A-Za-z0-9]/g,'');
+      if (!locId){ res.writeHead(400, { 'Content-Type':'application/json' }); return res.end('{}'); }
+      try {
+        const btoken = await getWriteToken(locId);
+        const ex = await ghl('GET','/locations/'+locId+'/customValues', btoken);
+        const cvs = ex.customValues || ex.customValue || [];
+        const byName = {}; cvs.forEach(function(cv){ byName[(cv.name||'').toLowerCase()] = cv.value; });
+        const MAP = {company_name:'company_name',logo_url:'client_logo_url',primary_color:'client_primary_color',heading_color:'client_heading_color',body_color:'client_body_color',header_bg_color:'header_bg_color',page_bg_color:'page_bg_color',heading_font:'client_heading_font',body_font:'client_body_font',site_max_width:'site_max_width',footer_max_width:'footer_max_width',nav_font_size:'nav_font_size',body_font_size:'body_font_size',logo_height:'logo_height',phone:'footer_phone',email:'company_email',address:'company_address',facebook_url:'facebook_link',instagram_url:'instagram_link',privacy_url:'privacy_url',will_price:'will_price',legal_footer:'legal_footer',nav_menu_json:'nav_menu_json'};
+        const brand = {}; Object.keys(MAP).forEach(function(k){ const v = byName[MAP[k].toLowerCase()]; if (v != null) brand[k] = v; });
+        res.writeHead(200, { 'Content-Type':'application/json', 'Cache-Control':'public, max-age=60' }); return res.end(JSON.stringify(brand));
+      } catch(e){ res.writeHead(200, { 'Content-Type':'application/json' }); const dbg=(new URL(req.url,'http://x')).searchParams.get('debug'); return res.end(dbg ? JSON.stringify({_err:String((e&&e.message)||e)}) : '{}'); }
+    }
+    // ----- payment: create a Stripe Checkout session (central AI Wills Stripe) -----
+    if (req.method === 'POST' && pathOnly === '/api/checkout'){
+      res.setHeader('Access-Control-Allow-Origin','*');
+      try {
+        if (!process.env.STRIPE_SECRET_KEY) return send(res, 500, { error: 'Stripe is not configured on the server.' });
+        const cbody = JSON.parse((await readBody(req)) || '{}');
+        const loc = (cbody.locationId || '').replace(/[^A-Za-z0-9]/g,'');
+        if (!loc) return send(res, 400, { error: 'locationId is required' });
+        const token = await getWriteToken(loc);
+        const cv = await getCustomValuesMap(loc, token);
+        const amount = Math.round(parseFloat(String(cv['will_price'] || '').replace(/[^0-9.]/g,'')) * 100);
+        if (!amount || amount < 100) return send(res, 400, { error: 'will_price is not set for this location' });
+        const company = cv['company_name'] || 'AI Wills';
+        const person = (cbody.willJson && cbody.willJson.personal) || cbody.contact || {};
+        let contactId = cbody.contactId || '';
+        try {
+          const up = await ghl('POST', '/contacts/upsert', token, { locationId: loc, firstName: person.firstName || '', lastName: person.lastName || '', email: person.email || '', phone: person.phone || '' });
+          contactId = (up.contact && up.contact.id) || up.id || contactId;
+        } catch(e){ console.error('lead upsert', e.message); }
+        const id = crypto.randomBytes(16).toString('hex');
+        willStorePut(id, { willJson: cbody.willJson || {}, paid: false, locationId: loc, contactId: contactId, company: company, createdAt: Date.now() });
+        const ret = cbody.returnUrl || ('https://' + (req.headers.host || 'aiwills.digilyse.co'));
+        const sep = ret.indexOf('?') >= 0 ? '&' : '?';
+        const sess = await stripeReq('POST', '/v1/checkout/sessions', {
+          'mode': 'payment',
+          'success_url': ret + sep + 'aw_paid=1&aw_id=' + id,
+          'cancel_url': ret + sep + 'aw_paid=0',
+          'line_items[0][quantity]': 1,
+          'line_items[0][price_data][currency]': 'gbp',
+          'line_items[0][price_data][unit_amount]': amount,
+          'line_items[0][price_data][product_data][name]': 'Will document (' + company + ')',
+          'metadata[aw_id]': id,
+          'metadata[locationId]': loc,
+          'metadata[contactId]': contactId,
+          'customer_email': person.email || ''
+        }, process.env.STRIPE_SECRET_KEY);
+        return send(res, 200, { url: sess.url, id: id });
+      } catch(e){ return send(res, 200, { error: e.message }); }
+    }
+    // ----- payment: Stripe webhook (marks the will paid, tags the GHL contact) -----
+    if (req.method === 'POST' && pathOnly === '/api/stripe-webhook'){
+      const raw = await readBody(req);
+      if (!process.env.STRIPE_WEBHOOK_SECRET || !verifyStripeSig(raw, req.headers['stripe-signature'], process.env.STRIPE_WEBHOOK_SECRET)){
+        res.writeHead(400, { 'Content-Type':'text/plain' }); return res.end('signature check failed');
+      }
+      let evt; try { evt = JSON.parse(raw); } catch(e){ res.writeHead(400); return res.end('bad json'); }
+      if (evt.type === 'checkout.session.completed'){
+        const md = (evt.data && evt.data.object && evt.data.object.metadata) || {};
+        if (md.aw_id){ const rec = willStoreGet(md.aw_id); if (rec){ rec.paid = true; rec.paidAt = Date.now(); willStorePut(md.aw_id, rec); } }
+        if (md.locationId && md.contactId){
+          (async function(){
+            try { const t = await getWriteToken(md.locationId); await ghl('POST', '/contacts/' + md.contactId + '/tags', t, { tags: ['ai-will-paid'] }); }
+            catch(e){ console.error('paid tag', e.message); }
+          })();
+        }
+      }
+      res.writeHead(200, { 'Content-Type':'application/json' }); return res.end('{"received":true}');
+    }
+    // ----- PDF: render the will from the stored data (paid only) -----
+    if (req.method === 'GET' && pathOnly === '/api/pdf'){
+      res.setHeader('Access-Control-Allow-Origin','*');
+      try {
+        const pu = new URL(req.url, 'http://x');
+        const pid = (pu.searchParams.get('id') || '').replace(/[^a-f0-9]/gi,'');
+        const rec = pid ? willStoreGet(pid) : null;
+        if (!rec) return send(res, 404, { error: 'not found' });
+        if (!rec.paid && process.env.DEV_PDF_OPEN !== '1') return send(res, 402, { error: 'payment required' });
+        const wp = require('./will-pdf');
+        const willData = wp.normalizeWill ? wp.normalizeWill(rec.willJson || {}) : (rec.willJson || {});
+        const buf = await wp.buildWillPdf(willData, { company_name: rec.company || '' });
+        res.writeHead(200, { 'Content-Type':'application/pdf', 'Content-Disposition':'inline; filename="last-will.pdf"', 'Cache-Control':'no-store', 'Access-Control-Allow-Origin':'*' });
+        return res.end(buf);
+      } catch(e){ return send(res, 200, { error: e.message }); }
+    }
+    if (!authed(req)){
+      res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="AI Wills onboarding"' });
+      return res.end('Authentication required.');
+    }
+    if (req.method === 'POST' && req.url === '/api/scrape'){
+      const parsed = JSON.parse((await readBody(req)) || '{}');
+      if (!parsed.url) return send(res, 400, { error: 'url required' });
+      return send(res, 200, { values: await handleScrape(parsed.url) });
+    }
+    if (req.method === 'POST' && req.url === '/api/write'){
+      const parsed = JSON.parse((await readBody(req)) || '{}');
+      return send(res, 200, { results: await handleWrite(parsed.locationId, parsed.values) });
+    }
+    let f = req.url.split('?')[0];
+    if (f === '/' || f === '') f = '/index.html';
+    const fp = path.join(__dirname, 'public', f);
+    if (fp.indexOf(path.join(__dirname, 'public')) === 0 && fs.existsSync(fp) && fs.statSync(fp).isFile()){
+      const data = fs.readFileSync(fp);               // read BEFORE sending headers
+      const ext = path.extname(fp);
+      const type = MIME[ext] || 'text/plain';
+      res.writeHead(200, { 'Content-Type': type });
+      return res.end(data);
+    }
+    send(res, 404, { error: 'not found' });
+  } catch(e){ if (!res.headersSent){ send(res, 500, { error: e.message }); } else { try { res.end(); } catch(_){} } }
+});
+
+/* Listen unless explicitly told not to (tests set AIWILLS_NO_LISTEN=1).
+   On cPanel/Passenger the file is loaded via require, not as the main module,
+   so we must NOT gate listen() on require.main. Passenger sets process.env.PORT. */
+if (!process.env.AIWILLS_NO_LISTEN){
+  const note = process.env.GHL_PIT ? '' : '  (GHL_PIT not set: scraping works, writing to GHL will not)';
+  server.listen(PORT, () => console.log('AI Wills onboarding tool listening on port ' + PORT + note));
+}
+
+module.exports = { scrapeBrand: scrapeBrand, pickColors: pickColors, pickFonts: pickFonts, scrapeNav: scrapeNav, authed: authed };
