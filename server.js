@@ -385,6 +385,36 @@ const server = http.createServer(async (req, res) => {
       }
       res.writeHead(200, { 'Content-Type':'application/json' }); return res.end('{"received":true}');
     }
+    // ----- auto-deploy: GitHub push webhook -> pull the repo + redeploy this app -----
+    if (req.method === 'POST' && pathOnly === '/api/git-deploy'){
+      const raw = await readBody(req);
+      const secret = process.env.GIT_DEPLOY_SECRET || '';
+      const sig = String(req.headers['x-hub-signature-256'] || '');
+      let good = false;
+      if (secret && sig){
+        try {
+          const want = 'sha256=' + crypto.createHmac('sha256', secret).update(raw).digest('hex');
+          const a = Buffer.from(want), b = Buffer.from(sig);
+          good = (a.length === b.length) && crypto.timingSafeEqual(a, b);
+        } catch(_){ good = false; }
+      }
+      if (!good){ res.writeHead(401, { 'Content-Type':'text/plain' }); return res.end('bad signature'); }
+      let ref = ''; try { ref = (JSON.parse(raw) || {}).ref || ''; } catch(_){}
+      if (ref && ref !== 'refs/heads/main'){ res.writeHead(200, { 'Content-Type':'application/json' }); return res.end('{"skipped":"non-main"}'); }
+      const repo = process.env.GIT_REPO_DIR || '/home/digiiics/repositories/aiwills-funnel';
+      const key = process.env.GIT_SSH_KEY || '/home/digiiics/.ssh/id_rsa';
+      const dest = __dirname;
+      const cmd = "cd " + repo
+        + " && GIT_SSH_COMMAND='ssh -i " + key + " -o StrictHostKeyChecking=no' git pull --ff-only"
+        + " && /bin/cp -R public/. " + dest + "/public/"
+        + " && /bin/cp -f server.js will-pdf.js package.json " + dest + "/ 2>/dev/null"
+        + " ; /bin/mkdir -p " + dest + "/tmp && /bin/touch " + dest + "/tmp/restart.txt";
+      require('child_process').exec(cmd, { timeout: 90000 }, function(err, stdout, stderr){
+        if (err) console.error('git-deploy FAILED:', err.message, String(stderr||'').slice(-300));
+        else console.log('git-deploy ok:', String(stdout||'').slice(-200));
+      });
+      res.writeHead(202, { 'Content-Type':'application/json' }); return res.end('{"deploying":true}');
+    }
     // ----- PDF: render the will from the stored data (paid only) -----
     if (req.method === 'GET' && pathOnly === '/api/pdf'){
       res.setHeader('Access-Control-Allow-Origin','*');
