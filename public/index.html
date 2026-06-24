@@ -59,9 +59,13 @@ button:disabled{opacity:.5;cursor:not-allowed}
 
     <div class="card">
       <h2>1b. Measure brand on the live site (most accurate)</h2>
-      <p class="hint">Fonts and background colours can only be read reliably from the rendered page, not the page source. Drag the button below to your bookmarks bar once. Then open the client's website, click the bookmark, and paste the result here.</p>
-      <p style="margin:10px 0"><a id="bmlink" class="btn-primary" style="display:inline-block;text-decoration:none;padding:9px 14px;border-radius:8px">Measure AI Wills brand</a> <span class="hint" style="display:inline">&larr; drag me to your bookmarks bar</span></p>
-      <details><summary class="small muted" style="cursor:pointer">Prefer the browser console? Copy this snippet</summary><textarea id="measureSrc" readonly rows="3" onclick="this.select()" style="width:100%;margin-top:8px;font-family:monospace;font-size:11px;border:1px solid var(--line);border-radius:8px;padding:8px"></textarea></details>
+      <p class="hint">Fonts and background colours can only be read reliably from the rendered page, not the page source. Two ways to measure, run either on the client's site then paste the result below: (A) the one-click bookmark, or (B) the console snippet, which always works even on sites that block bookmarks.</p>
+      <p style="margin:10px 0"><b>A. One-click bookmark.</b> Drag this to your bookmarks bar once, then click it on the client's site: <a id="bmlink" class="btn-primary" style="display:inline-block;text-decoration:none;padding:9px 14px;border-radius:8px">Measure AI Wills brand</a> <span class="hint" style="display:inline">&larr; drag me up. If nothing happens on a site, use method B.</span></p>
+      <div style="margin:10px 0">
+        <p style="margin:0 0 6px"><b>B. Console snippet (most reliable).</b> On the client's site press F12, open the <b>Console</b> tab, paste this and press Enter. If Chrome warns about pasting, type <b>allow pasting</b> first. The result copies to your clipboard automatically.</p>
+        <textarea id="measureSrc" readonly rows="3" onclick="this.select()" style="width:100%;font-family:monospace;font-size:11px;border:1px solid var(--line);border-radius:8px;padding:8px"></textarea>
+        <button type="button" onclick="var t=document.getElementById('measureSrc');t.select();navigator.clipboard&&navigator.clipboard.writeText(t.value);this.textContent='Copied';" style="margin-top:6px;padding:6px 12px;border:1px solid var(--line);border-radius:8px;background:#f3f3f3;cursor:pointer">Copy snippet</button>
+      </div>
       <label style="margin-top:12px">Paste measured brand here</label>
       <textarea id="measurePaste" rows="4" placeholder='{ "company_name": ... }' style="width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:8px;font-size:12.5px;font-family:monospace"></textarea>
       <button class="btn-primary" id="applyMeasureBtn" style="margin-top:8px">Apply measured brand</button>
@@ -439,7 +443,7 @@ el('scrapeBtn').addEventListener('click', scrape);
 el('writeBtn').addEventListener('click', write);
 el('applyMeasureBtn').addEventListener('click', applyMeasured);
 el('previewBtn').addEventListener('click', buildPreview);
-el('bmlink').href = 'javascript:(' + awMeasure.toString() + ')();void(0)';
+el('bmlink').href = 'javascript:(' + awMeasure.toString().replace(/\n/g,' ') + ')();void(0)';
 el('measureSrc').value = '(' + awMeasure.toString() + ')()';
 buildPreview();
 /* git-managed via aiwills-funnel repo */
