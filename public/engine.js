@@ -281,9 +281,10 @@ function render(){
   var pay=el('pay'); if(pay) pay.addEventListener('click',function(){ try{ collectVisible(); }catch(e){} pay.disabled=true; pay.textContent='Redirecting to secure payment...'; fetch(API+'/api/checkout',{method:'POST',body:JSON.stringify({locationId:loc,willJson:state,returnUrl:(location.href.split('#')[0].split('?')[0])})}).then(function(r){return r.json();}).then(function(j){ if(j&&j.url){ window.location.href=j.url; } else { pay.disabled=false; pay.textContent='Pay '+esc(CFG.will_price||''); alert('Could not start payment: '+((j&&j.error)||'unknown')); } }).catch(function(e){ pay.disabled=false; pay.textContent='Pay '+esc(CFG.will_price||''); alert('Payment error: '+e.message); }); });
   // payment redirects out to Stripe and returns to the generate step (see aw_paid handling on load); no auto-advance, no demo download.
   el('step').querySelectorAll('[data-goto]').forEach(function(b){ b.addEventListener('click',function(){ jumpTo(b.getAttribute('data-goto')); }); });
-  try{ window.scrollTo(0,0); }catch(e){}
 }
-function jumpTo(id){ var vis=visible(); for(var i=0;i<vis.length;i++){ if(vis[i].id===id){ cur=i; render(); return; } } }
+/* scroll to top only on real step changes, never on in-step reflow re-renders (which were yanking the page to the top on every radio click). */
+function scrollTop(){ try{ window.scrollTo(0,0); }catch(e){} var m=document.getElementById('aiwills-funnel'); if(m&&m.scrollIntoView){ try{ m.scrollIntoView({block:'start'}); }catch(e){} } }
+function jumpTo(id){ var vis=visible(); for(var i=0;i<vis.length;i++){ if(vis[i].id===id){ cur=i; render(); scrollTop(); return; } } }
 
 function collectVisible(){
   el('step').querySelectorAll('[data-b]').forEach(function(node){
@@ -319,7 +320,7 @@ function go(dir){
     saveToGhl(state);
   }
   cur+=dir; if(cur<0)cur=0; if(cur>vis.length-1){ alert('Demo complete. In production the contact is tagged and the will is issued.'); cur=vis.length-1; }
-  render();
+  render(); scrollTop();
 }
 
 document.addEventListener('input', function(e){ var n=e.target.closest('[data-b]'); if(n){ var fl=n.closest('.field'); if(fl) fl.classList.remove('invalid'); } });
