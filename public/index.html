@@ -443,7 +443,7 @@ el('scrapeBtn').addEventListener('click', scrape);
 el('writeBtn').addEventListener('click', write);
 el('applyMeasureBtn').addEventListener('click', applyMeasured);
 el('previewBtn').addEventListener('click', buildPreview);
-el('bmlink').href = 'javascript:(' + awMeasure.toString().replace(/\n/g,' ') + ')();void(0)';
+el('bmlink').href = 'javascript:' + encodeURIComponent('(' + awMeasure.toString() + ')();void 0');
 el('measureSrc').value = '(' + awMeasure.toString() + ')()';
 buildPreview();
 /* git-managed via aiwills-funnel repo */
