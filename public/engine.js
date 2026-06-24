@@ -20,8 +20,11 @@
   function run(){
 
 var CFG = window.AIWILLS_CONFIG || {}; (function(){ var _m='{'+'{'; for(var _k in CFG){ if(typeof CFG[_k]==='string' && CFG[_k].indexOf(_m)>=0) CFG[_k]=''; } })();
-/* Load the client's actual fonts: captured stylesheet links (Adobe Typekit, Google, etc.) + a Google css2 request per named family (isolated). Without this, non-default fonts fall back to the serif default. */
-(function(){ try{ var _seen={}, _add=function(u){ if(u&&!_seen[u]){ _seen[u]=1; var l=document.createElement('link'); l.rel='stylesheet'; l.href=u; document.head.appendChild(l); } }; var _caps=[]; try{ _caps=JSON.parse(CFG.font_css_links||'[]'); }catch(e){ _caps=[]; } _caps.forEach(_add); [CFG.heading_font,CFG.body_font,CFG.button_font].forEach(function(f){ f=(f||'').split(',')[0].replace(/["']/g,'').trim(); if(!f||/^(serif|sans-serif|monospace|cursive|fantasy|system-ui|-apple-system|blinkmacsystemfont|segoe ui|georgia|arial|helvetica|times new roman|times|verdana|tahoma)$/i.test(f)) return; _add('https://fonts.googleapis.com/css2?family='+f.replace(/ /g,'+')+':wght@400;500;600;700;900&display=swap'); }); }catch(e){} })();
+/* Closest free Google font for a commercial/Adobe font, so the funnel falls to a near-match (not a generic serif) if the real font can't load (Typekit domain-lock, self-hosted). */
+function closestFont(n){n=(n||'').split(',')[0].replace(/["']/g,'').trim().toLowerCase();var M={'proxima nova':['Montserrat',1],'proxima-nova':['Montserrat',1],'omnes':['Nunito Sans',1],'omnes-pro':['Nunito Sans',1],'gotham':['Montserrat',1],'gotham rounded':['Nunito',1],'avenir':['Nunito Sans',1],'avenir next':['Nunito Sans',1],'futura':['Jost',1],'futura pt':['Jost',1],'circular':['Mulish',1],'circular std':['Mulish',1],'brandon grotesque':['Montserrat',1],'sofia pro':['Mulish',1],'din':['Archivo',1],'din next':['Archivo',1],'helvetica':['Inter',1],'helvetica neue':['Inter',1],'neue haas grotesk':['Inter',1],'arial':['Arimo',1],'frutiger':['Inter',1],'univers':['Inter',1],'gill sans':['Lato',1],'trade gothic':['Archivo',1],'museo sans':['Mulish',1],'effra':['Mulish',1],'graphik':['Inter',1],'founders grotesk':['Inter',1],'apercu':['Inter',1],'maison neue':['Inter',1],'garamond':['EB Garamond',0],'adobe garamond':['EB Garamond',0],'caslon':['Libre Caslon Text',0],'adobe caslon':['Libre Caslon Text',0],'sabon':['PT Serif',0],'minion':['Source Serif 4',0],'minion pro':['Source Serif 4',0],'baskerville':['Libre Baskerville',0],'didot':['Playfair Display',0],'bodoni':['Playfair Display',0],'times':['PT Serif',0],'times new roman':['PT Serif',0],'georgia':['Gelasio',0],'freight text':['Lora',0],'chronicle':['Lora',0],'mercury':['Lora',0]};if(M[n])return {g:M[n][0],gen:M[n][1]?'sans-serif':'serif'};var s=/serif|garamond|caslon|times|georgia|baskerville|minion|sabon|didot|bodoni|playfair|merriweather|lora|roman|palatino|cambria|chronicle|freight|mercury|tiempos|canela|noe/.test(n);return {g:'',gen:s?'serif':'sans-serif'};}
+function estack(name,def){var nm=name||def||'';if(!nm)return '';var s=closestFont(nm);var sub=(s.g&&s.g.toLowerCase()!==nm.toLowerCase())?(',"'+s.g+'"'):'';return '"'+nm+'"'+sub+','+s.gen;}
+/* Load the client's fonts: captured stylesheet links (Adobe Typekit, Google, etc.) + a Google css2 request per named family AND its closest free match (each isolated). */
+(function(){ try{ var _seen={}, _add=function(u){ if(u&&!_seen[u]){ _seen[u]=1; var l=document.createElement('link'); l.rel='stylesheet'; l.href=u; document.head.appendChild(l); } }; var _caps=[]; try{ _caps=JSON.parse(CFG.font_css_links||'[]'); }catch(e){ _caps=[]; } _caps.forEach(_add); var _addFam=function(g){ g=(g||'').split(',')[0].replace(/["']/g,'').trim(); if(!g||/^(serif|sans-serif|monospace|cursive|fantasy|system-ui|-apple-system|blinkmacsystemfont|segoe ui|georgia|arial|helvetica|times new roman|times|verdana|tahoma)$/i.test(g)) return; _add('https://fonts.googleapis.com/css2?family='+g.replace(/ /g,'+')+':wght@400;500;600;700;900&display=swap'); }; [CFG.heading_font,CFG.body_font,CFG.button_font].forEach(function(f){ _addFam(f); _addFam(closestFont(f).g); }); }catch(e){} })();
 function el(id){ return document.getElementById(id); }
 function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
 function age(d){ if(!d) return null; var t=new Date(d); if(isNaN(t)) return null; var n=new Date(), a=n.getFullYear()-t.getFullYear(), m=n.getMonth()-t.getMonth(); if(m<0||(m===0&&n.getDate()<t.getDate())) a--; return a; }
@@ -206,8 +209,8 @@ function applyBrand(){
   if(CFG.body_color) r.setProperty('--body',CFG.body_color);
   if(CFG.header_bg_color){ r.setProperty('--header-bg',CFG.header_bg_color); var _hl=lum(CFG.header_bg_color); if(_hl!=null) r.setProperty('--hdr-ink', _hl<0.5?'#ffffff':(CFG.heading_color||'#1B1D1F')); }
   if(CFG.page_bg_color) r.setProperty('--page-bg',CFG.page_bg_color);
-  if(CFG.heading_font) r.setProperty('--hf',"'"+CFG.heading_font+"',Georgia,serif");
-  if(CFG.body_font) r.setProperty('--bf',"'"+CFG.body_font+"',Arial,sans-serif");
+  if(CFG.heading_font) r.setProperty('--hf',estack(CFG.heading_font,'Playfair Display'));
+  if(CFG.body_font) r.setProperty('--bf',estack(CFG.body_font,'DM Sans'));
   if(CFG.site_max_width) r.setProperty('--site-max',CFG.site_max_width);
   if(CFG.nav_font_size) r.setProperty('--nav-size',CFG.nav_font_size);
   if(CFG.body_font_size) r.setProperty('--body-size',CFG.body_font_size);
@@ -216,7 +219,7 @@ function applyBrand(){
   var bbg=CFG.button_color||CFG.primary_color; if(bbg) r.setProperty('--btn-bg',bbg);
   if(CFG.button_hover_color) r.setProperty('--btn-hover',CFG.button_hover_color); else if(bbg) r.setProperty('--btn-hover',darken(bbg,0.14));
   if(CFG.button_text_color) r.setProperty('--btn-ink',CFG.button_text_color);
-  if(CFG.button_font) r.setProperty('--btn-font',"'"+CFG.button_font+"',Arial,sans-serif");
+  if(CFG.button_font) r.setProperty('--btn-font',estack(CFG.button_font,''));
   if(CFG.button_radius) r.setProperty('--btn-radius',CFG.button_radius);
   if(CFG.footer_bg_color){ r.setProperty('--ftr-bg',CFG.footer_bg_color); var _fl=lum(CFG.footer_bg_color); if(_fl!=null) r.setProperty('--ftr-ink', _fl<0.5?'#ffffff':'#1B1D1F'); }
   if(CFG.footer_text_color) r.setProperty('--ftr-ink',CFG.footer_text_color);
