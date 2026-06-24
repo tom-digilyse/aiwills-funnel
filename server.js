@@ -27,8 +27,11 @@ const GHL_VERSION = process.env.GHL_API_VERSION || '2021-07-28';
 const REDIRECT_URI = process.env.GHL_REDIRECT_URI || 'https://aiwills.digilyse.co/oauth/callback';
 const GHL_SCOPES = 'locations/customValues.readonly locations/customValues.write contacts.readonly contacts.write';
 const TOKENS_FILE = path.join(__dirname, 'ghl_tokens.json');
-function loadTokens(){ try { return JSON.parse(fs.readFileSync(TOKENS_FILE, 'utf8')); } catch(e){ return null; } }
-function saveTokens(t){ try { fs.writeFileSync(TOKENS_FILE, JSON.stringify(t)); } catch(e){ console.error('saveTokens:', e.message); } }
+/* Sub-Account app model: each sub-account authorises the app once and we store ITS
+   own Location token, keyed by locationId. Custom values are sub-account data, so a
+   sub-account-scoped token is required per location (GHL has no agency token for this). */
+function loadStore(){ try { const s = JSON.parse(fs.readFileSync(TOKENS_FILE, 'utf8')); if (!s.locations) s.locations = {}; return s; } catch(e){ return { locations: {} }; } }
+function saveStore(s){ try { fs.writeFileSync(TOKENS_FILE, JSON.stringify(s)); } catch(e){ console.error('saveStore:', e.message); } }
 async function oauthToken(params){
   const r = await fetch(GHL_BASE + '/oauth/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' }, body: new URLSearchParams(params).toString() });
   const text = await r.text(); let j; try { j = JSON.parse(text); } catch(e){ j = { raw: text }; }
@@ -36,33 +39,25 @@ async function oauthToken(params){
   return j;
 }
 async function exchangeCode(code){
-  const j = await oauthToken({ client_id: process.env.GHL_CLIENT_ID, client_secret: process.env.GHL_CLIENT_SECRET, grant_type: 'authorization_code', code: code, user_type: 'Company', redirect_uri: REDIRECT_URI });
-  const t = { access_token: j.access_token, refresh_token: j.refresh_token, companyId: j.companyId || '', expires_at: Date.now() + ((j.expires_in || 86399) * 1000) };
-  saveTokens(t); return t;
+  const j = await oauthToken({ client_id: process.env.GHL_CLIENT_ID, client_secret: process.env.GHL_CLIENT_SECRET, grant_type: 'authorization_code', code: code, user_type: 'Location', redirect_uri: REDIRECT_URI });
+  const locId = j.locationId || '';
+  const rec = { access_token: j.access_token, refresh_token: j.refresh_token, locationId: locId, companyId: j.companyId || '', expires_at: Date.now() + ((j.expires_in || 86399) * 1000) };
+  const s = loadStore(); if (locId) s.locations[locId] = rec; saveStore(s);
+  return rec;
 }
-async function getAgencyToken(){
-  let t = loadTokens();
-  if (!t || !t.refresh_token) throw new Error('Agency app not connected. Open /oauth/start to install it.');
-  if (t.expires_at && t.expires_at > Date.now() + 60000) return t;
-  const j = await oauthToken({ client_id: process.env.GHL_CLIENT_ID, client_secret: process.env.GHL_CLIENT_SECRET, grant_type: 'refresh_token', refresh_token: t.refresh_token, user_type: 'Company' });
-  t = { access_token: j.access_token, refresh_token: j.refresh_token || t.refresh_token, companyId: j.companyId || t.companyId, expires_at: Date.now() + ((j.expires_in || 86399) * 1000) };
-  saveTokens(t); return t;
-}
-const _locTokens = {};
-async function getLocationToken(locationId){
-  const c = _locTokens[locationId];
-  if (c && c.exp > Date.now() + 60000) return c.token;
-  const a = await getAgencyToken();
-  const r = await fetch(GHL_BASE + '/oauth/locationToken', { method: 'POST', headers: { Authorization: 'Bearer ' + a.access_token, Version: GHL_VERSION, 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' }, body: new URLSearchParams({ companyId: a.companyId, locationId: locationId }).toString() });
-  const text = await r.text(); let j; try { j = JSON.parse(text); } catch(e){ j = { raw: text }; }
-  if (!r.ok) throw new Error('locationToken -> ' + r.status + ' ' + text.slice(0,300));
-  _locTokens[locationId] = { token: j.access_token, exp: Date.now() + ((j.expires_in || 3600) * 1000) };
-  return j.access_token;
+async function getStoredLocationToken(locationId){
+  const s = loadStore(); let rec = s.locations[locationId];
+  if (!rec || !rec.refresh_token) throw new Error('Sub-account ' + locationId + ' has not authorised the app yet. Open /oauth/start, pick this sub-account and approve.');
+  if (rec.expires_at && rec.expires_at > Date.now() + 60000) return rec.access_token;
+  const j = await oauthToken({ client_id: process.env.GHL_CLIENT_ID, client_secret: process.env.GHL_CLIENT_SECRET, grant_type: 'refresh_token', refresh_token: rec.refresh_token, user_type: 'Location' });
+  rec = { access_token: j.access_token, refresh_token: j.refresh_token || rec.refresh_token, locationId: locationId, companyId: j.companyId || rec.companyId, expires_at: Date.now() + ((j.expires_in || 86399) * 1000) };
+  s.locations[locationId] = rec; saveStore(s);
+  return rec.access_token;
 }
 async function getWriteToken(locationId){
-  if (process.env.GHL_CLIENT_ID && process.env.GHL_CLIENT_SECRET) return await getLocationToken(locationId);
+  if (process.env.GHL_CLIENT_ID && process.env.GHL_CLIENT_SECRET) return await getStoredLocationToken(locationId);
   if (process.env.GHL_PIT) return process.env.GHL_PIT;
-  throw new Error('No GHL credentials. Set GHL_CLIENT_ID and GHL_CLIENT_SECRET and install via /oauth/start, or set GHL_PIT.');
+  throw new Error('No GHL credentials. Set GHL_CLIENT_ID and GHL_CLIENT_SECRET and authorise each sub-account via /oauth/start, or set GHL_PIT.');
 }
 
 /* ---------- access control ----------
@@ -303,7 +298,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && pathOnly === '/oauth/callback'){
       const code = (new URL(req.url, 'http://x')).searchParams.get('code');
       if (!code){ res.writeHead(400, { 'Content-Type': 'text/html' }); return res.end('Missing code'); }
-      try { const t = await exchangeCode(code); res.writeHead(200, { 'Content-Type': 'text/html' }); return res.end('<h2>Connected to the GHL agency.</h2><p>companyId ' + (t.companyId || '') + '. You can close this tab and use the tool.</p>'); }
+      try { const t = await exchangeCode(code); res.writeHead(200, { 'Content-Type': 'text/html' }); return res.end('<h2>Sub-account connected.</h2><p>locationId ' + (t.locationId || '') + '. You can close this tab. Repeat /oauth/start for each sub-account you want to brand.</p>'); }
       catch(e){ res.writeHead(500, { 'Content-Type': 'text/html' }); return res.end('OAuth failed: ' + e.message); }
     }
     if (req.method === 'GET' && (pathOnly === '/engine.js' || pathOnly === '/api/engine')){
