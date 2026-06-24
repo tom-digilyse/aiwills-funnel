@@ -20,6 +20,8 @@
   function run(){
 
 var CFG = window.AIWILLS_CONFIG || {}; (function(){ var _m='{'+'{'; for(var _k in CFG){ if(typeof CFG[_k]==='string' && CFG[_k].indexOf(_m)>=0) CFG[_k]=''; } })();
+/* Load the client's actual fonts: captured stylesheet links (Adobe Typekit, Google, etc.) + a Google css2 request per named family (isolated). Without this, non-default fonts fall back to the serif default. */
+(function(){ try{ var _seen={}, _add=function(u){ if(u&&!_seen[u]){ _seen[u]=1; var l=document.createElement('link'); l.rel='stylesheet'; l.href=u; document.head.appendChild(l); } }; var _caps=[]; try{ _caps=JSON.parse(CFG.font_css_links||'[]'); }catch(e){ _caps=[]; } _caps.forEach(_add); [CFG.heading_font,CFG.body_font,CFG.button_font].forEach(function(f){ f=(f||'').split(',')[0].replace(/["']/g,'').trim(); if(!f||/^(serif|sans-serif|monospace|cursive|fantasy|system-ui|-apple-system|blinkmacsystemfont|segoe ui|georgia|arial|helvetica|times new roman|times|verdana|tahoma)$/i.test(f)) return; _add('https://fonts.googleapis.com/css2?family='+f.replace(/ /g,'+')+':wght@400;500;600;700;900&display=swap'); }); }catch(e){} })();
 function el(id){ return document.getElementById(id); }
 function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
 function age(d){ if(!d) return null; var t=new Date(d); if(isNaN(t)) return null; var n=new Date(), a=n.getFullYear()-t.getFullYear(), m=n.getMonth()-t.getMonth(); if(m<0||(m===0&&n.getDate()<t.getDate())) a--; return a; }
@@ -335,7 +337,7 @@ window.addEventListener('load', closeGaps);
 setTimeout(closeGaps,400); setTimeout(closeGaps,1200);
 
   }
-  try{ if(rootEl){ var _KEYS=['company_name','logo_url','primary_color','heading_color','body_color','header_bg_color','page_bg_color','heading_font','body_font','site_max_width','footer_max_width','nav_font_size','body_font_size','logo_height','phone','email','address','privacy_url','legal_footer','nav_menu_json','footer_menu_json','will_price','button_color','button_hover_color','button_text_color','button_font','button_radius','footer_bg_color','footer_text_color','facebook_url','instagram_url','linkedin_url','twitter_url','youtube_url','tiktok_url']; var _pc={}, _mm='{'+'{'; _KEYS.forEach(function(k){ var v=rootEl.getAttribute('data-'+k); if(v!=null && v!=='' && v.indexOf(_mm)<0) _pc[k]=v; }); if(Object.keys(_pc).length) window.AIWILLS_CONFIG=Object.assign({}, window.AIWILLS_CONFIG||{}, _pc); } }catch(e){}
+  try{ if(rootEl){ var _KEYS=['company_name','logo_url','primary_color','heading_color','body_color','header_bg_color','page_bg_color','heading_font','body_font','site_max_width','footer_max_width','nav_font_size','body_font_size','logo_height','phone','email','address','privacy_url','legal_footer','nav_menu_json','footer_menu_json','font_css_links','will_price','button_color','button_hover_color','button_text_color','button_font','button_radius','footer_bg_color','footer_text_color','facebook_url','instagram_url','linkedin_url','twitter_url','youtube_url','tiktok_url']; var _pc={}, _mm='{'+'{'; _KEYS.forEach(function(k){ var v=rootEl.getAttribute('data-'+k); if(v!=null && v!=='' && v.indexOf(_mm)<0) _pc[k]=v; }); if(Object.keys(_pc).length) window.AIWILLS_CONFIG=Object.assign({}, window.AIWILLS_CONFIG||{}, _pc); } }catch(e){}
   if(window.AIWILLS_CONFIG && Object.keys(window.AIWILLS_CONFIG).length){ run(); }
   else { fetch(API+'/api/brand?locationId='+encodeURIComponent(loc))
     .then(function(r){return r.json();})
