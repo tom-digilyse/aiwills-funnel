@@ -154,9 +154,9 @@ var FUNNEL = [
     { key:'planHas', type:'radio', label:'Do they have a funeral plan?', required:true, options:['Yes','No'] },
     { key:'organDonation', type:'radio', label:'Do they wish to donate their organs?', required:true, options:['Yes','No'] }
   ]},
+  { id:'review', name:'Review', title:'Review your will', lead:'Check everything below. You can jump back to any section to edit, then continue to payment.', kind:'review' },
   { id:'payment', name:'Payment', title:'Payment', lead:'Secure card payment to generate your will.', kind:'payment' },
-  { id:'generate', name:'Generate', title:'Generating your will', kind:'generate' },
-  { id:'review', name:'Review', title:'Review your will', lead:'Check everything below. You can jump back to any section to edit.', kind:'review' }
+  { id:'generate', name:'Generate', title:'Your will', kind:'generate' }
 ];
 
 var state, cur=0;
@@ -268,7 +268,7 @@ function render(){
     html += getP('payment.paid')===true ? '<div class="mock"><div class="tick">✓</div><h3>Payment received</h3><p class="note">Continue to download your will.</p></div>' : '<div class="mock"><p>Your will document</p><div class="price">'+esc(CFG.will_price||'')+'</div><button class="btn wide" id="pay" type="button">Pay '+esc(CFG.will_price||'')+'</button><p class="note">Secure card payment. You will be returned here to download your will.</p></div>';
   } else if(s.kind==='generate'){
     var awId=window.AIWILLS_WILL_ID||'';
-    html += awId ? '<div class="mock"><div class="tick">✓</div><h3>Your will is ready</h3><p class="note">Payment received. Your will document is ready to download.</p><div style="margin-top:24px"><a class="btn wide" href="'+API+'/api/pdf?id='+encodeURIComponent(awId)+'" target="_blank" rel="noopener">Download your will (PDF)</a></div><div style="text-align:left;margin-top:22px;padding-top:18px;border-top:1px solid #e7e7e7"><p style="font-weight:600;margin:0 0 8px">To make your will legally valid</p><ol style="margin:0;padding-left:20px;line-height:1.7"><li>Print the document.</li><li>Sign it in front of two independent adult witnesses (not your beneficiaries, or their husbands or wives).</li><li>Have both witnesses sign while you are watching.</li><li>Store it safely and tell your executors where it is.</li></ol></div></div>' : '<div class="mock"><div class="spin"></div><h3>Preparing your will...</h3><p class="note">One moment.</p></div>';
+    html += awId ? '<div class="mock"><div class="tick">✓</div><h3>Your will is ready</h3><p class="note">Payment received. Your will is shown below.</p><iframe src="'+API+'/api/pdf?id='+encodeURIComponent(awId)+'" style="width:100%;height:560px;border:1px solid #e0e0e0;border-radius:10px;margin-top:16px;background:#fff" title="Your will"></iframe><div style="margin-top:12px"><a class="btn wide" href="'+API+'/api/pdf?id='+encodeURIComponent(awId)+'" target="_blank" rel="noopener" download="my-will.pdf">Download your will (PDF)</a></div><div style="text-align:left;margin-top:22px;padding-top:18px;border-top:1px solid #e7e7e7"><p style="font-weight:600;margin:0 0 8px">To make your will legally valid</p><ol style="margin:0;padding-left:20px;line-height:1.7"><li>Print the document.</li><li>Sign it in front of two independent adult witnesses (not your beneficiaries, or their husbands or wives).</li><li>Have both witnesses sign while you are watching.</li><li>Store it safely and tell your executors where it is.</li></ol></div></div>' : '<div class="mock"><div class="spin"></div><h3>Preparing your will...</h3><p class="note">One moment.</p></div>';
   } else if(s.kind==='review'){
     html += review();
   } else {
@@ -279,7 +279,7 @@ function render(){
   el('stepCount').textContent='Step '+(cur+1)+' of '+vis.length;
   el('bar').style.width=Math.round(((cur+1)/vis.length)*100)+'%';
   el('back').style.visibility=cur===0?'hidden':'visible';
-  var next=el('next'); next.style.display=(s.kind==='generate')?'none':''; next.textContent=(s.kind==='review')?'Finish':'Continue';
+  var next=el('next'); next.style.display=(s.kind==='generate')?'none':''; next.textContent=(s.kind==='review')?'Continue to payment':'Continue';
   var pay=el('pay'); if(pay) pay.addEventListener('click',function(){ try{ collectVisible(); }catch(e){} pay.disabled=true; pay.textContent='Redirecting to secure payment...'; fetch(API+'/api/checkout',{method:'POST',body:JSON.stringify({locationId:loc,willJson:state,returnUrl:(location.href.split('#')[0].split('?')[0])})}).then(function(r){return r.json();}).then(function(j){ if(j&&j.url){ window.location.href=j.url; } else { pay.disabled=false; pay.textContent='Pay '+esc(CFG.will_price||''); alert('Could not start payment: '+((j&&j.error)||'unknown')); } }).catch(function(e){ pay.disabled=false; pay.textContent='Pay '+esc(CFG.will_price||''); alert('Payment error: '+e.message); }); });
   // payment redirects out to Stripe and returns to the generate step (see aw_paid handling on load); no auto-advance, no demo download.
   el('step').querySelectorAll('[data-goto]').forEach(function(b){ b.addEventListener('click',function(){ jumpTo(b.getAttribute('data-goto')); }); });
