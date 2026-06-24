@@ -68,8 +68,10 @@ var FUNNEL = [
     { type:'row', fields:[ {key:'email',type:'email',label:'Email',required:true}, {key:'phone',type:'tel',label:'Phone',required:true} ] }
   ]},
   { id:'situation', name:'Circumstances', title:'Your circumstances', lead:'A few questions that affect how your will is written.', fields:[
-    { key:'domicileElsewhere', type:'radio', label:'Do you consider anywhere other than England or Wales your permanent home?', required:true, options:['Yes','No'] },
-    { key:'propertyAbroad', type:'radio', label:'Do you own any property abroad?', required:true, options:['Yes','No'] },
+    { key:'domicileElsewhere', type:'radio', label:'Do you consider anywhere other than England or Wales your permanent home?', required:true, reflow:true, options:['Yes','No'] },
+    { key:'domicileCountry', type:'text', label:'Which country do you consider your permanent home?', showIf:function(s){return s.situation.domicileElsewhere==='Yes';} },
+    { key:'propertyAbroad', type:'radio', label:'Do you own any property abroad?', required:true, reflow:true, options:['Yes','No'] },
+    { key:'propertyAbroadCountry', type:'text', label:'Which country is the property in?', showIf:function(s){return s.situation.propertyAbroad==='Yes';} },
     { key:'previousWillHas', type:'radio', label:'Do you have a previous will?', required:true, reflow:true, options:['Yes','No'] },
     { key:'previousWillFirm', type:'text', label:'Which law firm or company drafted it?', showIf:function(s){return s.situation.previousWillHas==='Yes';} }
   ]},
@@ -324,7 +326,7 @@ function go(dir){
 }
 
 document.addEventListener('input', function(e){ var n=e.target.closest('[data-b]'); if(n){ var fl=n.closest('.field'); if(fl) fl.classList.remove('invalid'); } });
-document.addEventListener('change', function(e){ var n=e.target.closest('[data-b]'); if(n && n.getAttribute('data-reflow')==='1'){ collectVisible(); render(); } });
+document.addEventListener('change', function(e){ var n=e.target.closest('[data-b]'); if(!n) return; if(n.type==='radio'){ var grp=n.closest('.choices'); if(grp){ [].forEach.call(grp.querySelectorAll('.choice'),function(l){ l.classList.toggle('on', !!l.querySelector('input:checked')); }); } } if(n.getAttribute('data-reflow')==='1'){ collectVisible(); render(); } });
 document.addEventListener('click', function(e){ try{ var a=e.target.closest('[data-add]'); if(a){ collectVisible(); addItem(a.getAttribute('data-add')); return; } var rm=e.target.closest('[data-rm]'); if(rm){ collectVisible(); getP(rm.getAttribute('data-rm')).splice(+rm.getAttribute('data-i'),1); render(); } }catch(err){ alert('Action error: '+err.message); } });
 el('next').addEventListener('click', function(){ try{ go(1); }catch(err){ alert('Continue error: '+err.message); } });
 el('back').addEventListener('click', function(){ try{ go(-1); }catch(err){ alert('Back error: '+err.message); } });
