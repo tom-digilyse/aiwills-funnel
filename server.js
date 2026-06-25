@@ -250,6 +250,93 @@ async function handleWrite(locationId, values){
   return results;
 }
 
+/* ---------- Executor Toolbox (ETB): write the vault into the client's GHL ----------
+   GHL is the system of record. We hold nothing. Structured answers -> the contact's
+   custom fields. Field mapping lives here (one place), derived from a compact spec. */
+function gp(state, p){ var a=p.split('.'), o=state, i; for (i=0;i<a.length;i++){ if (o==null) return ''; o=o[a[i]]; } return (o==null)?'':o; }
+// [GHL field name, dataType, state path]
+var ETB_SINGLE = [
+  ['ETB Will Has','TEXT','will.has'], ['ETB Will Location Type','TEXT','will.locationType'], ['ETB Will Location','TEXT','will.locationText'],
+  ['ETB Codicil Has','TEXT','codicil.has'], ['ETB Codicil Location Type','TEXT','codicil.locationType'], ['ETB Codicil Location','TEXT','codicil.locationText'],
+  ['ETB LPA Has','TEXT','lpa.has'], ['ETB LPA Type','TEXT','lpa.type'], ['ETB LPA Location','TEXT','lpa.locationText'],
+  ['ETB Property Deeds Location','TEXT','property.deedsLocation'], ['ETB Property Deeds Notes','LARGE_TEXT','property.deedsNotes'], ['ETB Property Has','TEXT','property.has'],
+  ['ETB Insurance Has','TEXT','insurance.has'],
+  ['ETB Pension Docs Location','TEXT','pensions.docsLocation'], ['ETB Pension Docs Notes','LARGE_TEXT','pensions.docsNotes'], ['ETB Pension Has','TEXT','pensions.has'],
+  ['ETB Bank Has','TEXT','bank_accounts.has'], ['ETB Investment Has','TEXT','investments.has'], ['ETB Business Has','TEXT','business.has'],
+  ['ETB Debt Has','TEXT','debts.has'], ['ETB Digital Has','TEXT','digital_assets.has'],
+  ['ETB Wishes Record','TEXT','wishes.record'], ['ETB Wishes Arrangements','TEXT','wishes.arrangements'], ['ETB Wishes Preferences','LARGE_TEXT','wishes.preferences'], ['ETB Wishes Plan Provider','TEXT','wishes.planProvider'], ['ETB Wishes Docs Location','TEXT','wishes.docsLocation']
+];
+// Atomic repeater: only executors (they drive the future notify-on-death step).
+// [GHL name prefix, state list path, cap, [[name suffix, dataType, item key]...]]
+var ETB_REPEAT = [
+  ['ETB Executor','executors.list',4,[['First Name','TEXT','firstName'],['Last Name','TEXT','lastName'],['Phone','TEXT','phone'],['Email','TEXT','email'],['Relationship','TEXT','relationship']]]
+];
+// Consolidated: one readable LARGE_TEXT field per asset category, listing all entries.
+// [GHL field name, state list path, [[label, item key]...]]
+var ETB_CONSOLIDATED = [
+  ['ETB Properties','property.list',[['Address','address'],['Ownership','ownership'],['Mortgage','hasMortgage'],['Mortgage Provider','mortgageProvider']]],
+  ['ETB Insurance Policies','insurance.list',[['Type','type'],['Provider','provider'],['Policy Number','policyNumber'],['Docs Location','location']]],
+  ['ETB Pensions','pensions.list',[['Type','type'],['Provider','provider'],['Policy Number','policyNumber'],['Value','value'],['Access','access']]],
+  ['ETB Bank Accounts','bank_accounts.list',[['Type','type'],['Bank','bankName'],['Account Number','accountNumber'],['Holder','holder'],['Details Stored','stored']]],
+  ['ETB Investments','investments.list',[['Type','type'],['Provider','provider'],['Value','value'],['Reference','reference'],['Location','location']]],
+  ['ETB Businesses','business.list',[['Name','name'],['Role','role'],['Key Contact','keyContact']]],
+  ['ETB Debts','debts.list',[['Creditor','creditor'],['Type','creditorType'],['Balance','balance'],['Details','location']]],
+  ['ETB Digital Assets','digital_assets.list',[['Platform','platform'],['Access','access'],['Location','location']]]
+];
+var ETB_COUNTS = [ ['ETB Executor Count','executors.list'], ['ETB Property Count','property.list'], ['ETB Insurance Count','insurance.list'], ['ETB Pension Count','pensions.list'], ['ETB Bank Count','bank_accounts.list'], ['ETB Investment Count','investments.list'], ['ETB Business Count','business.list'], ['ETB Debt Count','debts.list'], ['ETB Digital Count','digital_assets.list'] ];
+var ETB_FILES = ['ETB Will Document','ETB Codicil Document','ETB LPA Document','ETB Pension Documents']; // created now, written in iteration 3
+function etbFieldDefs(){
+  var defs = [ { name:'ETB Status', dataType:'TEXT' }, { name:'ETB Completed At', dataType:'TEXT' } ];
+  ETB_SINGLE.forEach(function(s){ defs.push({ name:s[0], dataType:s[1] }); });
+  ETB_COUNTS.forEach(function(c){ defs.push({ name:c[0], dataType:'NUMERICAL' }); });
+  ETB_REPEAT.forEach(function(r){ for (var n=1;n<=r[2];n++){ r[3].forEach(function(sub){ defs.push({ name:r[0]+' '+n+' '+sub[0], dataType:sub[1] }); }); } });
+  ETB_CONSOLIDATED.forEach(function(c){ defs.push({ name:c[0], dataType:'LARGE_TEXT' }); });
+  ETB_FILES.forEach(function(f){ defs.push({ name:f, dataType:'FILE_UPLOAD' }); });
+  return defs;
+}
+function etbExtract(state, status){
+  var out = {};
+  if (status) out['ETB Status'] = status;
+  ETB_SINGLE.forEach(function(s){ var v=gp(state,s[2]); if (v!=='' && v!=null) out[s[0]]=v; });
+  ETB_COUNTS.forEach(function(c){ var l=gp(state,c[1]); if (Array.isArray(l) && l.length) out[c[0]]=l.length; });
+  ETB_REPEAT.forEach(function(r){ var list=gp(state,r[1]); if (!Array.isArray(list)) return; for (var i=0;i<list.length && i<r[2];i++){ var it=list[i]||{}; r[3].forEach(function(sub){ var v=it[sub[2]]; if (v!=='' && v!=null) out[r[0]+' '+(i+1)+' '+sub[0]]=v; }); } });
+  ETB_CONSOLIDATED.forEach(function(c){ var list=gp(state,c[1]); if (!Array.isArray(list)||!list.length) return; var lines=[]; for (var i=0;i<list.length;i++){ var it=list[i]||{}; var parts=[]; c[2].forEach(function(p){ var v=it[p[1]]; if (v!=='' && v!=null) parts.push(p[0]+': '+v); }); if (parts.length) lines.push((i+1)+'. '+parts.join(', ')); } if (lines.length) out[c[0]]=lines.join('\n'); });
+  return out;
+}
+async function ghlContactFields(token, loc){ var r = await ghl('GET', '/locations/' + loc + '/customFields?model=contact', token); return r.customFields || r.customField || []; }
+async function etbFieldMap(token, loc){ var list = await ghlContactFields(token, loc); var m = {}; list.forEach(function(f){ m[(f.name||'').toLowerCase()] = f.id; }); return m; }
+async function ensureEtbFields(token, loc){
+  var map = await etbFieldMap(token, loc); var defs = etbFieldDefs(); var created = 0;
+  for (var i=0;i<defs.length;i++){ var d=defs[i]; var k=d.name.toLowerCase(); if (map[k]) continue;
+    try { var c = await ghl('POST', '/locations/' + loc + '/customFields', token, { name:d.name, dataType:d.dataType, model:'contact' }); var nf=c.customField||c; if (nf && nf.id){ map[k]=nf.id; created++; } }
+    catch(e){ console.error('etb field create', d.name, e.message); }
+  }
+  return { map: map, created: created, total: defs.length };
+}
+async function etbStatus(loc){
+  var token = await getWriteToken(loc); // throws if not authorised
+  var map = await etbFieldMap(token, loc); var defs = etbFieldDefs();
+  var present = [], missing = [];
+  defs.forEach(function(d){ (map[d.name.toLowerCase()] ? present : missing).push(d.name); });
+  return { authorised: true, totalDefined: defs.length, present: present.length, missing: missing.length, missingNames: missing.slice(0,20) };
+}
+async function etbSave(loc, state, contactId, status){
+  if (!loc) throw new Error('locationId required');
+  var token = await getWriteToken(loc);
+  var map = await etbFieldMap(token, loc);
+  var pd = (state && state.your_details) || {};
+  var values = etbExtract(state, status || 'started');
+  var cf = []; var written = [], noField = [];
+  Object.keys(values).forEach(function(name){ var id = map[name.toLowerCase()]; if (id){ cf.push({ id: id, value: String(values[name]) }); written.push(name); } else { noField.push(name); } });
+  var body = { locationId: loc, firstName: pd.firstName||'', lastName: pd.lastName||'', email: pd.email||'', phone: pd.phone||'', address1: pd.address||'', city: pd.city||'', postalCode: pd.postcode||'', customFields: cf };
+  if (contactId) body.id = contactId;
+  var up = await ghl('POST', '/contacts/upsert', token, body);
+  var cid = (up.contact && up.contact.id) || up.id || contactId || '';
+  var readback = null;
+  if (cid){ try { var got = await ghl('GET', '/contacts/' + cid, token); var c = got.contact || got; var byId={}; (c.customFields||c.customField||[]).forEach(function(f){ byId[f.id]=(f.value!=null?f.value:f.fieldValue); }); readback = { id: cid, fieldCount: Object.keys(byId).length }; } catch(e){ readback = { id: cid, err: e.message }; } }
+  return { contactId: cid, writtenCount: written.length, noFieldCount: noField.length, noFieldSample: noField.slice(0,10), readback: readback };
+}
+
 /* ---------- payment (Stripe), will store, PDF helpers ---------- */
 const crypto = require('crypto');
 const WILL_DIR = path.join(__dirname, 'will_data');
@@ -424,6 +511,31 @@ const server = http.createServer(async (req, res) => {
         const buf = await wp.buildWillPdf(willData, { company_name: rec.company || '' });
         res.writeHead(200, { 'Content-Type':'application/pdf', 'Content-Disposition':'inline; filename="last-will.pdf"', 'Cache-Control':'no-store', 'Access-Control-Allow-Origin':'*' });
         return res.end(buf);
+      } catch(e){ return send(res, 200, { error: e.message }); }
+    }
+    // ----- Executor Toolbox: status / field-creation / save (public, called by the funnel) -----
+    if (req.method === 'GET' && pathOnly === '/api/etb-status'){
+      res.setHeader('Access-Control-Allow-Origin','*');
+      const locId = ((new URL(req.url,'http://x')).searchParams.get('locationId')||'').replace(/[^A-Za-z0-9]/g,'');
+      try { return send(res, 200, await etbStatus(locId)); }
+      catch(e){ return send(res, 200, { authorised:false, error: e.message }); }
+    }
+    if (req.method === 'POST' && pathOnly === '/api/etb-ensure-fields'){
+      res.setHeader('Access-Control-Allow-Origin','*');
+      try {
+        const b = JSON.parse((await readBody(req)) || '{}');
+        const loc = (b.locationId||'').replace(/[^A-Za-z0-9]/g,'');
+        const token = await getWriteToken(loc); // throws if not authorised
+        (async function(){ try { const r = await ensureEtbFields(token, loc); console.log('etb ensure', loc, 'created', r.created, 'of', r.total); } catch(e){ console.error('etb ensure', e.message); } })();
+        return send(res, 202, { ensuring: true, locationId: loc });
+      } catch(e){ return send(res, 200, { error: e.message }); }
+    }
+    if (req.method === 'POST' && pathOnly === '/api/etb-save'){
+      res.setHeader('Access-Control-Allow-Origin','*');
+      try {
+        const b = JSON.parse((await readBody(req)) || '{}');
+        const loc = (b.locationId||'').replace(/[^A-Za-z0-9]/g,'');
+        return send(res, 200, await etbSave(loc, b.state||{}, b.contactId||'', b.status||'started'));
       } catch(e){ return send(res, 200, { error: e.message }); }
     }
     if (!authed(req)){
