@@ -268,7 +268,9 @@ var ETB_FUNNEL = [
     { key:'planProvider', type:'text', label:'Funeral plan provider', showIf:function(s){return s.wishes.record==='Yes';} },
     { key:'docsLocation', type:'text', label:'Where are the funeral documents kept?', showIf:function(s){return s.wishes.record==='Yes';} }
   ]},
-  { id:'review', name:'Review', title:'Review your toolbox', lead:'Check everything below. You can jump back to any section to edit.', kind:'review' }
+  { id:'review', name:'Review', title:'Review your toolbox', lead:'Check everything below. You can jump back to any section to edit, then continue to activate your Toolbox.', kind:'review' },
+  { id:'payment', name:'Activate', title:'Activate your Toolbox', lead:'Subscribe to keep your Executor Toolbox secure and available to your executors.', kind:'payment' },
+  { id:'done', name:'Done', title:'Your Toolbox is active', kind:'done' }
 ];
 
 var FUNNEL = (function(){ var f=((window.AIWILLS_CONFIG&&window.AIWILLS_CONFIG.funnel)||window.AIWILLS_FUNNEL||'').toString().toLowerCase(); return f==='etb'?ETB_FUNNEL:WILLS_FUNNEL; })();
@@ -380,7 +382,17 @@ function render(){
   var vis=visible(); if(cur>vis.length-1) cur=vis.length-1; var s=vis[cur];
   var html='<h1>'+esc(s.title)+'</h1>'+(s.lead?'<p class="lead">'+esc(s.lead)+'</p>':'');
   if(s.kind==='payment'){
-    html += getP('payment.paid')===true ? '<div class="mock"><div class="tick">✓</div><h3>Payment received</h3><p class="note">Continue to download your will.</p></div>' : '<div class="mock"><p>Your will document</p><div class="price">'+esc(CFG.will_price||'')+'</div><button class="btn wide" id="pay" type="button">Pay '+esc(CFG.will_price||'')+'</button><p class="note">Secure card payment. You will be returned here to download your will.</p></div>';
+    var _isEtb=(FUNNEL===ETB_FUNNEL);
+    if(getP('payment.paid')===true){
+      html += '<div class="mock"><div class="tick">✓</div><h3>'+(_isEtb?'Subscription active':'Payment received')+'</h3><p class="note">'+(_isEtb?'Your Executor Toolbox is now active.':'Continue to download your will.')+'</p></div>';
+    } else if(_isEtb){
+      var _ep=esc(CFG.etb_price||'£19.99 / year');
+      html += '<div class="mock"><p>Executor Toolbox</p><div class="price">'+_ep+'</div><button class="btn wide" id="pay" type="button">Subscribe</button><p class="note">Secure card payment. Your subscription keeps your Toolbox stored and available to your executors. You can cancel any time.</p></div>';
+    } else {
+      html += '<div class="mock"><p>Your will document</p><div class="price">'+esc(CFG.will_price||'')+'</div><button class="btn wide" id="pay" type="button">Pay '+esc(CFG.will_price||'')+'</button><p class="note">Secure card payment. You will be returned here to download your will.</p></div>';
+    }
+  } else if(s.kind==='done'){
+    html += '<div class="mock"><div class="tick">✓</div><h3>Your Executor Toolbox is active</h3><p class="note">Your details and any documents you uploaded are securely stored. Your executors will be able to access what they need, when the time comes.</p><div style="text-align:left;margin-top:22px;padding-top:18px;border-top:1px solid #e7e7e7"><p style="font-weight:600;margin:0 0 8px">What happens next</p><ol style="margin:0;padding-left:20px;line-height:1.7"><li>Tell your executors that your Toolbox exists.</li><li>You can come back any time to add or update documents.</li><li>Keep your contact details current so we can reach you.</li></ol></div></div>';
   } else if(s.kind==='generate'){
     var awId=window.AIWILLS_WILL_ID||'';
     html += awId ? '<div class="mock"><div class="tick">✓</div><h3>Your will is ready</h3><p class="note">Payment received. Your will is shown below.</p><iframe src="'+API+'/api/pdf?id='+encodeURIComponent(awId)+'" style="width:100%;height:560px;border:1px solid #e0e0e0;border-radius:10px;margin-top:16px;background:#fff" title="Your will"></iframe><div style="margin-top:12px"><a class="btn wide" href="'+API+'/api/pdf?id='+encodeURIComponent(awId)+'" target="_blank" rel="noopener" download="my-will.pdf">Download your will (PDF)</a></div><div style="text-align:left;margin-top:22px;padding-top:18px;border-top:1px solid #e7e7e7"><p style="font-weight:600;margin:0 0 8px">To make your will legally valid</p><ol style="margin:0;padding-left:20px;line-height:1.7"><li>Print the document.</li><li>Sign it in front of two independent adult witnesses (not your beneficiaries, or their husbands or wives).</li><li>Have both witnesses sign while you are watching.</li><li>Store it safely and tell your executors where it is.</li></ol></div></div>' : '<div class="mock"><div class="spin"></div><h3>Preparing your will...</h3><p class="note">One moment.</p></div>';
@@ -394,8 +406,8 @@ function render(){
   el('stepCount').textContent='Step '+(cur+1)+' of '+vis.length;
   el('bar').style.width=Math.round(((cur+1)/vis.length)*100)+'%';
   el('back').style.visibility=cur===0?'hidden':'visible';
-  var next=el('next'); next.style.display=(s.kind==='generate')?'none':''; next.textContent=(s.kind==='review')?'Continue to payment':'Continue';
-  var pay=el('pay'); if(pay) pay.addEventListener('click',function(){ try{ collectVisible(); }catch(e){} pay.disabled=true; pay.textContent='Redirecting to secure payment...'; fetch(API+'/api/checkout',{method:'POST',body:JSON.stringify({locationId:loc,willJson:state,returnUrl:(location.href.split('#')[0].split('?')[0])})}).then(function(r){return r.json();}).then(function(j){ if(j&&j.url){ window.location.href=j.url; } else { pay.disabled=false; pay.textContent='Pay '+esc(CFG.will_price||''); alert('Could not start payment: '+((j&&j.error)||'unknown')); } }).catch(function(e){ pay.disabled=false; pay.textContent='Pay '+esc(CFG.will_price||''); alert('Payment error: '+e.message); }); });
+  var next=el('next'); next.style.display=(s.kind==='generate'||s.kind==='done')?'none':''; next.textContent=(s.kind==='review')?((FUNNEL===ETB_FUNNEL)?'Continue to activate':'Continue to payment'):'Continue';
+  var pay=el('pay'); if(pay) pay.addEventListener('click',function(){ try{ collectVisible(); }catch(e){} var _isEtb=(FUNNEL===ETB_FUNNEL); var _lbl=_isEtb?'Subscribe':('Pay '+esc(CFG.will_price||'')); pay.disabled=true; pay.textContent='Redirecting to secure payment...'; var _url=_isEtb?(API+'/api/etb-checkout'):(API+'/api/checkout'); var _body=_isEtb?{locationId:loc,contactId:(window.AIWILLS_ETB_CID||''),contact:(state.your_details||{}),returnUrl:(location.href.split('#')[0].split('?')[0])}:{locationId:loc,willJson:state,returnUrl:(location.href.split('#')[0].split('?')[0])}; fetch(_url,{method:'POST',body:JSON.stringify(_body)}).then(function(r){return r.json();}).then(function(j){ if(j&&j.url){ window.location.href=j.url; } else { pay.disabled=false; pay.textContent=_lbl; alert('Could not start payment: '+((j&&j.error)||'unknown')); } }).catch(function(e){ pay.disabled=false; pay.textContent=_lbl; alert('Payment error: '+e.message); }); });
   // payment redirects out to Stripe and returns to the generate step (see aw_paid handling on load); no auto-advance, no demo download.
   el('step').querySelectorAll('[data-goto]').forEach(function(b){ b.addEventListener('click',function(){ jumpTo(b.getAttribute('data-goto')); }); });
 }
@@ -459,7 +471,7 @@ function closeGaps(){
   }catch(e){}
 }
 initState(); applyBrand();
-try{ var _qp=new URLSearchParams(location.search); if(_qp.get('aw_paid')==='1' && _qp.get('aw_id')){ window.AIWILLS_WILL_ID=_qp.get('aw_id'); if(state.payment) state.payment.paid=true; var _vv=visible(); for(var _i=0;_i<_vv.length;_i++){ if(_vv[_i].id==='generate'){ cur=_i; break; } } } }catch(e){}
+try{ var _qp=new URLSearchParams(location.search); if(_qp.get('aw_paid')==='1' && _qp.get('aw_id')){ window.AIWILLS_WILL_ID=_qp.get('aw_id'); if(state.payment) state.payment.paid=true; var _vv=visible(); for(var _i=0;_i<_vv.length;_i++){ if(_vv[_i].id==='generate'){ cur=_i; break; } } } if(_qp.get('aw_etb_paid')==='1' && FUNNEL===ETB_FUNNEL){ if(state.payment) state.payment.paid=true; var _ev=visible(); for(var _j=0;_j<_ev.length;_j++){ if(_ev[_j].id==='done'){ cur=_j; break; } } } }catch(e){}
 render(); closeGaps();
 window.addEventListener('load', closeGaps);
 setTimeout(closeGaps,400); setTimeout(closeGaps,1200);
