@@ -336,6 +336,30 @@ async function etbSave(loc, state, contactId, status){
   if (cid){ try { var got = await ghl('GET', '/contacts/' + cid, token); var c = got.contact || got; var byId={}; (c.customFields||c.customField||[]).forEach(function(f){ byId[f.id]=(f.value!=null?f.value:f.fieldValue); }); readback = { id: cid, fieldCount: Object.keys(byId).length }; } catch(e){ readback = { id: cid, err: e.message }; } }
   return { contactId: cid, writtenCount: written.length, noFieldCount: noField.length, noFieldSample: noField.slice(0,10), readback: readback };
 }
+// Stream an uploaded document straight into a GHL FILE_UPLOAD custom field on the contact.
+// Browser sends base64 (JSON) -> we build multipart to GHL -> we keep nothing.
+async function etbUpload(loc, contactId, fieldName, filename, mimeType, dataBase64){
+  if (!loc) throw new Error('locationId required');
+  if (!contactId) throw new Error('contactId required (save the contact first)');
+  if (!dataBase64) throw new Error('file data required');
+  const token = await getWriteToken(loc);
+  const map = await etbFieldMap(token, loc);
+  const fid = map[(fieldName||'').toLowerCase()];
+  if (!fid) throw new Error('Custom field not found: ' + fieldName);
+  const buf = Buffer.from(dataBase64, 'base64');
+  if (buf.length > 50*1024*1024) throw new Error('file too large (max 50MB)');
+  const fileId = crypto.randomBytes(8).toString('hex');
+  const form = new FormData();
+  form.append('id', contactId);
+  form.append('locationId', loc);
+  form.append(fid + '_' + fileId, new Blob([buf], { type: mimeType || 'application/octet-stream' }), filename || 'document');
+  const r = await fetch(GHL_BASE + '/locations/' + loc + '/customFields/upload', {
+    method: 'POST', headers: { Authorization: 'Bearer ' + token, Version: GHL_VERSION, Accept: 'application/json' }, body: form
+  });
+  const text = await r.text(); let json; try { json = JSON.parse(text); } catch(e){ json = { raw: text.slice(0,300) }; }
+  if (!r.ok) throw new Error('GHL upload -> ' + r.status + ' ' + text.slice(0,400));
+  return { ok: true, field: fieldName, contactId: contactId, bytes: buf.length };
+}
 
 /* ---------- payment (Stripe), will store, PDF helpers ---------- */
 const crypto = require('crypto');
@@ -536,6 +560,14 @@ const server = http.createServer(async (req, res) => {
         const b = JSON.parse((await readBody(req)) || '{}');
         const loc = (b.locationId||'').replace(/[^A-Za-z0-9]/g,'');
         return send(res, 200, await etbSave(loc, b.state||{}, b.contactId||'', b.status||'started'));
+      } catch(e){ return send(res, 200, { error: e.message }); }
+    }
+    if (req.method === 'POST' && pathOnly === '/api/etb-upload'){
+      res.setHeader('Access-Control-Allow-Origin','*');
+      try {
+        const b = JSON.parse((await readBody(req)) || '{}');
+        const loc = (b.locationId||'').replace(/[^A-Za-z0-9]/g,'');
+        return send(res, 200, await etbUpload(loc, b.contactId||'', b.fieldName||'', b.filename||'', b.mimeType||'', b.dataBase64||''));
       } catch(e){ return send(res, 200, { error: e.message }); }
     }
     if (!authed(req)){
