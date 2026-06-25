@@ -351,7 +351,7 @@ async function etbUpload(loc, contactId, fieldName, filename, mimeType, dataBase
   const fileId = crypto.randomBytes(8).toString('hex');
   const form = new FormData();
   form.append('id', contactId);
-  form.append('locationId', loc);
+  form.append('maxFiles', '1');
   form.append(fid + '_' + fileId, new Blob([buf], { type: mimeType || 'application/octet-stream' }), filename || 'document');
   const r = await fetch(GHL_BASE + '/locations/' + loc + '/customFields/upload', {
     method: 'POST', headers: { Authorization: 'Bearer ' + token, Version: GHL_VERSION, Accept: 'application/json' }, body: form
