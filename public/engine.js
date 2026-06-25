@@ -29,7 +29,7 @@ function wt(s){return {Light:'300',Normal:'400',Medium:'500',Semibold:'600',Bold
 function el(id){ return document.getElementById(id); }
 function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
 function age(d){ if(!d) return null; var t=new Date(d); if(isNaN(t)) return null; var n=new Date(), a=n.getFullYear()-t.getFullYear(), m=n.getMonth()-t.getMonth(); if(m<0||(m===0&&n.getDate()<t.getDate())) a--; return a; }
-function saveToGhl(state){ try{ if(FUNNEL===ETB_FUNNEL){ if(!loc) return; var st=(state.payment&&state.payment.paid)?'paid':'started'; fetch(API+'/api/etb-save',{method:'POST',body:JSON.stringify({locationId:loc,state:state,status:st})}); return; } }catch(e){} var url=CFG.will_save_webhook_url; if(!url) return; var p=state.personal||{}; try{ fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contactId:(window.AIWILLS_CONTACT_ID||''),email:p.email||'',firstName:p.firstName||'',lastName:p.lastName||'',phone:p.phone||'',status:(state.payment&&state.payment.paid)?'paid':'started',willJson:JSON.stringify(state)})}); }catch(e){} }
+function saveToGhl(state){ try{ if(FUNNEL===ETB_FUNNEL){ if(!loc) return; var st=(state.payment&&state.payment.paid)?'paid':'started'; try{ fetch(API+'/api/etb-save',{method:'POST',body:JSON.stringify({locationId:loc,state:state,status:st,contactId:(window.AIWILLS_ETB_CID||'')})}).then(function(r){return r.json();}).then(function(j){ if(j&&j.contactId) window.AIWILLS_ETB_CID=j.contactId; }).catch(function(){}); }catch(e){} return; } }catch(e){} var url=CFG.will_save_webhook_url; if(!url) return; var p=state.personal||{}; try{ fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contactId:(window.AIWILLS_CONTACT_ID||''),email:p.email||'',firstName:p.firstName||'',lastName:p.lastName||'',phone:p.phone||'',status:(state.payment&&state.payment.paid)?'paid':'started',willJson:JSON.stringify(state)})}); }catch(e){} }
 
 var GIFT_FIELDS = [
   { key:'items', type:'repeater', itemLabel:'Item gift', max:20, fields:[
@@ -178,17 +178,20 @@ var ETB_FUNNEL = [
   { id:'will', name:'Will', title:'Your will', lead:'Where your will is and how to find it.', fields:[
     { key:'has', type:'radio', label:'Do you have a will?', required:true, reflow:true, options:['Yes','No'] },
     { key:'locationType', type:'select', label:'Where is it kept?', options:['At home','With my solicitor','At the bank','With a will-storage service','Other'], showIf:function(s){return s.will.has==='Yes';} },
-    { key:'locationText', type:'text', label:'Where exactly is it located?', showIf:function(s){return s.will.has==='Yes';} }
+    { key:'locationText', type:'text', label:'Where exactly is it located?', showIf:function(s){return s.will.has==='Yes';} },
+    { key:'document', type:'file', label:'Upload a copy of your will (optional)', field:'ETB Will Document', accept:'.pdf,.doc,.docx,.jpg,.jpeg,.png', showIf:function(s){return s.will.has==='Yes';} }
   ]},
   { id:'codicil', name:'Codicil', title:'Codicil', lead:'A codicil is an amendment to a will.', fields:[
     { key:'has', type:'radio', label:'Do you have a codicil?', required:true, reflow:true, options:['Yes','No'] },
     { key:'locationType', type:'select', label:'Where is it kept?', options:['At home','With my solicitor','At the bank','With a will-storage service','Other'], showIf:function(s){return s.codicil.has==='Yes';} },
-    { key:'locationText', type:'text', label:'Where exactly is it located?', showIf:function(s){return s.codicil.has==='Yes';} }
+    { key:'locationText', type:'text', label:'Where exactly is it located?', showIf:function(s){return s.codicil.has==='Yes';} },
+    { key:'document', type:'file', label:'Upload a copy of the codicil (optional)', field:'ETB Codicil Document', accept:'.pdf,.doc,.docx,.jpg,.jpeg,.png', showIf:function(s){return s.codicil.has==='Yes';} }
   ]},
   { id:'lpa', name:'LPA', title:'Lasting Power of Attorney', lead:'Any LPA you have in place.', fields:[
     { key:'has', type:'radio', label:'Do you have a Lasting Power of Attorney?', required:true, reflow:true, options:['Yes','No'] },
     { key:'type', type:'select', label:'Which type?', options:['Health & Welfare','Property & Financial Affairs','Both'], showIf:function(s){return s.lpa.has==='Yes';} },
-    { key:'locationText', type:'text', label:'Where is it located?', showIf:function(s){return s.lpa.has==='Yes';} }
+    { key:'locationText', type:'text', label:'Where is it located?', showIf:function(s){return s.lpa.has==='Yes';} },
+    { key:'document', type:'file', label:'Upload a copy of the LPA (optional)', field:'ETB LPA Document', accept:'.pdf,.doc,.docx,.jpg,.jpeg,.png', showIf:function(s){return s.lpa.has==='Yes';} }
   ]},
   { id:'property', name:'Property', title:'Property', lead:'Where the deeds are, and the properties you own.', fields:[
     { key:'deedsLocation', type:'text', label:'Where are your property deeds kept?' },
@@ -212,6 +215,7 @@ var ETB_FUNNEL = [
   { id:'pensions', name:'Pensions', title:'Pensions', lead:'Your pension documents and providers.', fields:[
     { key:'docsLocation', type:'text', label:'Where are your pension documents kept?' },
     { key:'docsNotes', type:'textarea', label:'Any notes about your pensions?' },
+    { key:'documents', type:'file', label:'Upload pension documents (optional)', field:'ETB Pension Documents', accept:'.pdf,.doc,.docx,.jpg,.jpeg,.png,.xls,.xlsx,.csv' },
     { key:'has', type:'radio', label:'Do you have any pensions?', required:true, reflow:true, options:['Yes','No'] },
     { key:'list', type:'repeater', itemLabel:'Pension', max:5, showIf:function(s){return s.pensions.has==='Yes';}, fields:[
       { type:'row', fields:[ {key:'type',type:'text',label:'Pension type',required:true}, {key:'provider',type:'text',label:'Provider',required:true} ] },
@@ -298,6 +302,7 @@ function fld(base,f){
     ropts.forEach(function(x){ c+='<label class="choice'+(v===x?' on':'')+'"><input type="radio" name="'+p+'" value="'+esc(x)+'" data-b="'+p+'"'+rf+(v===x?' checked':'')+'><span>'+esc(x)+'</span></label>'; });
     return '<div class="field" data-f="'+p+'">'+lab+c+'</div>'+err+'</div>';
   }
+  if(f.type==='file'){ var fn=getP(p)||''; return '<div class="field" data-f="'+p+'">'+lab+'<input type="file" data-upload="'+esc(f.field||'')+'" data-namekey="'+p+'"'+(f.accept?(' accept="'+esc(f.accept)+'"'):'')+'><div class="uplstat" style="font-size:14px;color:var(--muted);margin-top:6px">'+(fn?('Uploaded: '+esc(fn)):'')+'</div></div>'; }
   if(f.type==='textarea') return '<div class="field" data-f="'+p+'">'+lab+'<textarea data-b="'+p+'">'+esc(v)+'</textarea>'+err+'</div>';
   return '<div class="field" data-f="'+p+'">'+lab+'<input type="'+f.type+'" value="'+esc(v)+'" data-b="'+p+'"'+rf+'>'+err+'</div>';
 }
@@ -438,6 +443,7 @@ function go(dir){
 document.addEventListener('input', function(e){ var n=e.target.closest('[data-b]'); if(n){ var fl=n.closest('.field'); if(fl) fl.classList.remove('invalid'); } });
 document.addEventListener('change', function(e){ var n=e.target.closest('[data-b]'); if(!n) return; if(n.type==='radio'){ var grp=n.closest('.choices'); if(grp){ [].forEach.call(grp.querySelectorAll('.choice'),function(l){ l.classList.toggle('on', !!l.querySelector('input:checked')); }); } } if(n.getAttribute('data-reflow')==='1'){ collectVisible(); render(); } });
 document.addEventListener('click', function(e){ try{ var a=e.target.closest('[data-add]'); if(a){ collectVisible(); addItem(a.getAttribute('data-add')); return; } var rm=e.target.closest('[data-rm]'); if(rm){ collectVisible(); getP(rm.getAttribute('data-rm')).splice(+rm.getAttribute('data-i'),1); render(); } }catch(err){ alert('Action error: '+err.message); } });
+document.addEventListener('change', function(e){ var u=e.target.closest&&e.target.closest('[data-upload]'); if(!u||!u.files||!u.files[0]) return; var file=u.files[0]; var fieldName=u.getAttribute('data-upload'); var nameKey=u.getAttribute('data-namekey'); var stat=u.parentElement.querySelector('.uplstat')||{}; if(file.size>10*1024*1024){ stat.textContent='File too large (max 10MB)'; return; } stat.textContent='Uploading...'; var rd=new FileReader(); rd.onload=function(){ var b64=String(rd.result).split(',')[1]||''; fetch(API+'/api/etb-save',{method:'POST',body:JSON.stringify({locationId:loc,state:state,status:'started',contactId:(window.AIWILLS_ETB_CID||'')})}).then(function(r){return r.json();}).then(function(j){ if(j&&j.contactId) window.AIWILLS_ETB_CID=j.contactId; return fetch(API+'/api/etb-upload',{method:'POST',body:JSON.stringify({locationId:loc,contactId:(window.AIWILLS_ETB_CID||''),fieldName:fieldName,filename:file.name,mimeType:file.type,dataBase64:b64})}); }).then(function(r){return r.json();}).then(function(j){ if(j&&j.ok){ stat.textContent='Uploaded: '+file.name; if(nameKey) setP(nameKey,file.name); } else { stat.textContent='Upload failed: '+((j&&j.error)||'error'); } }).catch(function(){ stat.textContent='Upload failed'; }); }; rd.readAsDataURL(file); });
 el('next').addEventListener('click', function(){ try{ go(1); }catch(err){ alert('Continue error: '+err.message); } });
 el('back').addEventListener('click', function(){ try{ go(-1); }catch(err){ alert('Back error: '+err.message); } });
 window.addEventListener('error', function(ev){ alert('Engine error: '+((ev&&ev.message)||'unknown')); });
