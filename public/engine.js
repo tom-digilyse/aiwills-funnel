@@ -55,7 +55,7 @@ function cYes(s){ return s.children.hasChildren==='Yes'; }
 function mirrorOn(s){ return s.partner.hasPartner==='Yes' && s.partner.mirrorWill==='Yes'; }
 function giftItems(showIf){ return GIFT_FIELDS.map(function(g){ var c={}; for(var k in g) c[k]=g[k]; if(showIf) c.showIf=showIf; return c; }); }
 
-var FUNNEL = [
+var WILLS_FUNNEL = [
   { id:'personal', name:'Your details', title:'Your personal details', lead:'We start with you, the person making the will.', fields:[
     { key:'title', type:'select', label:'Title', required:true, options:['Mr','Mrs','Miss','Ms','Mx','Dr','Prof','Other'] },
     { type:'row', fields:[ {key:'firstName',type:'text',label:'First name',required:true}, {key:'middleName',type:'text',label:'Middle name(s)'} ] },
@@ -159,6 +159,116 @@ var FUNNEL = [
   { id:'generate', name:'Generate', title:'Your will', kind:'generate' }
 ];
 
+/* Executor Toolbox funnel: a paid digital vault. Replaces the 51-page GHL funnel.
+   Per-category "do you have any X?" radios gate a repeater; "add another" is the repeater itself. */
+var ETB_FUNNEL = [
+  { id:'your_details', name:'Your details', title:'Your details', lead:'We start with you. This toolbox belongs to you.', fields:[
+    { type:'row', fields:[ {key:'firstName',type:'text',label:'First name',required:true}, {key:'lastName',type:'text',label:'Last name',required:true} ] },
+    { type:'row', fields:[ {key:'email',type:'email',label:'Email',required:true}, {key:'phone',type:'tel',label:'Phone',required:true} ] },
+    { key:'address', type:'text', label:'Home address', required:true },
+    { type:'row', fields:[ {key:'city',type:'text',label:'Town / city',required:true}, {key:'postcode',type:'text',label:'Postcode',required:true} ] }
+  ]},
+  { id:'executors', name:'Executors', title:'Your executors', lead:'The people who will carry out your wishes. Add up to four.', fields:[
+    { key:'list', type:'repeater', itemLabel:'Executor', required:true, max:4, emptyMsg:'Add at least one executor.', fields:[
+      { type:'row', fields:[ {key:'firstName',type:'text',label:'First name',required:true}, {key:'lastName',type:'text',label:'Last name',required:true} ] },
+      { type:'row', fields:[ {key:'phone',type:'tel',label:'Phone'}, {key:'email',type:'email',label:'Email'} ] },
+      { key:'relationship', type:'text', label:'Relationship to you' }
+    ]}
+  ]},
+  { id:'will', name:'Will', title:'Your will', lead:'Where your will is and how to find it.', fields:[
+    { key:'has', type:'radio', label:'Do you have a will?', required:true, reflow:true, options:['Yes','No'] },
+    { key:'locationType', type:'select', label:'Where is it kept?', options:['At home','With my solicitor','At the bank','With a will-storage service','Other'], showIf:function(s){return s.will.has==='Yes';} },
+    { key:'locationText', type:'text', label:'Where exactly is it located?', showIf:function(s){return s.will.has==='Yes';} }
+  ]},
+  { id:'codicil', name:'Codicil', title:'Codicil', lead:'A codicil is an amendment to a will.', fields:[
+    { key:'has', type:'radio', label:'Do you have a codicil?', required:true, reflow:true, options:['Yes','No'] },
+    { key:'locationType', type:'select', label:'Where is it kept?', options:['At home','With my solicitor','At the bank','With a will-storage service','Other'], showIf:function(s){return s.codicil.has==='Yes';} },
+    { key:'locationText', type:'text', label:'Where exactly is it located?', showIf:function(s){return s.codicil.has==='Yes';} }
+  ]},
+  { id:'lpa', name:'LPA', title:'Lasting Power of Attorney', lead:'Any LPA you have in place.', fields:[
+    { key:'has', type:'radio', label:'Do you have a Lasting Power of Attorney?', required:true, reflow:true, options:['Yes','No'] },
+    { key:'type', type:'select', label:'Which type?', options:['Health & Welfare','Property & Financial Affairs','Both'], showIf:function(s){return s.lpa.has==='Yes';} },
+    { key:'locationText', type:'text', label:'Where is it located?', showIf:function(s){return s.lpa.has==='Yes';} }
+  ]},
+  { id:'property', name:'Property', title:'Property', lead:'Where the deeds are, and the properties you own.', fields:[
+    { key:'deedsLocation', type:'text', label:'Where are your property deeds kept?' },
+    { key:'deedsNotes', type:'textarea', label:'Any notes about the deeds?' },
+    { key:'has', type:'radio', label:'Do you own any property?', required:true, reflow:true, options:['Yes','No'] },
+    { key:'list', type:'repeater', itemLabel:'Property', max:5, showIf:function(s){return s.property.has==='Yes';}, fields:[
+      { key:'address', type:'text', label:'Property address', required:true },
+      { key:'ownership', type:'select', label:'Ownership type', required:true, options:['Sole','Joint Tenants','Tenants in Common'] },
+      { key:'hasMortgage', type:'radio', label:'Is there a mortgage?', required:true, reflow:true, options:['Yes','No'] },
+      { key:'mortgageProvider', type:'text', label:'Mortgage provider', showIf:function(s,b){return getP(b+'.hasMortgage')==='Yes';} }
+    ]}
+  ]},
+  { id:'insurance', name:'Insurance', title:'Insurance policies', lead:'Life insurance and other policies your executors should know about.', fields:[
+    { key:'has', type:'radio', label:'Do you have any insurance policies?', required:true, reflow:true, options:['Yes','No'] },
+    { key:'list', type:'repeater', itemLabel:'Policy', max:5, showIf:function(s){return s.insurance.has==='Yes';}, fields:[
+      { key:'type', type:'text', label:'Type of policy', required:true },
+      { type:'row', fields:[ {key:'provider',type:'text',label:'Provider',required:true}, {key:'policyNumber',type:'text',label:'Policy number'} ] },
+      { key:'location', type:'text', label:'Where are the policy documents kept?' }
+    ]}
+  ]},
+  { id:'pensions', name:'Pensions', title:'Pensions', lead:'Your pension documents and providers.', fields:[
+    { key:'docsLocation', type:'text', label:'Where are your pension documents kept?' },
+    { key:'docsNotes', type:'textarea', label:'Any notes about your pensions?' },
+    { key:'has', type:'radio', label:'Do you have any pensions?', required:true, reflow:true, options:['Yes','No'] },
+    { key:'list', type:'repeater', itemLabel:'Pension', max:5, showIf:function(s){return s.pensions.has==='Yes';}, fields:[
+      { type:'row', fields:[ {key:'type',type:'text',label:'Pension type',required:true}, {key:'provider',type:'text',label:'Provider',required:true} ] },
+      { type:'row', fields:[ {key:'policyNumber',type:'text',label:'Policy number'}, {key:'value',type:'number',label:'Approx value (£)'} ] },
+      { key:'access', type:'text', label:'Where can this be accessed, or who manages it?' }
+    ]}
+  ]},
+  { id:'bank_accounts', name:'Bank accounts', title:'Bank accounts & savings', lead:'Accounts and savings your executors will need to deal with.', fields:[
+    { key:'has', type:'radio', label:'Do you have bank accounts or savings?', required:true, reflow:true, options:['Yes','No'] },
+    { key:'list', type:'repeater', itemLabel:'Account', max:5, showIf:function(s){return s.bank_accounts.has==='Yes';}, fields:[
+      { type:'row', fields:[ {key:'type',type:'text',label:'Account type',required:true}, {key:'bankName',type:'text',label:'Bank name',required:true} ] },
+      { type:'row', fields:[ {key:'accountNumber',type:'text',label:'Account number'}, {key:'holder',type:'text',label:'Account holder name'} ] },
+      { key:'stored', type:'text', label:'Where are the banking details stored?' }
+    ]}
+  ]},
+  { id:'investments', name:'Investments', title:'Investments', lead:'Shares, funds and other investments.', fields:[
+    { key:'has', type:'radio', label:'Do you have any investments?', required:true, reflow:true, options:['Yes','No'] },
+    { key:'list', type:'repeater', itemLabel:'Investment', max:5, showIf:function(s){return s.investments.has==='Yes';}, fields:[
+      { type:'row', fields:[ {key:'type',type:'text',label:'Type',required:true}, {key:'provider',type:'text',label:'Provider / platform',required:true} ] },
+      { type:'row', fields:[ {key:'value',type:'number',label:'Approx value (£)'}, {key:'reference',type:'text',label:'Reference / account number'} ] },
+      { key:'location', type:'text', label:'Where are the details kept?' }
+    ]}
+  ]},
+  { id:'business', name:'Business', title:'Business interests', lead:'Any business you own or hold shares in.', fields:[
+    { key:'has', type:'radio', label:'Do you own or have shares in a business?', required:true, reflow:true, options:['Yes','No'] },
+    { key:'list', type:'repeater', itemLabel:'Business', max:3, showIf:function(s){return s.business.has==='Yes';}, fields:[
+      { type:'row', fields:[ {key:'name',type:'text',label:'Business name',required:true}, {key:'role',type:'text',label:'Your role',required:true} ] },
+      { key:'keyContact', type:'text', label:'Key contact person' }
+    ]}
+  ]},
+  { id:'debts', name:'Debts', title:'Debts', lead:'Debts your executors should know about.', fields:[
+    { key:'has', type:'radio', label:'Do you have any debts your executors should know about?', required:true, reflow:true, options:['Yes','No'] },
+    { key:'list', type:'repeater', itemLabel:'Debt', max:5, showIf:function(s){return s.debts.has==='Yes';}, fields:[
+      { type:'row', fields:[ {key:'creditor',type:'text',label:'Creditor name',required:true}, {key:'creditorType',type:'text',label:'Creditor type'} ] },
+      { type:'row', fields:[ {key:'balance',type:'number',label:'Approx balance (£)'}, {key:'location',type:'text',label:'Where are the account details?'} ] }
+    ]}
+  ]},
+  { id:'digital_assets', name:'Digital assets', title:'Digital assets', lead:'Online accounts your executors may need to access.', fields:[
+    { key:'has', type:'radio', label:'Do you have digital accounts your executors should access?', required:true, reflow:true, options:['Yes','No'] },
+    { key:'list', type:'repeater', itemLabel:'Digital asset', max:5, showIf:function(s){return s.digital_assets.has==='Yes';}, fields:[
+      { key:'platform', type:'text', label:'Platform or account name', required:true },
+      { key:'access', type:'text', label:'Access method' },
+      { key:'location', type:'text', label:'Where are the access details kept?' }
+    ]}
+  ]},
+  { id:'wishes', name:'Wishes', title:'Funeral wishes', lead:'Your funeral wishes, to guide your executors and family.', fields:[
+    { key:'record', type:'radio', label:'Would you like to record funeral wishes?', required:true, reflow:true, options:['Yes','No'] },
+    { key:'arrangements', type:'select', label:'Burial or cremation?', options:['Buried','Cremated','No preference'], showIf:function(s){return s.wishes.record==='Yes';} },
+    { key:'preferences', type:'textarea', label:'Preferences', showIf:function(s){return s.wishes.record==='Yes';} },
+    { key:'planProvider', type:'text', label:'Funeral plan provider', showIf:function(s){return s.wishes.record==='Yes';} },
+    { key:'docsLocation', type:'text', label:'Where are the funeral documents kept?', showIf:function(s){return s.wishes.record==='Yes';} }
+  ]},
+  { id:'review', name:'Review', title:'Review your toolbox', lead:'Check everything below. You can jump back to any section to edit.', kind:'review' }
+];
+
+var FUNNEL = (function(){ var f=((window.AIWILLS_CONFIG&&window.AIWILLS_CONFIG.funnel)||window.AIWILLS_FUNNEL||'').toString().toLowerCase(); return f==='etb'?ETB_FUNNEL:WILLS_FUNNEL; })();
+
 var state, cur=0;
 function flat(fields){ var r=[]; (fields||[]).forEach(function(f){ if(f.type==='row') r=r.concat(flat(f.fields)); else r.push(f); }); return r; }
 function initState(){ state={}; FUNNEL.forEach(function(s){ if(s.kind==='payment'){ state[s.id]={paid:false}; return; } state[s.id]={}; flat(s.fields).forEach(function(f){ state[s.id][f.key]= f.type==='repeater'?[]:''; }); }); if(window.AIWILLS_PREFILL){ var pf=window.AIWILLS_PREFILL; for(var k in pf){ if(state[k]&&pf[k]&&typeof pf[k]==='object'){ for(var kk in pf[k]){ var _v=pf[k][kk]; if(typeof _v==='string'&&_v.indexOf('{'+'{')>=0) continue; state[k][kk]=_v; } } } } }
@@ -169,7 +279,7 @@ function total(lp,key){ return (getP(lp)||[]).reduce(function(s,it){ return s+(p
 function visible(){ return FUNNEL.filter(function(s){ return !s.showIf || s.showIf(state); }); }
 
 function fld(base,f){
-  if(f.showIf && !f.showIf(state)) return '';
+  if(f.showIf && !f.showIf(state, base)) return '';
   if(f.type==='row') return '<div class="row">'+f.fields.map(function(c){ return fld(base,c); }).join('')+'</div>';
   if(f.type==='repeater') return repeater(base,f);
   var p=base+'.'+f.key, v=getP(p);
