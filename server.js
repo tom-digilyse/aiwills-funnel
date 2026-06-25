@@ -433,22 +433,6 @@ const server = http.createServer(async (req, res) => {
         res.writeHead(200, { 'Content-Type':'application/json', 'Cache-Control':'public, max-age=60' }); return res.end(JSON.stringify(brand));
       } catch(e){ res.writeHead(200, { 'Content-Type':'application/json' }); const dbg=(new URL(req.url,'http://x')).searchParams.get('debug'); return res.end(dbg ? JSON.stringify({_err:String((e&&e.message)||e)}) : '{}'); }
     }
-    // ----- TEMP read-only: list active prices for a Stripe product (to fetch the ETB subscription price_id). Remove after iteration 4. -----
-    if (req.method === 'GET' && pathOnly === '/api/_prices'){
-      res.setHeader('Access-Control-Allow-Origin','*');
-      try {
-        if (!process.env.STRIPE_SECRET_KEY) return send(res, 500, { error: 'no stripe key on server' });
-        const prod = ((new URL(req.url,'http://x')).searchParams.get('product')||'').replace(/[^A-Za-z0-9_]/g,'');
-        const acct = await stripeReq('GET', '/v1/account', null, process.env.STRIPE_SECRET_KEY);
-        const out = { account: { id: acct.id, name: (acct.settings && acct.settings.dashboard && acct.settings.dashboard.display_name) || (acct.business_profile && acct.business_profile.name) || null, livemode_key: String(process.env.STRIPE_SECRET_KEY||'').indexOf('sk_test')===0 ? false : true } };
-        if (prod){
-          const pr = await stripeReq('GET', '/v1/prices?active=true&limit=100&product=' + prod, null, process.env.STRIPE_SECRET_KEY);
-          out.product = prod;
-          out.prices = (pr.data||[]).map(function(p){ return { id:p.id, unit_amount:p.unit_amount, currency:p.currency, recurring:p.recurring, nickname:p.nickname, livemode:p.livemode }; });
-        }
-        return send(res, 200, out);
-      } catch(e){ return send(res, 200, { error: e.message }); }
-    }
     // ----- payment: create a Stripe Checkout session (central AI Wills Stripe) -----
     if (req.method === 'POST' && pathOnly === '/api/checkout'){
       res.setHeader('Access-Control-Allow-Origin','*');
@@ -488,6 +472,46 @@ const server = http.createServer(async (req, res) => {
         return send(res, 200, { url: sess.url, id: id });
       } catch(e){ return send(res, 200, { error: e.message }); }
     }
+    // ----- payment: ETB subscription checkout (central AI Wills Stripe, subscription mode) -----
+    if (req.method === 'POST' && pathOnly === '/api/etb-checkout'){
+      res.setHeader('Access-Control-Allow-Origin','*');
+      try {
+        if (!process.env.STRIPE_SECRET_KEY) return send(res, 500, { error: 'Stripe is not configured on the server.' });
+        const cbody = JSON.parse((await readBody(req)) || '{}');
+        const loc = (cbody.locationId || '').replace(/[^A-Za-z0-9]/g,'');
+        if (!loc) return send(res, 400, { error: 'locationId is required' });
+        const token = await getWriteToken(loc);
+        const cv = await getCustomValuesMap(loc, token);
+        // price resolution is config-not-code: per-location custom value, then server env, then a test-only default.
+        // GO-LIVE: set the custom value `etb_price_id` (or ETB_PRICE_ID env) to the LIVE Stripe price before switching to a live key.
+        const isTestKey = String(process.env.STRIPE_SECRET_KEY||'').indexOf('sk_test')===0;
+        const price = cv['etb_price_id'] || process.env.ETB_PRICE_ID || (isTestKey ? 'price_1Thoi4BixkcdGFjdX5gxYQZC' : '');
+        if (!price) return send(res, 400, { error: 'etb_price_id is not set for this location' });
+        const person = cbody.contact || {};
+        let contactId = cbody.contactId || '';
+        try {
+          const up = await ghl('POST', '/contacts/upsert', token, { locationId: loc, firstName: person.firstName || '', lastName: person.lastName || '', email: person.email || '', phone: person.phone || '' });
+          contactId = (up.contact && up.contact.id) || up.id || contactId;
+        } catch(e){ console.error('etb lead upsert', e.message); }
+        const ret = cbody.returnUrl || ('https://' + (req.headers.host || 'aiwills.digilyse.co'));
+        const sep = ret.indexOf('?') >= 0 ? '&' : '?';
+        const sess = await stripeReq('POST', '/v1/checkout/sessions', {
+          'mode': 'subscription',
+          'success_url': ret + sep + 'aw_etb_paid=1',
+          'cancel_url': ret + sep + 'aw_etb_paid=0',
+          'line_items[0][price]': price,
+          'line_items[0][quantity]': 1,
+          'metadata[kind]': 'etb',
+          'metadata[locationId]': loc,
+          'metadata[contactId]': contactId,
+          'subscription_data[metadata][kind]': 'etb',
+          'subscription_data[metadata][locationId]': loc,
+          'subscription_data[metadata][contactId]': contactId,
+          'customer_email': person.email || ''
+        }, process.env.STRIPE_SECRET_KEY);
+        return send(res, 200, { url: sess.url, contactId: contactId });
+      } catch(e){ return send(res, 200, { error: e.message }); }
+    }
     // ----- payment: Stripe webhook (marks the will paid, tags the GHL contact) -----
     if (req.method === 'POST' && pathOnly === '/api/stripe-webhook'){
       const raw = await readBody(req);
@@ -499,8 +523,9 @@ const server = http.createServer(async (req, res) => {
         const md = (evt.data && evt.data.object && evt.data.object.metadata) || {};
         if (md.aw_id){ const rec = willStoreGet(md.aw_id); if (rec){ rec.paid = true; rec.paidAt = Date.now(); willStorePut(md.aw_id, rec); } }
         if (md.locationId && md.contactId){
+          const tagName = (md.kind === 'etb') ? 'etb-active' : 'ai-will-paid';
           (async function(){
-            try { const t = await getWriteToken(md.locationId); await ghl('POST', '/contacts/' + md.contactId + '/tags', t, { tags: ['ai-will-paid'] }); }
+            try { const t = await getWriteToken(md.locationId); await ghl('POST', '/contacts/' + md.contactId + '/tags', t, { tags: [tagName] }); }
             catch(e){ console.error('paid tag', e.message); }
           })();
         }
