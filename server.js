@@ -433,6 +433,22 @@ const server = http.createServer(async (req, res) => {
         res.writeHead(200, { 'Content-Type':'application/json', 'Cache-Control':'public, max-age=60' }); return res.end(JSON.stringify(brand));
       } catch(e){ res.writeHead(200, { 'Content-Type':'application/json' }); const dbg=(new URL(req.url,'http://x')).searchParams.get('debug'); return res.end(dbg ? JSON.stringify({_err:String((e&&e.message)||e)}) : '{}'); }
     }
+    // ----- TEMP read-only: list active prices for a Stripe product (to fetch the ETB subscription price_id). Remove after iteration 4. -----
+    if (req.method === 'GET' && pathOnly === '/api/_prices'){
+      res.setHeader('Access-Control-Allow-Origin','*');
+      try {
+        if (!process.env.STRIPE_SECRET_KEY) return send(res, 500, { error: 'no stripe key on server' });
+        const prod = ((new URL(req.url,'http://x')).searchParams.get('product')||'').replace(/[^A-Za-z0-9_]/g,'');
+        const acct = await stripeReq('GET', '/v1/account', null, process.env.STRIPE_SECRET_KEY);
+        const out = { account: { id: acct.id, name: (acct.settings && acct.settings.dashboard && acct.settings.dashboard.display_name) || (acct.business_profile && acct.business_profile.name) || null, livemode_key: String(process.env.STRIPE_SECRET_KEY||'').indexOf('sk_test')===0 ? false : true } };
+        if (prod){
+          const pr = await stripeReq('GET', '/v1/prices?active=true&limit=100&product=' + prod, null, process.env.STRIPE_SECRET_KEY);
+          out.product = prod;
+          out.prices = (pr.data||[]).map(function(p){ return { id:p.id, unit_amount:p.unit_amount, currency:p.currency, recurring:p.recurring, nickname:p.nickname, livemode:p.livemode }; });
+        }
+        return send(res, 200, out);
+      } catch(e){ return send(res, 200, { error: e.message }); }
+    }
     // ----- payment: create a Stripe Checkout session (central AI Wills Stripe) -----
     if (req.method === 'POST' && pathOnly === '/api/checkout'){
       res.setHeader('Access-Control-Allow-Origin','*');
