@@ -478,9 +478,12 @@ setTimeout(closeGaps,400); setTimeout(closeGaps,1200);
 
   }
   try{ if(rootEl){ var _KEYS=['company_name','logo_url','primary_color','heading_color','body_color','header_bg_color','page_bg_color','nav_text_color','heading_font','body_font','site_max_width','footer_max_width','nav_font_size','nav_weight','body_font_size','logo_height','heading_font_size','heading_weight','button_weight','phone','email','address','privacy_url','legal_footer','nav_menu_json','footer_menu_json','font_css_links','will_price','button_color','button_hover_color','button_text_color','button_font','button_radius','footer_bg_color','footer_text_color','facebook_url','instagram_url','linkedin_url','twitter_url','youtube_url','tiktok_url']; var _pc={}, _mm='{'+'{'; _KEYS.forEach(function(k){ var v=rootEl.getAttribute('data-'+k); if(v!=null && v!=='' && v.indexOf(_mm)<0) _pc[k]=v; }); if(Object.keys(_pc).length) window.AIWILLS_CONFIG=Object.assign({}, window.AIWILLS_CONFIG||{}, _pc); } }catch(e){}
-  if(window.AIWILLS_CONFIG && Object.keys(window.AIWILLS_CONFIG).length){ run(); }
-  else { fetch(API+'/api/brand?locationId='+encodeURIComponent(loc))
-    .then(function(r){return r.json();})
-    .then(function(c){ window.AIWILLS_CONFIG=c||{}; run(); })
-    .catch(function(){ window.AIWILLS_CONFIG=window.AIWILLS_CONFIG||{}; run(); }); }
+  (function(){
+    var _pcfg = window.AIWILLS_CONFIG || {};
+    var _brandKeys = Object.keys(_pcfg).filter(function(k){ return k!=='funnel'; });
+    function _go(srv){ window.AIWILLS_CONFIG = Object.assign({}, srv||{}, _pcfg); run(); } // page config wins over GHL brand
+    if(_brandKeys.length){ run(); }                 // page already carries brand (data-* injected): use it, no fetch
+    else if(loc){ fetch(API+'/api/brand?locationId='+encodeURIComponent(loc)).then(function(r){return r.json();}).then(function(c){ _go(c); }).catch(function(){ _go({}); }); } // only funnel/empty: pull brand from GHL
+    else { run(); }
+  })();
 })();
