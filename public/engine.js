@@ -340,6 +340,7 @@ function applyBrand(){
   var bbg=CFG.button_color||CFG.primary_color; if(bbg) r.setProperty('--btn-bg',bbg);
   if(CFG.button_hover_color) r.setProperty('--btn-hover',CFG.button_hover_color); else if(bbg) r.setProperty('--btn-hover',darken(bbg,0.14));
   if(CFG.button_text_color) r.setProperty('--btn-ink',CFG.button_text_color);
+  var _b2=CFG.button_secondary_color||'#ffffff'; r.setProperty('--btn2-bg',_b2); var _b2i=CFG.button_secondary_text_color; if(!_b2i){ var _b2l=lum(_b2); _b2i=(_b2l!=null&&_b2l<0.5)?'#ffffff':(CFG.primary_color||'#1B1D1F'); } r.setProperty('--btn2-ink',_b2i);
   if(CFG.button_font) r.setProperty('--btn-font',estack(CFG.button_font,''));
   if(CFG.button_radius) r.setProperty('--btn-radius',CFG.button_radius);
   if(CFG.heading_font_size) r.setProperty('--h-size',CFG.heading_font_size);
@@ -358,7 +359,7 @@ function applyBrand(){
   if(CFG.privacy_url) links+='<li>'+lnk(CFG.privacy_url,'Privacy policy')+'</li>';
   var SOC=[['facebook_url','Facebook'],['instagram_url','Instagram'],['linkedin_url','LinkedIn'],['twitter_url','X'],['youtube_url','YouTube'],['tiktok_url','TikTok']];
   var soc=SOC.map(function(s){ return CFG[s[0]]?lnk(CFG[s[0]],s[1]):''; }).join('');
-  el('ftr').innerHTML='<div class="fwrap"><div class="fgrid"><div><div class="fh">Explore</div><ul class="flinks">'+links+'</ul></div><div><div class="fcta">Ready to protect your family’s future?</div><button class="btn" onclick="window.scrollTo({top:0,behavior:\'smooth\'})">Start your will</button></div></div><hr class="frule">'+(soc?'<div class="fsoc">'+soc+'</div>':'')+'<p class="fleg">'+esc(CFG.legal_footer||'')+'</p>'+(CFG.address?'<p class="fleg">Registered office: '+esc(CFG.address)+'</p>':'')+'</div>';
+  el('ftr').innerHTML='<div class="fwrap"><div class="fgrid"><div><div class="fh">Explore</div><ul class="flinks">'+links+'</ul></div><div><div class="fcta">Ready to protect your family’s future?</div><button class="btn" style="background:var(--btn2-bg);color:var(--btn2-ink);border:2px solid var(--btn2-ink)" onclick="window.scrollTo({top:0,behavior:\'smooth\'})">'+((FUNNEL===ETB_FUNNEL)?'Get started':'Start your will')+'</button></div></div><hr class="frule">'+(soc?'<div class="fsoc">'+soc+'</div>':'')+'<p class="fleg">'+esc(CFG.legal_footer||'')+'</p>'+(CFG.address?'<p class="fleg">Registered office: '+esc(CFG.address)+'</p>':'')+'</div>';
 }
 
 function sumRow(k,v){ return v?('<div class="srow"><span class="k">'+esc(k)+'</span><span class="v">'+esc(v)+'</span></div>'):''; }
@@ -375,7 +376,7 @@ function summary(base,fields){
 function review(){
   var html='';
   visible().forEach(function(s){ if(!(s.fields&&s.fields.length)) return; var rows=summary(s.id,s.fields); if(!rows) return; html+='<div class="sum"><h3>'+esc(s.name)+'<button type="button" class="edit" data-goto="'+s.id+'">Edit</button></h3>'+rows+'</div>'; });
-  return html+'<button type="button" class="btn wide" id="dl" style="margin-top:8px">Download will (PDF)</button>';
+  return html+((FUNNEL===ETB_FUNNEL)?'':'<button type="button" class="btn wide" id="dl" style="margin-top:8px">Download will (PDF)</button>');
 }
 
 function render(){
@@ -477,7 +478,7 @@ window.addEventListener('load', closeGaps);
 setTimeout(closeGaps,400); setTimeout(closeGaps,1200);
 
   }
-  try{ if(rootEl){ var _KEYS=['company_name','logo_url','primary_color','heading_color','body_color','header_bg_color','page_bg_color','nav_text_color','heading_font','body_font','site_max_width','footer_max_width','nav_font_size','nav_weight','body_font_size','logo_height','heading_font_size','heading_weight','button_weight','phone','email','address','privacy_url','legal_footer','nav_menu_json','footer_menu_json','font_css_links','will_price','button_color','button_hover_color','button_text_color','button_font','button_radius','footer_bg_color','footer_text_color','facebook_url','instagram_url','linkedin_url','twitter_url','youtube_url','tiktok_url']; var _pc={}, _mm='{'+'{'; _KEYS.forEach(function(k){ var v=rootEl.getAttribute('data-'+k); if(v!=null && v!=='' && v.indexOf(_mm)<0) _pc[k]=v; }); if(Object.keys(_pc).length) window.AIWILLS_CONFIG=Object.assign({}, window.AIWILLS_CONFIG||{}, _pc); } }catch(e){}
+  try{ if(rootEl){ var _KEYS=['company_name','logo_url','primary_color','heading_color','body_color','header_bg_color','page_bg_color','nav_text_color','heading_font','body_font','site_max_width','footer_max_width','nav_font_size','nav_weight','body_font_size','logo_height','heading_font_size','heading_weight','button_weight','phone','email','address','privacy_url','legal_footer','nav_menu_json','footer_menu_json','font_css_links','will_price','button_color','button_hover_color','button_text_color','button_secondary_color','button_secondary_text_color','button_font','button_radius','footer_bg_color','footer_text_color','facebook_url','instagram_url','linkedin_url','twitter_url','youtube_url','tiktok_url']; var _pc={}, _mm='{'+'{'; _KEYS.forEach(function(k){ var v=rootEl.getAttribute('data-'+k); if(v!=null && v!=='' && v.indexOf(_mm)<0) _pc[k]=v; }); if(Object.keys(_pc).length) window.AIWILLS_CONFIG=Object.assign({}, window.AIWILLS_CONFIG||{}, _pc); } }catch(e){}
   (function(){
     var _pcfg = window.AIWILLS_CONFIG || {};
     var _brandKeys = Object.keys(_pcfg).filter(function(k){ return k!=='funnel'; });
