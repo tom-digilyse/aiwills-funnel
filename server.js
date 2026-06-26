@@ -286,7 +286,7 @@ var ETB_CONSOLIDATED = [
 var ETB_COUNTS = [ ['ETB Executor Count','executors.list'], ['ETB Property Count','property.list'], ['ETB Insurance Count','insurance.list'], ['ETB Pension Count','pensions.list'], ['ETB Bank Count','bank_accounts.list'], ['ETB Investment Count','investments.list'], ['ETB Business Count','business.list'], ['ETB Debt Count','debts.list'], ['ETB Digital Count','digital_assets.list'] ];
 var ETB_FILES = ['ETB Will Document','ETB Codicil Document','ETB LPA Document','ETB Pension Documents']; // created now, written in iteration 3
 function etbFieldDefs(){
-  var defs = [ { name:'ETB Status', dataType:'TEXT' }, { name:'ETB Completed At', dataType:'TEXT' } ];
+  var defs = [ { name:'ETB Status', dataType:'TEXT' }, { name:'ETB Completed At', dataType:'TEXT' }, { name:'ETB State Json', dataType:'LARGE_TEXT' } ];
   ETB_SINGLE.forEach(function(s){ defs.push({ name:s[0], dataType:s[1] }); });
   ETB_COUNTS.forEach(function(c){ defs.push({ name:c[0], dataType:'NUMERICAL' }); });
   ETB_REPEAT.forEach(function(r){ for (var n=1;n<=r[2];n++){ r[3].forEach(function(sub){ defs.push({ name:r[0]+' '+n+' '+sub[0], dataType:sub[1] }); }); } });
@@ -297,6 +297,7 @@ function etbFieldDefs(){
 function etbExtract(state, status){
   var out = {};
   if (status) out['ETB Status'] = status;
+  try { out['ETB State Json'] = JSON.stringify(state||{}); } catch(e){}
   ETB_SINGLE.forEach(function(s){ var v=gp(state,s[2]); if (v!=='' && v!=null) out[s[0]]=v; });
   ETB_COUNTS.forEach(function(c){ var l=gp(state,c[1]); if (Array.isArray(l) && l.length) out[c[0]]=l.length; });
   ETB_REPEAT.forEach(function(r){ var list=gp(state,r[1]); if (!Array.isArray(list)) return; for (var i=0;i<list.length && i<r[2];i++){ var it=list[i]||{}; r[3].forEach(function(sub){ var v=it[sub[2]]; if (v!=='' && v!=null) out[r[0]+' '+(i+1)+' '+sub[0]]=v; }); } });
@@ -384,6 +385,37 @@ function verifyStripeSig(raw, sigHeader, secret){
     const a = Buffer.from(expected), b = Buffer.from(parts.v1);
     return a.length === b.length && crypto.timingSafeEqual(a, b);
   } catch(e){ return false; }
+}
+/* ---- edit-link tokens: gate the load-by-contact endpoints so a contactId alone can't read someone's data ---- */
+function editSecret(){ return process.env.EDIT_SECRET || (String(process.env.STRIPE_SECRET_KEY||'').indexOf('sk_test')===0 ? 'aiwills-dev-edit-secret' : ''); }
+function b64u(s){ return Buffer.from(s).toString('base64').replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); }
+function b64ud(s){ s=String(s).replace(/-/g,'+').replace(/_/g,'/'); while(s.length%4)s+='='; return Buffer.from(s,'base64').toString('utf8'); }
+function signEdit(payload){ var sec=editSecret(); if(!sec) return ''; var p=b64u(JSON.stringify(payload)); var h=crypto.createHmac('sha256',sec).update(p).digest('hex').slice(0,32); return p+'.'+h; }
+function verifyEdit(token){ try{ var sec=editSecret(); if(!sec||!token) return null; var parts=String(token).split('.'); if(parts.length!==2) return null; var exp=crypto.createHmac('sha256',sec).update(parts[0]).digest('hex').slice(0,32); var a=Buffer.from(exp),b=Buffer.from(parts[1]); if(a.length!==b.length||!crypto.timingSafeEqual(a,b)) return null; var obj=JSON.parse(b64ud(parts[0])); if(obj.exp && Date.now()>obj.exp) return null; return obj; }catch(e){ return null; } }
+/* Read a saved funnel state JSON off a contact. funnel = 'etb' | 'wills'. */
+async function loadState(loc, contactId, funnel){
+  var token = await getWriteToken(loc);
+  var fieldName = (funnel==='wills') ? 'Will State Json' : 'ETB State Json';
+  var map = await etbFieldMap(token, loc); // generic contact-field name -> id
+  var fid = map[fieldName.toLowerCase()];
+  var got = await ghl('GET', '/contacts/' + contactId, token); var c = got.contact || got;
+  var state=null, contact={ firstName:c.firstName||'', lastName:c.lastName||'', email:c.email||'', phone:c.phone||'' };
+  (c.customFields||c.customField||[]).forEach(function(f){ if (fid && f.id===fid){ var v=(f.value!=null?f.value:f.fieldValue); try{ state=JSON.parse(v); }catch(e){} } });
+  return { state: state, contact: contact, found: !!state };
+}
+/* Persist the Wills funnel state JSON onto the contact (so it can be loaded back for editing). */
+async function willSave(loc, state, contactId){
+  if(!loc) throw new Error('locationId required');
+  var token = await getWriteToken(loc);
+  var map = await etbFieldMap(token, loc);
+  var fieldName='Will State Json'; var fid=map[fieldName.toLowerCase()];
+  if(!fid){ try{ var c=await ghl('POST','/locations/'+loc+'/customFields',token,{name:fieldName,dataType:'LARGE_TEXT',model:'contact'}); var nf=c.customField||c; if(nf&&nf.id) fid=nf.id; }catch(e){ console.error('will field create', e.message); } }
+  var p=(state&&state.personal)||{};
+  var body={ locationId:loc, firstName:p.firstName||'', lastName:p.lastName||'', email:p.email||'', phone:p.phone||'' };
+  if(contactId) body.id=contactId;
+  if(fid){ try{ body.customFields=[{ id:fid, value: JSON.stringify(state||{}) }]; }catch(e){} }
+  var up=await ghl('POST','/contacts/upsert',token,body);
+  return { contactId: (up.contact&&up.contact.id)||up.id||contactId||'', saved: !!fid };
 }
 async function getCustomValuesMap(locationId, token){
   const ex = await ghl('GET', '/locations/' + locationId + '/customValues', token);
@@ -609,6 +641,38 @@ const server = http.createServer(async (req, res) => {
         const b = JSON.parse((await readBody(req)) || '{}');
         const loc = (b.locationId||'').replace(/[^A-Za-z0-9]/g,'');
         return send(res, 200, await etbUpload(loc, b.contactId||'', b.fieldName||'', b.filename||'', b.mimeType||'', b.dataBase64||''));
+      } catch(e){ return send(res, 200, { error: e.message }); }
+    }
+    if (req.method === 'POST' && pathOnly === '/api/will-save'){
+      res.setHeader('Access-Control-Allow-Origin','*');
+      try {
+        const b = JSON.parse((await readBody(req)) || '{}');
+        const loc = (b.locationId||'').replace(/[^A-Za-z0-9]/g,'');
+        return send(res, 200, await willSave(loc, b.state||{}, b.contactId||''));
+      } catch(e){ return send(res, 200, { error: e.message }); }
+    }
+    // Load a saved funnel state for editing. Token-gated so a bare contactId can't read someone's data.
+    if (req.method === 'GET' && pathOnly === '/api/state-load'){
+      res.setHeader('Access-Control-Allow-Origin','*');
+      try {
+        const tok=(new URL(req.url,'http://x')).searchParams.get('t')||'';
+        const claims=verifyEdit(tok);
+        if(!claims||!claims.loc||!claims.cid) return send(res,403,{error:'invalid or expired link'});
+        const out=await loadState(claims.loc, claims.cid, claims.funnel||'etb');
+        return send(res,200,{ ok:true, funnel:(claims.funnel||'etb'), contactId:claims.cid, state:out.state, contact:out.contact, found:out.found });
+      } catch(e){ return send(res, 200, { error: e.message }); }
+    }
+    // DEV ONLY: mint an edit token to test the edit flow. Disabled the moment EDIT_SECRET is set (production).
+    if (req.method === 'GET' && pathOnly === '/api/_edit-token'){
+      res.setHeader('Access-Control-Allow-Origin','*');
+      try {
+        if(process.env.EDIT_SECRET) return send(res,403,{error:'disabled in production'});
+        const u=new URL(req.url,'http://x');
+        const loc=(u.searchParams.get('locationId')||'').replace(/[^A-Za-z0-9]/g,'');
+        const cid=(u.searchParams.get('contactId')||'').replace(/[^A-Za-z0-9]/g,'');
+        const funnel=(u.searchParams.get('funnel')||'etb');
+        if(!loc||!cid) return send(res,400,{error:'locationId and contactId required'});
+        return send(res,200,{ token: signEdit({ loc:loc, cid:cid, funnel:funnel, exp: Date.now()+1000*60*60 }) });
       } catch(e){ return send(res, 200, { error: e.message }); }
     }
     if (!authed(req)){
