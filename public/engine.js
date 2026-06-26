@@ -29,7 +29,7 @@ function wt(s){return {Light:'300',Normal:'400',Medium:'500',Semibold:'600',Bold
 function el(id){ return document.getElementById(id); }
 function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
 function age(d){ if(!d) return null; var t=new Date(d); if(isNaN(t)) return null; var n=new Date(), a=n.getFullYear()-t.getFullYear(), m=n.getMonth()-t.getMonth(); if(m<0||(m===0&&n.getDate()<t.getDate())) a--; return a; }
-function saveToGhl(state){ try{ if(FUNNEL===ETB_FUNNEL){ if(!loc) return; var st=(state.payment&&state.payment.paid)?'paid':'started'; try{ fetch(API+'/api/etb-save',{method:'POST',body:JSON.stringify({locationId:loc,state:state,status:st,contactId:(window.AIWILLS_ETB_CID||'')})}).then(function(r){return r.json();}).then(function(j){ if(j&&j.contactId) window.AIWILLS_ETB_CID=j.contactId; }).catch(function(){}); }catch(e){} return; } }catch(e){} var url=CFG.will_save_webhook_url; if(!url) return; var p=state.personal||{}; try{ fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contactId:(window.AIWILLS_CONTACT_ID||''),email:p.email||'',firstName:p.firstName||'',lastName:p.lastName||'',phone:p.phone||'',status:(state.payment&&state.payment.paid)?'paid':'started',willJson:JSON.stringify(state)})}); }catch(e){} }
+function saveToGhl(state){ try{ if(FUNNEL===ETB_FUNNEL){ if(!loc) return; var st=(state.payment&&state.payment.paid)?'paid':'started'; try{ fetch(API+'/api/etb-save',{method:'POST',body:JSON.stringify({locationId:loc,state:state,status:st,contactId:(window.AIWILLS_ETB_CID||'')})}).then(function(r){return r.json();}).then(function(j){ if(j&&j.contactId) window.AIWILLS_ETB_CID=j.contactId; }).catch(function(){}); }catch(e){} return; } }catch(e){} var p=state.personal||{}; if(loc){ try{ fetch(API+'/api/will-save',{method:'POST',body:JSON.stringify({locationId:loc,contactId:(window.AIWILLS_CONTACT_ID||''),state:state})}).then(function(r){return r.json();}).then(function(j){ if(j&&j.contactId) window.AIWILLS_CONTACT_ID=j.contactId; }).catch(function(){}); }catch(e){} } var url=CFG.will_save_webhook_url; if(url){ try{ fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contactId:(window.AIWILLS_CONTACT_ID||''),email:p.email||'',firstName:p.firstName||'',lastName:p.lastName||'',phone:p.phone||'',status:(state.payment&&state.payment.paid)?'paid':'started',willJson:JSON.stringify(state)})}); }catch(e){} } }
 
 var GIFT_FIELDS = [
   { key:'items', type:'repeater', itemLabel:'Item gift', max:20, fields:[
@@ -282,7 +282,7 @@ function getP(p){ var a=p.split('.'),o=state,i; for(i=0;i<a.length;i++){ if(o==n
 function setP(p,v){ var a=p.split('.'),o=state,i; for(i=0;i<a.length-1;i++){ o=o[a[i]]; } o[a[a.length-1]]=v; }
 function blankItem(f){ var o={}; flat(f.fields).forEach(function(x){ o[x.key]= x.type==='repeater'?[]:''; }); return o; }
 function total(lp,key){ return (getP(lp)||[]).reduce(function(s,it){ return s+(parseFloat(it[key])||0); },0); }
-function visible(){ return FUNNEL.filter(function(s){ return !s.showIf || s.showIf(state); }); }
+function visible(){ var ed=(window.AIWILLS_EDIT===true); return FUNNEL.filter(function(s){ if(ed && (s.kind==='payment'||s.kind==='generate'||s.kind==='done')) return false; return !s.showIf || s.showIf(state); }); }
 
 function fld(base,f){
   if(f.showIf && !f.showIf(state, base)) return '';
@@ -407,7 +407,7 @@ function render(){
   el('stepCount').textContent='Step '+(cur+1)+' of '+vis.length;
   el('bar').style.width=Math.round(((cur+1)/vis.length)*100)+'%';
   el('back').style.visibility=cur===0?'hidden':'visible';
-  var next=el('next'); next.style.display=(s.kind==='generate'||s.kind==='done')?'none':''; next.textContent=(s.kind==='review')?((FUNNEL===ETB_FUNNEL)?'Continue to activate':'Continue to payment'):'Continue';
+  var next=el('next'); next.style.display=(s.kind==='generate'||s.kind==='done')?'none':''; next.textContent=(s.kind==='review')?((window.AIWILLS_EDIT===true)?'Save changes':((FUNNEL===ETB_FUNNEL)?'Continue to activate':'Continue to payment')):'Continue';
   var pay=el('pay'); if(pay) pay.addEventListener('click',function(){ try{ collectVisible(); }catch(e){} var _isEtb=(FUNNEL===ETB_FUNNEL); var _lbl=_isEtb?'Subscribe':('Pay '+esc(CFG.will_price||'')); pay.disabled=true; pay.textContent='Redirecting to secure payment...'; var _url=_isEtb?(API+'/api/etb-checkout'):(API+'/api/checkout'); var _body=_isEtb?{locationId:loc,contactId:(window.AIWILLS_ETB_CID||''),contact:(state.your_details||{}),returnUrl:(location.href.split('#')[0].split('?')[0])}:{locationId:loc,willJson:state,returnUrl:(location.href.split('#')[0].split('?')[0])}; fetch(_url,{method:'POST',body:JSON.stringify(_body)}).then(function(r){return r.json();}).then(function(j){ if(j&&j.url){ window.location.href=j.url; } else { pay.disabled=false; pay.textContent=_lbl; alert('Could not start payment: '+((j&&j.error)||'unknown')); } }).catch(function(e){ pay.disabled=false; pay.textContent=_lbl; alert('Payment error: '+e.message); }); });
   // payment redirects out to Stripe and returns to the generate step (see aw_paid handling on load); no auto-advance, no demo download.
   el('step').querySelectorAll('[data-goto]').forEach(function(b){ b.addEventListener('click',function(){ jumpTo(b.getAttribute('data-goto')); }); });
@@ -448,6 +448,7 @@ function go(dir){
     var bad=validateStep(s);
     if(bad.length){ var msg=null; bad.forEach(function(b){ if(b.indexOf('MSG:')===0 && !msg) msg=b.slice(4); }); var first=null; bad.forEach(function(b){ if(b.indexOf('MSG:')!==0){ var fl=document.querySelector('[data-f="'+b+'"]'); if(fl){ fl.classList.add('invalid'); if(!first) first=fl; } } }); if(first && first.scrollIntoView){ try{ first.scrollIntoView({block:'center'}); }catch(e){} } alert(msg || 'Please complete the required fields highlighted in red.'); return; }
     saveToGhl(state);
+    if(window.AIWILLS_EDIT===true && s.kind==='review'){ el('step').innerHTML='<div class="mock"><div class="tick">✓</div><h3>Changes saved</h3><p class="note">Your details have been updated. You can close this page, or use Back to keep editing.</p></div>'; el('next').style.display='none'; el('back').style.visibility='visible'; try{ scrollTop(); }catch(e){} return; }
   }
   cur+=dir; if(cur<0)cur=0; if(cur>vis.length-1){ alert('Demo complete. In production the contact is tagged and the will is issued.'); cur=vis.length-1; }
   render(); scrollTop();
@@ -482,9 +483,16 @@ setTimeout(closeGaps,400); setTimeout(closeGaps,1200);
   (function(){
     var _pcfg = window.AIWILLS_CONFIG || {};
     var _brandKeys = Object.keys(_pcfg).filter(function(k){ return k!=='funnel'; });
-    function _go(srv){ window.AIWILLS_CONFIG = Object.assign({}, srv||{}, _pcfg); run(); } // page config wins over GHL brand
-    if(_brandKeys.length){ run(); }                 // page already carries brand (data-* injected): use it, no fetch
-    else if(loc){ fetch(API+'/api/brand?locationId='+encodeURIComponent(loc)).then(function(r){return r.json();}).then(function(c){ _go(c); }).catch(function(){ _go({}); }); } // only funnel/empty: pull brand from GHL
-    else { run(); }
+    function _runBranded(){
+      if(_brandKeys.length){ run(); }                 // page already carries brand (data-* injected): use it, no fetch
+      else if(loc){ fetch(API+'/api/brand?locationId='+encodeURIComponent(loc)).then(function(r){return r.json();}).then(function(c){ window.AIWILLS_CONFIG=Object.assign({},c||{},_pcfg); run(); }).catch(function(){ run(); }); } // only funnel/empty: pull brand from GHL
+      else { run(); }
+    }
+    var _tok=null; try{ _tok=new URLSearchParams(location.search).get('aw_t'); }catch(e){}
+    if(_tok){ // edit mode: load this contact's saved answers (token-gated), prefill, then render
+      fetch(API+'/api/state-load?t='+encodeURIComponent(_tok)).then(function(r){return r.json();}).then(function(j){
+        if(j&&j.ok&&j.state){ window.AIWILLS_PREFILL=j.state; window.AIWILLS_EDIT=true; if(j.funnel==='wills'){ window.AIWILLS_CONTACT_ID=j.contactId; } else { window.AIWILLS_ETB_CID=j.contactId; } }
+      }).catch(function(){}).then(_runBranded);
+    } else { _runBranded(); }
   })();
 })();
