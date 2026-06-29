@@ -417,6 +417,13 @@ async function willSave(loc, state, contactId){
   var up=await ghl('POST','/contacts/upsert',token,body);
   return { contactId: (up.contact&&up.contact.id)||up.id||contactId||'', saved: !!fid };
 }
+async function findContactByEmail(loc, email){
+  try {
+    const token = await getWriteToken(loc);
+    const r = await ghl('GET', '/contacts/search/duplicate?locationId='+loc+'&email='+encodeURIComponent(email), token);
+    return r.contact || (r.contacts && r.contacts[0]) || null;
+  } catch(e){ return null; }
+}
 async function getCustomValuesMap(locationId, token){
   const ex = await ghl('GET', '/locations/' + locationId + '/customValues', token);
   const list = ex.customValues || ex.customValue || []; const byName = {};
@@ -673,6 +680,56 @@ const server = http.createServer(async (req, res) => {
         const funnel=(u.searchParams.get('funnel')||'etb');
         if(!loc||!cid) return send(res,400,{error:'locationId and contactId required'});
         return send(res,200,{ token: signEdit({ loc:loc, cid:cid, funnel:funnel, exp: Date.now()+1000*60*60 }) });
+      } catch(e){ return send(res, 200, { error: e.message }); }
+    }
+    // Production mint: secret-gated (only Chris's login / a GHL workflow can call it). Returns a per-contact edit link.
+    if (req.method === 'POST' && pathOnly === '/api/edit-link'){
+      res.setHeader('Access-Control-Allow-Origin','*');
+      try {
+        const b = JSON.parse((await readBody(req)) || '{}');
+        const secret = b.secret || req.headers['x-edit-secret'] || '';
+        const need = process.env.EDIT_LINK_SECRET || (String(process.env.STRIPE_SECRET_KEY||'').indexOf('sk_test')===0 ? 'aiwills-dev-link-secret' : '');
+        if (!need || secret !== need) return send(res, 403, { error: 'forbidden' });
+        const loc = (b.locationId||'').replace(/[^A-Za-z0-9]/g,'');
+        const cid = (b.contactId||'').replace(/[^A-Za-z0-9]/g,'');
+        const funnel = (b.funnel==='wills')?'wills':'etb';
+        if (!loc || !cid) return send(res, 400, { error: 'locationId and contactId required' });
+        const ttl = Math.min(parseInt(b.ttlDays||30,10)||30, 90);
+        const token = signEdit({ loc:loc, cid:cid, funnel:funnel, exp: Date.now()+ttl*24*3600*1000 });
+        if (!token) return send(res, 500, { error: 'EDIT_SECRET not set on server' });
+        const base = b.returnBase || '';
+        const url = base ? (base + (base.indexOf('?')>=0?'&':'?') + 'aw_t=' + encodeURIComponent(token)) : '';
+        return send(res, 200, { ok:true, token: token, url: url });
+      } catch(e){ return send(res, 200, { error: e.message }); }
+    }
+    // Self-serve: a client enters their email; if it matches a contact we stamp their edit link + a tag, and a GHL workflow emails it. Always returns a generic message.
+    if (req.method === 'POST' && pathOnly === '/api/edit-request'){
+      res.setHeader('Access-Control-Allow-Origin','*');
+      try {
+        const b = JSON.parse((await readBody(req)) || '{}');
+        const loc = (b.locationId||'').replace(/[^A-Za-z0-9]/g,'');
+        const email = (b.email||'').trim();
+        const funnel = (b.funnel==='wills')?'wills':'etb';
+        const base = b.returnBase || '';
+        if (!loc || !email) return send(res, 400, { error: 'locationId and email required' });
+        (async function(){
+          try {
+            const c = await findContactByEmail(loc, email);
+            if (!c || !c.id) return;
+            const token = signEdit({ loc:loc, cid:c.id, funnel:funnel, exp: Date.now()+30*24*3600*1000 });
+            if (!token) return;
+            const url = base ? (base + (base.indexOf('?')>=0?'&':'?') + 'aw_t=' + encodeURIComponent(token)) : '';
+            const wtoken = await getWriteToken(loc);
+            const map = await etbFieldMap(wtoken, loc);
+            let fid = map['edit link'];
+            if (!fid){ try { const cf = await ghl('POST','/locations/'+loc+'/customFields',wtoken,{name:'Edit Link',dataType:'TEXT',model:'contact'}); const nf=cf.customField||cf; if(nf&&nf.id) fid=nf.id; }catch(e){} }
+            const body = { locationId: loc, id: c.id };
+            if (fid) body.customFields = [{ id: fid, value: url }];
+            await ghl('POST','/contacts/upsert',wtoken, body);
+            try { await ghl('POST','/contacts/'+c.id+'/tags', wtoken, { tags: ['send-edit-link'] }); }catch(e){}
+          } catch(e){ console.error('edit-request', e.message); }
+        })();
+        return send(res, 200, { ok:true, message:'If that email is on file, a secure edit link is on its way.' });
       } catch(e){ return send(res, 200, { error: e.message }); }
     }
     if (!authed(req)){
