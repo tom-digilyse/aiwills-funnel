@@ -193,10 +193,10 @@ var ETB_FUNNEL = [
     { key:'locationText', type:'text', label:'Where is it located?', showIf:function(s){return s.lpa.has==='Yes';} },
     { key:'document', type:'file', label:'Upload a copy of the LPA (optional)', field:'ETB LPA Document', accept:'.pdf,.doc,.docx,.jpg,.jpeg,.png', showIf:function(s){return s.lpa.has==='Yes';} }
   ]},
-  { id:'property', name:'Property', title:'Property', lead:'Where the deeds are, and the properties you own.', fields:[
-    { key:'deedsLocation', type:'text', label:'Where are your property deeds kept?' },
-    { key:'deedsNotes', type:'textarea', label:'Any notes about the deeds?' },
+  { id:'property', name:'Property', title:'Property', lead:'The properties you own, and where the deeds are kept.', fields:[
     { key:'has', type:'radio', label:'Do you own any property?', required:true, reflow:true, options:['Yes','No'] },
+    { key:'deedsLocation', type:'text', label:'Where are your property deeds kept?', showIf:function(s){return s.property.has==='Yes';} },
+    { key:'deedsNotes', type:'textarea', label:'Any notes about the deeds?', showIf:function(s){return s.property.has==='Yes';} },
     { key:'list', type:'repeater', itemLabel:'Property', max:5, showIf:function(s){return s.property.has==='Yes';}, fields:[
       { key:'address', type:'text', label:'Property address', required:true },
       { key:'ownership', type:'select', label:'Ownership type', required:true, options:['Sole','Joint Tenants','Tenants in Common'] },
@@ -212,11 +212,11 @@ var ETB_FUNNEL = [
       { key:'location', type:'text', label:'Where are the policy documents kept?' }
     ]}
   ]},
-  { id:'pensions', name:'Pensions', title:'Pensions', lead:'Your pension documents and providers.', fields:[
-    { key:'docsLocation', type:'text', label:'Where are your pension documents kept?' },
-    { key:'docsNotes', type:'textarea', label:'Any notes about your pensions?' },
-    { key:'documents', type:'file', label:'Upload pension documents (optional)', field:'ETB Pension Documents', accept:'.pdf,.doc,.docx,.jpg,.jpeg,.png,.xls,.xlsx,.csv' },
+  { id:'pensions', name:'Pensions', title:'Pensions', lead:'Your pensions, the documents and providers.', fields:[
     { key:'has', type:'radio', label:'Do you have any pensions?', required:true, reflow:true, options:['Yes','No'] },
+    { key:'docsLocation', type:'text', label:'Where are your pension documents kept?', showIf:function(s){return s.pensions.has==='Yes';} },
+    { key:'docsNotes', type:'textarea', label:'Any notes about your pensions?', showIf:function(s){return s.pensions.has==='Yes';} },
+    { key:'documents', type:'file', label:'Upload pension documents (optional)', field:'ETB Pension Documents', accept:'.pdf,.doc,.docx,.jpg,.jpeg,.png,.xls,.xlsx,.csv', showIf:function(s){return s.pensions.has==='Yes';} },
     { key:'list', type:'repeater', itemLabel:'Pension', max:5, showIf:function(s){return s.pensions.has==='Yes';}, fields:[
       { type:'row', fields:[ {key:'type',type:'text',label:'Pension type',required:true}, {key:'provider',type:'text',label:'Provider',required:true} ] },
       { type:'row', fields:[ {key:'policyNumber',type:'text',label:'Policy number'}, {key:'value',type:'number',label:'Approx value (£)'} ] },
@@ -382,6 +382,7 @@ function review(){
 
 function render(){
   var vis=visible(); if(cur>vis.length-1) cur=vis.length-1; var s=vis[cur];
+  if(s.fields){ s.fields.forEach(function(f){ if(f.type==='repeater' && (!f.showIf || f.showIf(state))){ var lp=s.id+'.'+f.key; var l=getP(lp); if(Array.isArray(l) && l.length===0){ l.push(blankItem(f)); } } }); } // a card is always open when a section is active (no hunting for + Add)
   var html='<h1>'+esc(s.title)+'</h1>'+(s.lead?'<p class="lead">'+esc(s.lead)+'</p>':'');
   if(s.kind==='payment'){
     var _isEtb=(FUNNEL===ETB_FUNNEL);
