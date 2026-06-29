@@ -376,6 +376,7 @@ function summary(base,fields){
 function review(){
   var html='';
   visible().forEach(function(s){ if(!(s.fields&&s.fields.length)) return; var rows=summary(s.id,s.fields); if(!rows) return; html+='<div class="sum"><h3>'+esc(s.name)+'<button type="button" class="edit" data-goto="'+s.id+'">Edit</button></h3>'+rows+'</div>'; });
+  if(window.AIWILLS_EDIT===true){ return html+'<button type="button" class="btn wide" id="dlp" style="margin-top:8px">Download a copy (PDF)</button>'; }
   return html+((FUNNEL===ETB_FUNNEL)?'':'<button type="button" class="btn wide" id="dl" style="margin-top:8px">Download will (PDF)</button>');
 }
 
@@ -406,9 +407,12 @@ function render(){
   el('stepName').textContent=s.name;
   el('stepCount').textContent='Step '+(cur+1)+' of '+vis.length;
   el('bar').style.width=Math.round(((cur+1)/vis.length)*100)+'%';
-  el('back').style.visibility=cur===0?'hidden':'visible';
-  var next=el('next'); next.style.display=(s.kind==='generate'||s.kind==='done')?'none':''; next.textContent=(s.kind==='review')?((window.AIWILLS_EDIT===true)?'Save changes':((FUNNEL===ETB_FUNNEL)?'Continue to activate':'Continue to payment')):'Continue';
+  var _ed=(window.AIWILLS_EDIT===true);
+  el('back').textContent=_ed?'Back to summary':'Back';
+  el('back').style.visibility=_ed?(s.kind==='review'?'hidden':'visible'):(cur===0?'hidden':'visible');
+  var next=el('next'); if(_ed){ next.style.display=(s.kind==='review')?'none':''; next.textContent='Save'; } else { next.style.display=(s.kind==='generate'||s.kind==='done')?'none':''; next.textContent=(s.kind==='review')?((FUNNEL===ETB_FUNNEL)?'Continue to activate':'Continue to payment'):'Continue'; }
   var pay=el('pay'); if(pay) pay.addEventListener('click',function(){ try{ collectVisible(); }catch(e){} var _isEtb=(FUNNEL===ETB_FUNNEL); var _lbl=_isEtb?'Subscribe':('Pay '+esc(CFG.will_price||'')); pay.disabled=true; pay.textContent='Redirecting to secure payment...'; var _url=_isEtb?(API+'/api/etb-checkout'):(API+'/api/checkout'); var _body=_isEtb?{locationId:loc,contactId:(window.AIWILLS_ETB_CID||''),contact:(state.your_details||{}),returnUrl:(location.href.split('#')[0].split('?')[0])}:{locationId:loc,willJson:state,returnUrl:(location.href.split('#')[0].split('?')[0])}; fetch(_url,{method:'POST',body:JSON.stringify(_body)}).then(function(r){return r.json();}).then(function(j){ if(j&&j.url){ window.location.href=j.url; } else { pay.disabled=false; pay.textContent=_lbl; alert('Could not start payment: '+((j&&j.error)||'unknown')); } }).catch(function(e){ pay.disabled=false; pay.textContent=_lbl; alert('Payment error: '+e.message); }); });
+  var _dlp=el('dlp'); if(_dlp) _dlp.addEventListener('click',function(){ try{ window.print(); }catch(e){} });
   // payment redirects out to Stripe and returns to the generate step (see aw_paid handling on load); no auto-advance, no demo download.
   el('step').querySelectorAll('[data-goto]').forEach(function(b){ b.addEventListener('click',function(){ jumpTo(b.getAttribute('data-goto')); }); });
 }
@@ -448,7 +452,7 @@ function go(dir){
     var bad=validateStep(s);
     if(bad.length){ var msg=null; bad.forEach(function(b){ if(b.indexOf('MSG:')===0 && !msg) msg=b.slice(4); }); var first=null; bad.forEach(function(b){ if(b.indexOf('MSG:')!==0){ var fl=document.querySelector('[data-f="'+b+'"]'); if(fl){ fl.classList.add('invalid'); if(!first) first=fl; } } }); if(first && first.scrollIntoView){ try{ first.scrollIntoView({block:'center'}); }catch(e){} } alert(msg || 'Please complete the required fields highlighted in red.'); return; }
     saveToGhl(state);
-    if(window.AIWILLS_EDIT===true && s.kind==='review'){ el('step').innerHTML='<div class="mock"><div class="tick">✓</div><h3>Changes saved</h3><p class="note">Your details have been updated. You can close this page, or use Back to keep editing.</p></div>'; el('next').style.display='none'; el('back').style.visibility='visible'; try{ scrollTop(); }catch(e){} return; }
+    if(window.AIWILLS_EDIT===true){ try{ jumpTo('review'); }catch(e){} return; } // edit hub: save this section, back to summary
   }
   cur+=dir; if(cur<0)cur=0; if(cur>vis.length-1){ alert('Demo complete. In production the contact is tagged and the will is issued.'); cur=vis.length-1; }
   render(); scrollTop();
@@ -459,7 +463,7 @@ document.addEventListener('change', function(e){ var n=e.target.closest('[data-b
 document.addEventListener('click', function(e){ try{ var a=e.target.closest('[data-add]'); if(a){ collectVisible(); addItem(a.getAttribute('data-add')); return; } var rm=e.target.closest('[data-rm]'); if(rm){ collectVisible(); getP(rm.getAttribute('data-rm')).splice(+rm.getAttribute('data-i'),1); render(); } }catch(err){ alert('Action error: '+err.message); } });
 document.addEventListener('change', function(e){ var u=e.target.closest&&e.target.closest('[data-upload]'); if(!u||!u.files||!u.files[0]) return; var file=u.files[0]; var fieldName=u.getAttribute('data-upload'); var nameKey=u.getAttribute('data-namekey'); var stat=u.parentElement.querySelector('.uplstat')||{}; if(file.size>10*1024*1024){ stat.textContent='File too large (max 10MB)'; return; } stat.textContent='Uploading...'; var rd=new FileReader(); rd.onload=function(){ var b64=String(rd.result).split(',')[1]||''; fetch(API+'/api/etb-save',{method:'POST',body:JSON.stringify({locationId:loc,state:state,status:'started',contactId:(window.AIWILLS_ETB_CID||'')})}).then(function(r){return r.json();}).then(function(j){ if(j&&j.contactId) window.AIWILLS_ETB_CID=j.contactId; return fetch(API+'/api/etb-upload',{method:'POST',body:JSON.stringify({locationId:loc,contactId:(window.AIWILLS_ETB_CID||''),fieldName:fieldName,filename:file.name,mimeType:file.type,dataBase64:b64})}); }).then(function(r){return r.json();}).then(function(j){ if(j&&j.ok){ stat.textContent='Uploaded: '+file.name; if(nameKey) setP(nameKey,file.name); } else { stat.textContent='Upload failed: '+((j&&j.error)||'error'); } }).catch(function(){ stat.textContent='Upload failed'; }); }; rd.readAsDataURL(file); });
 el('next').addEventListener('click', function(){ try{ go(1); }catch(err){ alert('Continue error: '+err.message); } });
-el('back').addEventListener('click', function(){ try{ go(-1); }catch(err){ alert('Back error: '+err.message); } });
+el('back').addEventListener('click', function(){ try{ if(window.AIWILLS_EDIT===true){ jumpTo('review'); return; } go(-1); }catch(err){ alert('Back error: '+err.message); } });
 window.addEventListener('error', function(ev){ alert('Engine error: '+((ev&&ev.message)||'unknown')); });
 function closeGaps(){
   try{
@@ -473,7 +477,7 @@ function closeGaps(){
   }catch(e){}
 }
 initState(); applyBrand();
-try{ var _qp=new URLSearchParams(location.search); if(_qp.get('aw_paid')==='1' && _qp.get('aw_id')){ window.AIWILLS_WILL_ID=_qp.get('aw_id'); if(state.payment) state.payment.paid=true; var _vv=visible(); for(var _i=0;_i<_vv.length;_i++){ if(_vv[_i].id==='generate'){ cur=_i; break; } } } if(_qp.get('aw_etb_paid')==='1' && FUNNEL===ETB_FUNNEL){ if(state.payment) state.payment.paid=true; var _ev=visible(); for(var _j=0;_j<_ev.length;_j++){ if(_ev[_j].id==='done'){ cur=_j; break; } } } }catch(e){}
+try{ var _qp=new URLSearchParams(location.search); if(_qp.get('aw_paid')==='1' && _qp.get('aw_id')){ window.AIWILLS_WILL_ID=_qp.get('aw_id'); if(state.payment) state.payment.paid=true; var _vv=visible(); for(var _i=0;_i<_vv.length;_i++){ if(_vv[_i].id==='generate'){ cur=_i; break; } } } if(_qp.get('aw_etb_paid')==='1' && FUNNEL===ETB_FUNNEL){ if(state.payment) state.payment.paid=true; var _ev=visible(); for(var _j=0;_j<_ev.length;_j++){ if(_ev[_j].id==='done'){ cur=_j; break; } } } if(window.AIWILLS_EDIT===true){ var _rv=visible(); for(var _k=0;_k<_rv.length;_k++){ if(_rv[_k].kind==='review'){ cur=_k; break; } } } }catch(e){}
 render(); closeGaps();
 window.addEventListener('load', closeGaps);
 setTimeout(closeGaps,400); setTimeout(closeGaps,1200);
