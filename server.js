@@ -359,7 +359,7 @@ async function etbUpload(loc, contactId, fieldName, filename, mimeType, dataBase
   });
   const text = await r.text(); let json; try { json = JSON.parse(text); } catch(e){ json = { raw: text.slice(0,300) }; }
   if (!r.ok) throw new Error('GHL upload -> ' + r.status + ' ' + text.slice(0,400));
-  return { ok: true, field: fieldName, contactId: contactId, bytes: buf.length };
+  return { ok: true, field: fieldName, contactId: contactId, bytes: buf.length, raw: json };
 }
 
 /* ---------- payment (Stripe), will store, PDF helpers ---------- */
