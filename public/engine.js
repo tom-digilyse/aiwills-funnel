@@ -319,6 +319,8 @@ function repeater(base,f){
 }
 function findRepeater(lp){ var found=null; FUNNEL.forEach(function(s){ if(!s.fields) return; flat(s.fields).forEach(function(f){ if(f.type==='repeater' && s.id+'.'+f.key===lp) found=f; }); }); return found; }
 function addItem(lp){ var f=findRepeater(lp); if(!f) return; var list=getP(lp); if(f.max && list.length>=f.max) return; list.push(blankItem(f)); render(); }
+function itemEmpty(f,it){ return flat(f.fields).every(function(sf){ var v=it&&it[sf.key]; return v==null||v===''||(Array.isArray(v)&&v.length===0); }); }
+function stripEmptyRepeaters(){ FUNNEL.forEach(function(s){ if(!s.fields) return; flat(s.fields).forEach(function(f){ if(f.type!=='repeater') return; var lp=s.id+'.'+f.key; var l=getP(lp); if(!Array.isArray(l)) return; var kept=l.filter(function(it){ return !itemEmpty(f,it); }); if(kept.length!==l.length) setP(lp,kept); }); }); }
 
 function applyBrand(){
   var r=document.documentElement.style;
@@ -382,7 +384,7 @@ function review(){
 
 function render(){
   var vis=visible(); if(cur>vis.length-1) cur=vis.length-1; var s=vis[cur];
-  if(s.fields){ s.fields.forEach(function(f){ if(f.type==='repeater' && (!f.showIf || f.showIf(state))){ var lp=s.id+'.'+f.key; var l=getP(lp); if(Array.isArray(l) && l.length===0){ l.push(blankItem(f)); } } }); } // a card is always open when a section is active (no hunting for + Add)
+  if(s.fields){ s.fields.forEach(function(f){ if(f.type!=='repeater') return; var active=f.showIf?f.showIf(state):false; if(!(f.required||active)) return; var lp=s.id+'.'+f.key; var l=getP(lp); if(Array.isArray(l) && l.length===0){ l.push(blankItem(f)); } }); } // auto-open a card only for required or gated-active repeaters; optional lists (e.g. gifts) can be emptied via Remove
   var html='<h1>'+esc(s.title)+'</h1>'+(s.lead?'<p class="lead">'+esc(s.lead)+'</p>':'');
   if(s.kind==='payment'){
     var _isEtb=(FUNNEL===ETB_FUNNEL);
@@ -450,6 +452,7 @@ function go(dir){
   var vis=visible(), s=vis[cur];
   if(dir>0){
     collectVisible();
+    stripEmptyRepeaters(); // drop blank add-cards so empty items never reach the review/summary
     var bad=validateStep(s);
     if(bad.length){ var msg=null; bad.forEach(function(b){ if(b.indexOf('MSG:')===0 && !msg) msg=b.slice(4); }); var first=null; bad.forEach(function(b){ if(b.indexOf('MSG:')!==0){ var fl=document.querySelector('[data-f="'+b+'"]'); if(fl){ fl.classList.add('invalid'); if(!first) first=fl; } } }); if(first && first.scrollIntoView){ try{ first.scrollIntoView({block:'center'}); }catch(e){} } alert(msg || 'Please complete the required fields highlighted in red.'); return; }
     saveToGhl(state, { pdf: (s.kind==='review' || s.kind==='payment' || window.AIWILLS_EDIT===true) });
@@ -466,7 +469,7 @@ document.addEventListener('click', function(e){ try{ var a=e.target.closest('[da
 document.addEventListener('change', function(e){ var u=e.target.closest&&e.target.closest('[data-upload]'); if(!u||!u.files||!u.files[0]) return; var file=u.files[0]; var fieldName=u.getAttribute('data-upload'); var nameKey=u.getAttribute('data-namekey'); var stat=u.parentElement.querySelector('.uplstat')||{}; if(file.size>10*1024*1024){ stat.textContent='File too large (max 10MB)'; return; } stat.textContent='Uploading...'; var rd=new FileReader(); rd.onload=function(){ var b64=String(rd.result).split(',')[1]||''; fetch(API+'/api/etb-save',{method:'POST',body:JSON.stringify({locationId:loc,state:state,status:'started',contactId:(window.AIWILLS_ETB_CID||'')})}).then(function(r){return r.json();}).then(function(j){ if(j&&j.contactId) window.AIWILLS_ETB_CID=j.contactId; return fetch(API+'/api/etb-upload',{method:'POST',body:JSON.stringify({locationId:loc,contactId:(window.AIWILLS_ETB_CID||''),fieldName:fieldName,filename:file.name,mimeType:file.type,dataBase64:b64})}); }).then(function(r){return r.json();}).then(function(j){ if(j&&j.ok){ stat.textContent='Uploaded: '+file.name; if(nameKey){ setP(nameKey,file.name); if(j.url) setP(nameKey+'_url',j.url); } try{ autosave(); }catch(e){} } else { stat.textContent='Upload failed: '+((j&&j.error)||'error'); } }).catch(function(){ stat.textContent='Upload failed'; }); }; rd.readAsDataURL(file); });
 document.addEventListener('click', function(e){ var rm=e.target.closest&&e.target.closest('.frm'); if(!rm) return; e.preventDefault(); var field=rm.getAttribute('data-frm'), nameKey=rm.getAttribute('data-namekey'); if(nameKey){ setP(nameKey,''); setP(nameKey+'_url',''); } var tok=window.AIWILLS_TOKEN||''; if(tok){ try{ fetch(API+'/api/etb-file-remove',{method:'POST',body:JSON.stringify({t:tok,field:field})}).catch(function(){}); }catch(e2){} } try{ autosave(); }catch(e3){} render(); });
 el('next').addEventListener('click', function(){ try{ go(1); }catch(err){ alert('Continue error: '+err.message); } });
-el('back').addEventListener('click', function(){ try{ if(window.AIWILLS_EDIT===true){ jumpTo('review'); return; } go(-1); }catch(err){ alert('Back error: '+err.message); } });
+el('back').addEventListener('click', function(){ try{ if(window.AIWILLS_EDIT===true){ stripEmptyRepeaters(); try{autosave();}catch(e){} jumpTo('review'); return; } go(-1); }catch(err){ alert('Back error: '+err.message); } });
 window.addEventListener('error', function(ev){ alert('Engine error: '+((ev&&ev.message)||'unknown')); });
 function closeGaps(){
   try{
