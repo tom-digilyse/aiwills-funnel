@@ -337,7 +337,7 @@ function applyBrand(){
   if(CFG.site_max_width) r.setProperty('--site-max',CFG.site_max_width);
   if(CFG.nav_font_size) r.setProperty('--nav-size',CFG.nav_font_size);
   if(CFG.body_font_size) r.setProperty('--body-size',CFG.body_font_size);
-  if(CFG.logo_height) r.setProperty('--logo-h',CFG.logo_height);
+  if(CFG.logo_height){ var _lh=parseInt(CFG.logo_height,10)||0; if(_lh) r.setProperty('--logo-h', Math.max(28,Math.min(60,_lh))+'px'); } // clamp to a header-sane range so a large captured value can't blow the logo out
   if(CFG.footer_max_width) r.setProperty('--footer-max',CFG.footer_max_width);
   var bbg=CFG.button_color||CFG.primary_color; if(bbg) r.setProperty('--btn-bg',bbg);
   if(CFG.button_hover_color) r.setProperty('--btn-hover',CFG.button_hover_color); else if(bbg) r.setProperty('--btn-hover',darken(bbg,0.14));
