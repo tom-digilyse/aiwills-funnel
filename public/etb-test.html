@@ -8,22 +8,10 @@
 <body>
 <div id="aiwills-funnel" data-loc="P9op1DA48g0xLBWLdvhV"></div>
 <script>
-/* Iteration-1 test harness for the Executor Toolbox funnel.
-   Sets funnel:'etb' so the hosted engine renders ETB_FUNNEL, with a sample brand.
-   No will_save_webhook_url, so saveToGhl is a no-op (GHL binding is iteration 2). */
-window.AIWILLS_CONFIG = {
-  funnel: 'etb',
-  company_name: 'Executor Toolbox (test)',
-  primary_color: '#0B3D2E',
-  heading_color: '#0B3D2E',
-  body_color: '#22312b',
-  header_bg_color: '#F3F1EA',
-  page_bg_color: '#FAF8F2',
-  button_color: '#0B3D2E',
-  button_hover_color: '#0a3327',
-  button_text_color: '#ffffff',
-  button_radius: '10'
-};
+/* Test harness for the Executor Toolbox funnel.
+   Only sets funnel:'etb' so the hosted engine pulls the real brand from GHL via /api/brand
+   (same as the Wills harness). Add ?aw_t=<token> to test edit mode. */
+window.AIWILLS_CONFIG = { funnel: 'etb' };
 </script>
 <script src="https://aiwills.digilyse.co/api/engine"></script>
 </body>
