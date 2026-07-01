@@ -400,8 +400,19 @@ async function loadState(loc, contactId, funnel){
   var fid = map[fieldName.toLowerCase()];
   var got = await ghl('GET', '/contacts/' + contactId, token); var c = got.contact || got;
   var state=null, contact={ firstName:c.firstName||'', lastName:c.lastName||'', email:c.email||'', phone:c.phone||'' };
-  (c.customFields||c.customField||[]).forEach(function(f){ if (fid && f.id===fid){ var v=(f.value!=null?f.value:f.fieldValue); try{ state=JSON.parse(v); }catch(e){} } });
-  return { state: state, contact: contact, found: !!state };
+  var byId={}; (c.customFields||c.customField||[]).forEach(function(f){ byId[f.id]=(f.value!=null?f.value:f.fieldValue); });
+  if (fid && byId[fid]!=null){ try{ state=JSON.parse(byId[fid]); }catch(e){} }
+  // Uploaded documents: read the FILE_UPLOAD fields' URLs so the client can view/download them.
+  var files=[]; ETB_FILES.forEach(function(name){ var id=map[name.toLowerCase()]; if(!id) return; var raw=byId[id]; var u=extractFileUrl(raw); if(u.url) files.push({ field:name, url:u.url, name:u.name||'' }); });
+  return { state: state, contact: contact, found: !!state, files: files };
+}
+// GHL FILE_UPLOAD values vary (plain URL, or JSON like [{url,name}] / {url}). Pull a usable URL out.
+function extractFileUrl(v){
+  if (v==null || v==='') return { url:'' };
+  var s=String(v);
+  if (/^https?:\/\//i.test(s)) return { url:s };
+  try { var j=JSON.parse(s); var o=Array.isArray(j)?j[0]:j; if(o){ var url=o.url||o.fileUrl||o.link||''; if(url) return { url:url, name:o.name||o.fileName||'' }; } } catch(e){}
+  var m=s.match(/https?:\/\/[^\s"'\]]+/i); return { url: m?m[0]:'' };
 }
 /* Persist the Wills funnel state JSON onto the contact (so it can be loaded back for editing). */
 async function willSave(loc, state, contactId){
@@ -617,6 +628,41 @@ const server = http.createServer(async (req, res) => {
         return res.end(buf);
       } catch(e){ return send(res, 200, { error: e.message }); }
     }
+    // ----- edit-mode downloads: real documents, token-gated (load state from GHL, generate) -----
+    if (req.method === 'GET' && (pathOnly === '/api/will-pdf' || pathOnly === '/api/etb-pdf')){
+      res.setHeader('Access-Control-Allow-Origin','*');
+      try {
+        const tok=(new URL(req.url,'http://x')).searchParams.get('t')||'';
+        const cl=verifyEdit(tok);
+        if(!cl||!cl.loc||!cl.cid) return send(res, 403, { error: 'invalid or expired link' });
+        const isWill = (pathOnly === '/api/will-pdf');
+        const out = await loadState(cl.loc, cl.cid, isWill?'wills':'etb');
+        if(!out.state) return send(res, 404, { error: 'nothing saved yet' });
+        let company=''; try { const cv=await getCustomValuesMap(cl.loc, await getWriteToken(cl.loc)); company=cv['company_name']||''; } catch(e){}
+        const wp = require('./will-pdf');
+        let buf, fname;
+        if (isWill){ const wd = wp.normalizeWill(out.state); buf = await wp.buildWillPdf(wd, { company_name: company }); fname='your-will.pdf'; }
+        else { buf = await wp.buildEtbPdf(out.state, { company_name: company }); fname='executor-toolbox-summary.pdf'; }
+        res.writeHead(200, { 'Content-Type':'application/pdf', 'Content-Disposition':'inline; filename="'+fname+'"', 'Cache-Control':'no-store', 'Access-Control-Allow-Origin':'*' });
+        return res.end(buf);
+      } catch(e){ return send(res, 200, { error: e.message }); }
+    }
+    // ----- edit-mode: remove an uploaded document from a contact's file field, token-gated -----
+    if (req.method === 'POST' && pathOnly === '/api/etb-file-remove'){
+      res.setHeader('Access-Control-Allow-Origin','*');
+      try {
+        const b = JSON.parse((await readBody(req)) || '{}');
+        const cl=verifyEdit(b.t||'');
+        if(!cl||!cl.loc||!cl.cid) return send(res, 403, { error: 'invalid or expired link' });
+        const fieldName=(b.field||'');
+        const token=await getWriteToken(cl.loc);
+        const map=await etbFieldMap(token, cl.loc);
+        const fid=map[fieldName.toLowerCase()];
+        if(!fid) return send(res, 400, { error: 'unknown field' });
+        await ghl('POST','/contacts/upsert',token,{ locationId:cl.loc, id:cl.cid, customFields:[{ id:fid, value:'' }] });
+        return send(res, 200, { ok:true });
+      } catch(e){ return send(res, 200, { error: e.message }); }
+    }
     // ----- Executor Toolbox: status / field-creation / save (public, called by the funnel) -----
     if (req.method === 'GET' && pathOnly === '/api/etb-status'){
       res.setHeader('Access-Control-Allow-Origin','*');
@@ -666,7 +712,7 @@ const server = http.createServer(async (req, res) => {
         const claims=verifyEdit(tok);
         if(!claims||!claims.loc||!claims.cid) return send(res,403,{error:'invalid or expired link'});
         const out=await loadState(claims.loc, claims.cid, claims.funnel||'etb');
-        return send(res,200,{ ok:true, funnel:(claims.funnel||'etb'), contactId:claims.cid, state:out.state, contact:out.contact, found:out.found });
+        return send(res,200,{ ok:true, funnel:(claims.funnel||'etb'), contactId:claims.cid, state:out.state, contact:out.contact, found:out.found, files:out.files||[] });
       } catch(e){ return send(res, 200, { error: e.message }); }
     }
     // DEV ONLY: mint an edit token to test the edit flow. Disabled the moment EDIT_SECRET is set (production).

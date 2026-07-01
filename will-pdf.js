@@ -381,4 +381,43 @@ function normalizeWill(s){
   };
 }
 
-module.exports = { buildWillPdf: buildWillPdf, normalizeWill: normalizeWill };
+/* ---------- Executor Toolbox summary PDF ---------- */
+function etbH(doc, t){ doc.moveDown(0.6); doc.font('Helvetica-Bold').fontSize(13).fillColor('#0B3D2E').text(t); doc.moveDown(0.15); }
+function etbLine(doc, label, val){ if(val==null||String(val).trim()==='') return; doc.font('Helvetica-Bold').fontSize(10).fillColor('#555').text(label+': ', {continued:true}); doc.font('Helvetica').fillColor('#111').text(String(val)); }
+function buildEtbPdf(state, brand){
+  state = state || {}; brand = brand || {};
+  return new Promise(function(resolve, reject){
+    try {
+      var doc = new PDFDocument({ size:'A4', margins:{ top:60, bottom:64, left:60, right:60 }, bufferPages:true });
+      var chunks=[]; doc.on('data', function(c){ chunks.push(c); }); doc.on('end', function(){ resolve(Buffer.concat(chunks)); }); doc.on('error', reject);
+      var company = brand.company_name || 'Executor Toolbox';
+      doc.font('Helvetica-Bold').fontSize(20).fillColor('#0B3D2E').text(company);
+      doc.font('Helvetica').fontSize(12).fillColor('#555').text('Executor Toolbox summary');
+      doc.moveDown(0.2); doc.font('Helvetica').fontSize(9).fillColor('#888').text('Generated ' + new Date().toLocaleDateString('en-GB') + '. Keep this with your important papers so your executors can find everything.');
+      var yd = state.your_details || {};
+      etbH(doc,'Your details');
+      etbLine(doc,'Name',[yd.firstName,yd.lastName].filter(Boolean).join(' '));
+      etbLine(doc,'Email',yd.email); etbLine(doc,'Phone',yd.phone);
+      etbLine(doc,'Address',[yd.address,yd.city,yd.postcode].filter(Boolean).join(', '));
+      var ex = (state.executors && state.executors.list) || [];
+      if (arr(ex).length){ etbH(doc,'Executors'); arr(ex).forEach(function(e,i){ etbLine(doc,'Executor '+(i+1), [ [e.firstName,e.lastName].filter(Boolean).join(' '), (e.relationship||''), (e.phone||''), (e.email||'') ].filter(Boolean).join(' · ')); }); }
+      function docSec(key,label){ var s=state[key]||{}; if(!s.has) return; etbH(doc,label); etbLine(doc,'Have one?',s.has); etbLine(doc,'Kept',s.locationType); etbLine(doc,'Location',s.locationText); etbLine(doc,'Type',s.type); etbLine(doc,'Uploaded file',s.document); }
+      docSec('will','Will'); docSec('codicil','Codicil'); docSec('lpa','Lasting Power of Attorney');
+      var pr = state.property || {};
+      if (pr.has){ etbH(doc,'Property'); etbLine(doc,'Deeds kept',pr.deedsLocation); etbLine(doc,'Deeds notes',pr.deedsNotes); arr(pr.list).forEach(function(p,i){ etbLine(doc,'Property '+(i+1), [p.address,p.ownership,(String(p.hasMortgage).toLowerCase()==='yes'?('Mortgage: '+(p.mortgageProvider||'yes')):'')].filter(Boolean).join(' · ')); }); }
+      var pn = state.pensions || {};
+      if (pn.has){ etbH(doc,'Pensions'); etbLine(doc,'Documents kept',pn.docsLocation); etbLine(doc,'Notes',pn.docsNotes); arr(pn.list).forEach(function(p,i){ etbLine(doc,'Pension '+(i+1), [p.type,p.provider,p.policyNumber,(p.value?('£'+p.value):''),p.access].filter(Boolean).join(' · ')); }); }
+      function assetSec(key,label,fields){ var s=state[key]||{}; var list=arr(s.list); if(!list.length) return; etbH(doc,label); list.forEach(function(it,i){ var parts=fields.map(function(f){ return it[f[1]]?(f[0]+': '+it[f[1]]):''; }).filter(Boolean); etbLine(doc,label.replace(/s$/,'')+' '+(i+1), parts.join(' · ')); }); }
+      assetSec('insurance','Insurance policies',[['Type','type'],['Provider','provider'],['Policy','policyNumber'],['Docs','location']]);
+      assetSec('bank_accounts','Bank accounts',[['Type','type'],['Bank','bankName'],['Number','accountNumber'],['Holder','holder'],['Stored','stored']]);
+      assetSec('investments','Investments',[['Type','type'],['Provider','provider'],['Value','value'],['Ref','reference'],['Location','location']]);
+      assetSec('business','Business interests',[['Name','name'],['Role','role'],['Contact','keyContact']]);
+      assetSec('debts','Debts',[['Creditor','creditor'],['Type','creditorType'],['Balance','balance'],['Details','location']]);
+      assetSec('digital_assets','Digital assets',[['Platform','platform'],['Access','access'],['Location','location']]);
+      var w = state.wishes || {};
+      if (String(w.record).toLowerCase()==='yes'){ etbH(doc,'Funeral wishes'); etbLine(doc,'Arrangements',w.arrangements); etbLine(doc,'Preferences',w.preferences); etbLine(doc,'Plan provider',w.planProvider); etbLine(doc,'Documents kept',w.docsLocation); }
+      doc.end();
+    } catch(e){ reject(e); }
+  });
+}
+module.exports = { buildWillPdf: buildWillPdf, normalizeWill: normalizeWill, buildEtbPdf: buildEtbPdf };
