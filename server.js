@@ -362,7 +362,18 @@ async function etbUpload(loc, contactId, fieldName, filename, mimeType, dataBase
   const text = await r.text(); let json; try { json = JSON.parse(text); } catch(e){ json = { raw: text.slice(0,300) }; }
   if (!r.ok) throw new Error('GHL upload -> ' + r.status + ' ' + text.slice(0,400));
   var fileUrl=''; try { if (json && json.uploadedFiles){ fileUrl = json.uploadedFiles[filename] || (Object.keys(json.uploadedFiles).map(function(k){return json.uploadedFiles[k];})[0]) || ''; } if (!fileUrl && json && Array.isArray(json.meta) && json.meta[0]) fileUrl = json.meta[0].url || ''; } catch(e){}
+  // GHL's contact UI doesn't render FILE_UPLOAD values, so mirror the storage URL into a TEXT link field the advisor can see + open.
+  await mirrorFileLink(token, loc, map, contactId, fieldName, fileUrl);
   return { ok: true, field: fieldName, contactId: contactId, bytes: buf.length, url: fileUrl };
+}
+// GHL's contact UI + GET API don't surface FILE_UPLOAD values. Write the storage URL into a companion "<field> Link" TEXT field so it's visible + clickable on the contact.
+async function mirrorFileLink(token, loc, map, contactId, fieldName, fileUrl){
+  if (!fileUrl || !contactId) return false;
+  var linkName = fieldName + ' Link';
+  var lfid = map && map[linkName.toLowerCase()];
+  if (!lfid){ try { var lcf = await ghl('POST','/locations/'+loc+'/customFields',token,{ name:linkName, dataType:'TEXT', model:'contact' }); var lnf=lcf.customField||lcf; if(lnf&&lnf.id){ lfid=lnf.id; if(map) map[linkName.toLowerCase()]=lfid; } } catch(e){} }
+  if (lfid){ try { await ghl('PUT','/contacts/'+contactId, token, { customFields:[{ id:lfid, value:fileUrl }] }); return true; } catch(e){} }
+  return false;
 }
 
 /* ---------- payment (Stripe), will store, PDF helpers ---------- */
@@ -461,13 +472,8 @@ async function storeGeneratedPdf(loc, contactId, funnel){
     // Pull the storage URL out of the upload response and mirror it into a plain TEXT field so the advisor sees a clickable link.
     var json; try { json = JSON.parse(t); } catch(e){ json = null; }
     var fileUrl=''; try { if (json && json.uploadedFiles){ fileUrl = json.uploadedFiles[fname] || (Object.keys(json.uploadedFiles).map(function(k){return json.uploadedFiles[k];})[0]) || ''; } if (!fileUrl && json && Array.isArray(json.meta) && json.meta[0]) fileUrl = json.meta[0].url || ''; } catch(e){}
-    var linkName = fieldName + ' Link';
-    if (fileUrl){
-      var lfid = map[linkName.toLowerCase()];
-      if (!lfid){ try { var lcf = await ghl('POST','/locations/'+loc+'/customFields',token,{ name:linkName, dataType:'TEXT', model:'contact' }); var lnf=lcf.customField||lcf; if(lnf&&lnf.id) lfid=lnf.id; } catch(e){} }
-      if (lfid){ try { await ghl('PUT','/contacts/'+contactId, token, { customFields:[{ id:lfid, value:fileUrl }] }); } catch(e){} }
-    }
-    return { ok:true, field:fieldName, bytes:buf.length, url:fileUrl, link:!!fileUrl };
+    var linked = await mirrorFileLink(token, loc, map, contactId, fieldName, fileUrl);
+    return { ok:true, field:fieldName, bytes:buf.length, url:fileUrl, link:!!linked };
   } catch(e){ return { ok:false, err:String(e&&e.message||e) }; }
 }
 // GHL /contacts/upsert rejects an `id` (422 "property id should not exist"). Update a KNOWN contact with PUT /contacts/{id}; only upsert (match by email) when creating.
