@@ -159,6 +159,16 @@ function scrapeBrand(html, css, baseUrl){
   const logoImg = /<img[^>]+(?:src|class|alt)=["'][^"']*logo[^"']*["'][^>]*>/i.exec(html);
   if (logoImg){ logo = firstMatch(/src=["']([^"']+)["']/i, logoImg[0]); }
   logo = abs(logo || ogImage || apple || icon, origin);
+  // Best-effort logo height from the logo <img> (height attr or inline style), clamped to a header-sane range.
+  // Prevents the "way too big" logo and gives the tool a value to write instead of leaving a stale one in GHL.
+  let logoHeight = '';
+  if (logoImg){
+    const hStyle = firstMatch(/height\s*:\s*(\d{2,3})px/i, logoImg[0]);
+    const hAttr = firstMatch(/\bheight=["']?(\d{2,3})/i, logoImg[0]);
+    const raw = parseInt(hStyle || hAttr || '', 10);
+    if (raw){ logoHeight = Math.max(28, Math.min(60, raw)) + 'px'; }
+  }
+  if (!logoHeight) logoHeight = '44px';
 
   const title = firstMatch(/<title[^>]*>([^<]+)<\/title>/i, html);
   const ogSite = firstMatch(/<meta[^>]+property=["']og:site_name["'][^>]+content=["']([^"']+)["']/i, html);
@@ -182,6 +192,7 @@ function scrapeBrand(html, css, baseUrl){
   return {
     company_name: company,
     client_logo_url: logo,
+    logo_height: logoHeight,
     client_primary_color: colors.primary,
     client_heading_color: colors.headingColor,
     client_body_color: colors.bodyColor,
@@ -240,7 +251,14 @@ async function handleWrite(locationId, values){
   const results = [];
   for (const name of Object.keys(values)){
     const value = values[name];
-    if (value === '' || value == null){ results.push({ name: name, skipped: true }); continue; }
+    if (value === '' || value == null){
+      // Re-brand must fully replace, not merge: if this value already exists in GHL, CLEAR it so a
+      // previous client's data (e.g. legal footer) can't survive. Don't create empty values.
+      const eid = byName[name.toLowerCase()];
+      if (eid){ try { await ghl('PUT', '/locations/' + locationId + '/customValues/' + eid, token, { name: name, value: '' }); results.push({ name: name, action: 'cleared' }); } catch(e){ results.push({ name: name, error: e.message }); } }
+      else { results.push({ name: name, skipped: true }); }
+      continue;
+    }
     try {
       const id = byName[name.toLowerCase()];
       if (id){ await ghl('PUT', '/locations/' + locationId + '/customValues/' + id, token, { name: name, value: value }); results.push({ name: name, action: 'updated' }); }
