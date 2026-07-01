@@ -454,7 +454,17 @@ async function storeGeneratedPdf(loc, contactId, funnel){
     var r = await fetch(GHL_BASE + '/locations/' + loc + '/customFields/upload', { method:'POST', headers:{ Authorization:'Bearer '+token, Version:GHL_VERSION, Accept:'application/json' }, body:form });
     var t = await r.text();
     if (!r.ok) return { ok:false, err:'upload '+r.status+' '+t.slice(0,200) };
-    return { ok:true, field:fieldName, bytes:buf.length };
+    // GHL's contact UI + GET API do NOT surface FILE_UPLOAD values, so the file is in storage but invisible on the contact.
+    // Pull the storage URL out of the upload response and mirror it into a plain TEXT field so the advisor sees a clickable link.
+    var json; try { json = JSON.parse(t); } catch(e){ json = null; }
+    var fileUrl=''; try { if (json && json.uploadedFiles){ fileUrl = json.uploadedFiles[fname] || (Object.keys(json.uploadedFiles).map(function(k){return json.uploadedFiles[k];})[0]) || ''; } if (!fileUrl && json && Array.isArray(json.meta) && json.meta[0]) fileUrl = json.meta[0].url || ''; } catch(e){}
+    var linkName = fieldName + ' Link';
+    if (fileUrl){
+      var lfid = map[linkName.toLowerCase()];
+      if (!lfid){ try { var lcf = await ghl('POST','/locations/'+loc+'/customFields',token,{ name:linkName, dataType:'TEXT', model:'contact' }); var lnf=lcf.customField||lcf; if(lnf&&lnf.id) lfid=lnf.id; } catch(e){} }
+      if (lfid){ try { await ghl('PUT','/contacts/'+contactId, token, { customFields:[{ id:lfid, value:fileUrl }] }); } catch(e){} }
+    }
+    return { ok:true, field:fieldName, bytes:buf.length, url:fileUrl, link:!!fileUrl };
   } catch(e){ return { ok:false, err:String(e&&e.message||e) }; }
 }
 // GHL /contacts/upsert rejects an `id` (422 "property id should not exist"). Update a KNOWN contact with PUT /contacts/{id}; only upsert (match by email) when creating.
