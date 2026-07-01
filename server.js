@@ -211,20 +211,28 @@ function scrapeBrand(html, css, baseUrl){
   };
 }
 
-async function fetchText(url){
-  const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 AiWillsOnboarding' }, redirect: 'follow' });
-  if (!r.ok) throw new Error('Fetch ' + url + ' returned ' + r.status);
-  return await r.text();
+async function fetchText(url, ms){
+  // Abort slow/blocking sites so the scrape can't hang the tool on "Scraping..." forever.
+  const ctrl = new AbortController();
+  const t = setTimeout(function(){ ctrl.abort(); }, ms || 10000);
+  try {
+    const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 AiWillsOnboarding' }, redirect: 'follow', signal: ctrl.signal });
+    if (!r.ok) throw new Error('Fetch ' + url + ' returned ' + r.status);
+    return await r.text();
+  } catch(e){
+    if (e && (e.name === 'AbortError' || /aborted/i.test(e.message||''))) throw new Error('Timed out fetching ' + url + ' - the site is slow or blocking automated requests. Use the Measure bookmarklet or enter the brand manually.');
+    throw e;
+  } finally { clearTimeout(t); }
 }
 
 async function handleScrape(url){
-  const html = await fetchText(url);
+  const html = await fetchText(url, 12000); // main page: hard 12s cap
   const origin = new URL(url).origin;
   const hrefs = [];
   const linkRe = /<link[^>]+rel=["']stylesheet["'][^>]+href=["']([^"']+)["']/gi; let m;
   while ((m = linkRe.exec(html)) && hrefs.length < 3){ if (!/googleapis|gstatic/.test(m[1])) hrefs.push(abs(m[1], origin)); }
   let css = '';
-  for (const h of hrefs){ try { css += '\n' + await fetchText(h); } catch(e){} }
+  for (const h of hrefs){ try { css += '\n' + await fetchText(h, 6000); } catch(e){} } // stylesheets: 6s each, failures ignored
   return scrapeBrand(html, css, url);
 }
 
