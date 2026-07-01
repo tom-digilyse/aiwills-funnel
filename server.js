@@ -403,16 +403,17 @@ async function loadState(loc, contactId, funnel){
   var byId={}; (c.customFields||c.customField||[]).forEach(function(f){ byId[f.id]=(f.value!=null?f.value:f.fieldValue); });
   if (fid && byId[fid]!=null){ try{ state=JSON.parse(byId[fid]); }catch(e){} }
   // Uploaded documents: read the FILE_UPLOAD fields' URLs so the client can view/download them.
-  var files=[]; ETB_FILES.forEach(function(name){ var id=map[name.toLowerCase()]; if(!id) return; var raw=byId[id]; var u=extractFileUrl(raw); if(u.url) files.push({ field:name, url:u.url, name:u.name||'' }); });
-  return { state: state, contact: contact, found: !!state, files: files };
+  var files=[], filesRaw=[]; ETB_FILES.forEach(function(name){ var id=map[name.toLowerCase()]; if(!id) return; var raw=byId[id]; if(raw!=null&&raw!=='') filesRaw.push({ field:name, t:(typeof raw), sample:(typeof raw==='object'?JSON.stringify(raw):String(raw)).slice(0,240) }); var u=extractFileUrl(raw); if(u.url) files.push({ field:name, url:u.url, name:u.name||'' }); });
+  return { state: state, contact: contact, found: !!state, files: files, filesRaw: filesRaw };
 }
-// GHL FILE_UPLOAD values vary (plain URL, or JSON like [{url,name}] / {url}). Pull a usable URL out.
+// GHL FILE_UPLOAD values vary (plain URL, object/array {url}, JSON string, or a documents wrapper). Pull a usable URL out.
 function extractFileUrl(v){
   if (v==null || v==='') return { url:'' };
-  var s=String(v);
+  if (typeof v==='object'){ try{ v=JSON.stringify(v); }catch(e){ v=String(v); } }
+  var s=String(v).trim();
   if (/^https?:\/\//i.test(s)) return { url:s };
-  try { var j=JSON.parse(s); var o=Array.isArray(j)?j[0]:j; if(o){ var url=o.url||o.fileUrl||o.link||''; if(url) return { url:url, name:o.name||o.fileName||'' }; } } catch(e){}
-  var m=s.match(/https?:\/\/[^\s"'\]]+/i); return { url: m?m[0]:'' };
+  try { var j=JSON.parse(s); var o=Array.isArray(j)?j[0]:j; if(o&&typeof o==='object'){ var url=o.url||o.fileUrl||o.link||o.documentUrl||o.publicUrl||''; if(url) return { url:url, name:o.name||o.fileName||'' }; } } catch(e){}
+  var m=s.match(/https?:\/\/[^\s"'\\\]]+/i); return { url: m?m[0]:'' };
 }
 /* Persist the Wills funnel state JSON onto the contact (so it can be loaded back for editing). */
 async function willSave(loc, state, contactId){
@@ -712,7 +713,7 @@ const server = http.createServer(async (req, res) => {
         const claims=verifyEdit(tok);
         if(!claims||!claims.loc||!claims.cid) return send(res,403,{error:'invalid or expired link'});
         const out=await loadState(claims.loc, claims.cid, claims.funnel||'etb');
-        return send(res,200,{ ok:true, funnel:(claims.funnel||'etb'), contactId:claims.cid, state:out.state, contact:out.contact, found:out.found, files:out.files||[] });
+        return send(res,200,{ ok:true, funnel:(claims.funnel||'etb'), contactId:claims.cid, state:out.state, contact:out.contact, found:out.found, files:out.files||[], filesRaw:out.filesRaw||[] });
       } catch(e){ return send(res, 200, { error: e.message }); }
     }
     // DEV ONLY: mint an edit token to test the edit flow. Disabled the moment EDIT_SECRET is set (production).
