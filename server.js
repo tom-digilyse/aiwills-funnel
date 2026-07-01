@@ -334,8 +334,8 @@ async function etbSave(loc, state, contactId, status, opts){
   var cid = (up.contact && up.contact.id) || up.id || contactId || '';
   var readback = null;
   if (cid){ try { var got = await ghl('GET', '/contacts/' + cid, token); var c = got.contact || got; var byId={}; (c.customFields||c.customField||[]).forEach(function(f){ byId[f.id]=(f.value!=null?f.value:f.fieldValue); }); readback = { id: cid, fieldCount: Object.keys(byId).length }; } catch(e){ readback = { id: cid, err: e.message }; } }
-  if (opts && opts.pdf && cid) storeGeneratedPdf(loc, cid, 'etb'); // fire-and-forget: keep the summary PDF on the contact
-  return { contactId: cid, writtenCount: written.length, noFieldCount: noField.length, noFieldSample: noField.slice(0,10), readback: readback };
+  var pdfRes; if (opts && opts.pdf && cid) pdfRes = await storeGeneratedPdf(loc, cid, 'etb'); // keep the summary PDF on the contact
+  return { contactId: cid, writtenCount: written.length, noFieldCount: noField.length, noFieldSample: noField.slice(0,10), readback: readback, pdf: pdfRes };
 }
 // Stream an uploaded document straight into a GHL FILE_UPLOAD custom field on the contact.
 // Browser sends base64 (JSON) -> we build multipart to GHL -> we keep nothing.
@@ -428,16 +428,16 @@ async function willSave(loc, state, contactId, opts){
   if(fid){ try{ base.customFields=[{ id:fid, value: JSON.stringify(state||{}) }]; }catch(e){} }
   var up=await upsertOrUpdateContact(token, loc, contactId, base);
   var cid=(up.contact&&up.contact.id)||up.id||contactId||'';
-  if (opts && opts.pdf && cid) storeGeneratedPdf(loc, cid, 'wills');
-  return { contactId: cid, saved: !!fid };
+  var pdfRes; if (opts && opts.pdf && cid) pdfRes = await storeGeneratedPdf(loc, cid, 'wills');
+  return { contactId: cid, saved: !!fid, pdf: pdfRes };
 }
 // Generate the funnel's PDF (will or toolbox summary) from the contact's saved state and store it onto a FILE_UPLOAD field so the advisor sees it in GHL.
 async function storeGeneratedPdf(loc, contactId, funnel){
   try {
-    if (!loc || !contactId) return;
+    if (!loc || !contactId) return { skip:'no id' };
     var token = await getWriteToken(loc);
     var out = await loadState(loc, contactId, funnel);
-    if (!out.state) return;
+    if (!out.state) return { skip:'no state' };
     var company=''; try { var cv = await getCustomValuesMap(loc, token); company = cv['company_name'] || ''; } catch(e){}
     var wp = require('./will-pdf');
     var buf, fieldName, fname;
@@ -445,14 +445,17 @@ async function storeGeneratedPdf(loc, contactId, funnel){
     else { buf = await wp.buildEtbPdf(out.state, { company_name: company }); fieldName='ETB Summary PDF'; fname='toolbox-summary.pdf'; }
     var map = await etbFieldMap(token, loc);
     var fid = map[fieldName.toLowerCase()];
-    if (!fid){ try { var cf = await ghl('POST','/locations/'+loc+'/customFields',token,{ name:fieldName, dataType:'FILE_UPLOAD', model:'contact' }); var nf=cf.customField||cf; if(nf&&nf.id) fid=nf.id; } catch(e){} }
-    if (!fid) return;
+    if (!fid){ var cf = await ghl('POST','/locations/'+loc+'/customFields',token,{ name:fieldName, dataType:'FILE_UPLOAD', model:'contact' }); var nf=cf.customField||cf; if(nf&&nf.id) fid=nf.id; }
+    if (!fid) return { ok:false, err:'no field id for '+fieldName };
     var fileId = crypto.randomBytes(8).toString('hex');
     var form = new FormData();
     form.append('id', contactId); form.append('maxFiles','1');
     form.append(fid + '_' + fileId, new Blob([buf], { type:'application/pdf' }), fname);
-    await fetch(GHL_BASE + '/locations/' + loc + '/customFields/upload', { method:'POST', headers:{ Authorization:'Bearer '+token, Version:GHL_VERSION, Accept:'application/json' }, body:form });
-  } catch(e){ console.error('storeGeneratedPdf', e.message); }
+    var r = await fetch(GHL_BASE + '/locations/' + loc + '/customFields/upload', { method:'POST', headers:{ Authorization:'Bearer '+token, Version:GHL_VERSION, Accept:'application/json' }, body:form });
+    var t = await r.text();
+    if (!r.ok) return { ok:false, err:'upload '+r.status+' '+t.slice(0,200) };
+    return { ok:true, field:fieldName, bytes:buf.length };
+  } catch(e){ return { ok:false, err:String(e&&e.message||e) }; }
 }
 // GHL /contacts/upsert rejects an `id` (422 "property id should not exist"). Update a KNOWN contact with PUT /contacts/{id}; only upsert (match by email) when creating.
 async function upsertOrUpdateContact(token, loc, contactId, base){
