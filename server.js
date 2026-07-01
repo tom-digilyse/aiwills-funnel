@@ -680,12 +680,21 @@ const server = http.createServer(async (req, res) => {
       const repo = process.env.GIT_REPO_DIR || '/home/digiiics/repositories/aiwills-funnel';
       const key = process.env.GIT_SSH_KEY || '/home/digiiics/.ssh/id_rsa';
       const dest = __dirname;
+      // Hard-sync the clone (ff-only silently aborts the whole chain if the clone ever diverges),
+      // copy static + server files, then restart. Write a status file we can read to confirm.
       const cmd = "cd " + repo
-        + " && GIT_SSH_COMMAND='ssh -i " + key + " -o StrictHostKeyChecking=no' git pull --ff-only"
+        + " && GIT_SSH_COMMAND='ssh -i " + key + " -o StrictHostKeyChecking=no' git fetch --all --prune"
+        + " && git reset --hard origin/main"
         + " && /bin/cp -R public/. " + dest + "/public/"
-        + " && /bin/cp -f server.js will-pdf.js package.json " + dest + "/ 2>/dev/null"
-        + " ; /bin/mkdir -p " + dest + "/tmp && /bin/touch " + dest + "/tmp/restart.txt";
+        + " && /bin/cp -f server.js will-pdf.js package.json " + dest + "/"
+        + " && /bin/mkdir -p " + dest + "/tmp && /bin/touch " + dest + "/tmp/restart.txt"
+        + " && git rev-parse --short HEAD";
+      const statusFile = dest + '/public/_deploy_status.txt';
       require('child_process').exec(cmd, { timeout: 90000 }, function(err, stdout, stderr){
+        var when = new Date().toISOString();
+        var line = err ? ('FAIL ' + when + ' ' + String(err.message||'').slice(0,140) + ' | ' + String(stderr||'').slice(-200))
+                       : ('OK ' + when + ' head=' + String(stdout||'').trim().split('\n').pop());
+        try { require('fs').writeFileSync(statusFile, line + '\n'); } catch(_){}
         if (err) console.error('git-deploy FAILED:', err.message, String(stderr||'').slice(-300));
         else console.log('git-deploy ok:', String(stdout||'').slice(-200));
       });
