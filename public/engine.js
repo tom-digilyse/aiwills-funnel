@@ -374,8 +374,8 @@ function summary(base,fields){
   return out;
 }
 function review(){
-  var html='';
-  visible().forEach(function(s){ if(!(s.fields&&s.fields.length)) return; var rows=summary(s.id,s.fields); if(!rows) return; html+='<div class="sum"><h3>'+esc(s.name)+'<button type="button" class="edit" data-goto="'+s.id+'">Edit</button></h3>'+rows+'</div>'; });
+  var html=''; var ed=(window.AIWILLS_EDIT===true);
+  visible().forEach(function(s){ if(!(s.fields&&s.fields.length)) return; var rows=summary(s.id,s.fields); if(!rows && !ed) return; var body=rows||'<div style="padding:2px 0 8px;color:#8a8a8a;font-size:14px">Nothing added yet.</div>'; html+='<div class="sum"><h3>'+esc(s.name)+'<button type="button" class="edit" data-goto="'+s.id+'">'+(rows?'Edit':'Add')+'</button></h3>'+body+'</div>'; });
   if(window.AIWILLS_EDIT===true){ return html+'<button type="button" class="btn wide" id="dlp" style="margin-top:8px">Download a copy (PDF)</button>'; }
   return html+((FUNNEL===ETB_FUNNEL)?'':'<button type="button" class="btn wide" id="dl" style="margin-top:8px">Download will (PDF)</button>');
 }
