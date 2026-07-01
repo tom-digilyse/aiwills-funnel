@@ -359,7 +359,8 @@ async function etbUpload(loc, contactId, fieldName, filename, mimeType, dataBase
   });
   const text = await r.text(); let json; try { json = JSON.parse(text); } catch(e){ json = { raw: text.slice(0,300) }; }
   if (!r.ok) throw new Error('GHL upload -> ' + r.status + ' ' + text.slice(0,400));
-  return { ok: true, field: fieldName, contactId: contactId, bytes: buf.length, raw: json };
+  var fileUrl=''; try { if (json && json.uploadedFiles){ fileUrl = json.uploadedFiles[filename] || (Object.keys(json.uploadedFiles).map(function(k){return json.uploadedFiles[k];})[0]) || ''; } if (!fileUrl && json && Array.isArray(json.meta) && json.meta[0]) fileUrl = json.meta[0].url || ''; } catch(e){}
+  return { ok: true, field: fieldName, contactId: contactId, bytes: buf.length, url: fileUrl };
 }
 
 /* ---------- payment (Stripe), will store, PDF helpers ---------- */
