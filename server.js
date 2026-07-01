@@ -329,9 +329,8 @@ async function etbSave(loc, state, contactId, status){
   var values = etbExtract(state, status || 'started');
   var cf = []; var written = [], noField = [];
   Object.keys(values).forEach(function(name){ var id = map[name.toLowerCase()]; if (id){ cf.push({ id: id, value: String(values[name]) }); written.push(name); } else { noField.push(name); } });
-  var body = { locationId: loc, firstName: pd.firstName||'', lastName: pd.lastName||'', email: pd.email||'', phone: pd.phone||'', address1: pd.address||'', city: pd.city||'', postalCode: pd.postcode||'', customFields: cf };
-  if (contactId) body.id = contactId;
-  var up = await ghl('POST', '/contacts/upsert', token, body);
+  var base = { firstName: pd.firstName||'', lastName: pd.lastName||'', email: pd.email||'', phone: pd.phone||'', address1: pd.address||'', city: pd.city||'', postalCode: pd.postcode||'', customFields: cf };
+  var up = await upsertOrUpdateContact(token, loc, contactId, base);
   var cid = (up.contact && up.contact.id) || up.id || contactId || '';
   var readback = null;
   if (cid){ try { var got = await ghl('GET', '/contacts/' + cid, token); var c = got.contact || got; var byId={}; (c.customFields||c.customField||[]).forEach(function(f){ byId[f.id]=(f.value!=null?f.value:f.fieldValue); }); readback = { id: cid, fieldCount: Object.keys(byId).length }; } catch(e){ readback = { id: cid, err: e.message }; } }
@@ -424,11 +423,15 @@ async function willSave(loc, state, contactId){
   var fieldName='Will State Json'; var fid=map[fieldName.toLowerCase()];
   if(!fid){ try{ var c=await ghl('POST','/locations/'+loc+'/customFields',token,{name:fieldName,dataType:'LARGE_TEXT',model:'contact'}); var nf=c.customField||c; if(nf&&nf.id) fid=nf.id; }catch(e){ console.error('will field create', e.message); } }
   var p=(state&&state.personal)||{};
-  var body={ locationId:loc, firstName:p.firstName||'', lastName:p.lastName||'', email:p.email||'', phone:p.phone||'' };
-  if(contactId) body.id=contactId;
-  if(fid){ try{ body.customFields=[{ id:fid, value: JSON.stringify(state||{}) }]; }catch(e){} }
-  var up=await ghl('POST','/contacts/upsert',token,body);
+  var base={ firstName:p.firstName||'', lastName:p.lastName||'', email:p.email||'', phone:p.phone||'' };
+  if(fid){ try{ base.customFields=[{ id:fid, value: JSON.stringify(state||{}) }]; }catch(e){} }
+  var up=await upsertOrUpdateContact(token, loc, contactId, base);
   return { contactId: (up.contact&&up.contact.id)||up.id||contactId||'', saved: !!fid };
+}
+// GHL /contacts/upsert rejects an `id` (422 "property id should not exist"). Update a KNOWN contact with PUT /contacts/{id}; only upsert (match by email) when creating.
+async function upsertOrUpdateContact(token, loc, contactId, base){
+  if (contactId){ return await ghl('PUT', '/contacts/' + contactId, token, base); }
+  return await ghl('POST', '/contacts/upsert', token, Object.assign({ locationId: loc }, base));
 }
 async function findContactByEmail(loc, email){
   try {
@@ -661,7 +664,7 @@ const server = http.createServer(async (req, res) => {
         const map=await etbFieldMap(token, cl.loc);
         const fid=map[fieldName.toLowerCase()];
         if(!fid) return send(res, 400, { error: 'unknown field' });
-        await ghl('POST','/contacts/upsert',token,{ locationId:cl.loc, id:cl.cid, customFields:[{ id:fid, value:'' }] });
+        await ghl('PUT','/contacts/'+cl.cid,token,{ customFields:[{ id:fid, value:'' }] });
         return send(res, 200, { ok:true });
       } catch(e){ return send(res, 200, { error: e.message }); }
     }
@@ -771,9 +774,7 @@ const server = http.createServer(async (req, res) => {
             const map = await etbFieldMap(wtoken, loc);
             let fid = map['edit link'];
             if (!fid){ try { const cf = await ghl('POST','/locations/'+loc+'/customFields',wtoken,{name:'Edit Link',dataType:'TEXT',model:'contact'}); const nf=cf.customField||cf; if(nf&&nf.id) fid=nf.id; }catch(e){} }
-            const body = { locationId: loc, id: c.id };
-            if (fid) body.customFields = [{ id: fid, value: url }];
-            await ghl('POST','/contacts/upsert',wtoken, body);
+            if (fid) await ghl('PUT','/contacts/'+c.id, wtoken, { customFields: [{ id: fid, value: url }] });
             try { await ghl('POST','/contacts/'+c.id+'/tags', wtoken, { tags: ['send-edit-link'] }); }catch(e){}
           } catch(e){ console.error('edit-request', e.message); }
         })();
