@@ -132,7 +132,7 @@ var FIELDS = [
   {k:'nav_weight', label:'Nav weight', select:true, opts:['Light','Normal','Medium','Semibold','Bold'], g:'header'},
   {k:'logo_height', label:'Logo height (e.g. 50px)', g:'header'},
   {k:'body_font_size', label:'Body font size (e.g. 17px)', g:'header'},
-  {k:'nav_menu_json', label:'Header navigation menu (captured, editable)', textarea:true, g:'header'},
+  {k:'nav_menu_json', label:'Header navigation menu (add/edit items - use this if the site menu sits in its own row and was not captured)', menu:true, g:'header'},
   {k:'button_style', label:'Button style (sets the corner radius below)', select:true, opts:['Pill','Rounded','Square'], g:'buttons'},
   {k:'button_color', label:'Button colour (blank = use primary)', color:true, g:'buttons'},
   {k:'button_hover_color', label:'Button hover colour (blank = auto-darken)', color:true, g:'buttons'},
@@ -145,7 +145,7 @@ var FIELDS = [
   {k:'footer_bg_color', label:'Footer background', color:true, g:'footer'},
   {k:'footer_text_color', label:'Footer text colour (blank = auto)', color:true, g:'footer'},
   {k:'footer_max_width', label:'Footer content width (e.g. 1176px)', g:'footer'},
-  {k:'footer_menu_json', label:'Footer menu (captured, editable)', textarea:true, g:'footer'},
+  {k:'footer_menu_json', label:'Footer menu (add/edit items)', menu:true, g:'footer'},
   {k:'footer_phone', label:'Phone', g:'contact'},
   {k:'company_email', label:'Email', g:'contact'},
   {k:'company_website', label:'Website', g:'contact'},
@@ -166,7 +166,9 @@ function el(id){ return document.getElementById(id); }
 function fieldHtml(f){
   var h = '<label>' + f.label + '</label>';
   if (f.color){
-    h += '<div class="row"><input type="color" data-color="'+f.k+'"><input type="text" id="f_'+f.k+'" data-k="'+f.k+'" placeholder="#000000"></div><div class="swatches" data-for="'+f.k+'"></div>';
+    h += '<div class="row"><input type="color" data-color="'+f.k+'"><input type="text" id="f_'+f.k+'" data-k="'+f.k+'" placeholder="#000000"><button type="button" class="eyed" data-eyed="'+f.k+'" title="Pick a colour from anywhere on screen">Pick</button></div><div class="swatches" data-for="'+f.k+'"></div>';
+  } else if (f.menu){
+    h += '<div class="menued" data-for="'+f.k+'"></div><button type="button" class="menuadd" data-menuadd="'+f.k+'">+ Add menu item</button><details style="margin-top:8px"><summary style="cursor:pointer;font-size:12px;color:#666">Advanced: edit as JSON</summary><textarea id="f_'+f.k+'" data-k="'+f.k+'" rows="4"></textarea></details>';
   } else if (f.select){
     h += '<select id="f_'+f.k+'" data-k="'+f.k+'"><option value=""></option>'+f.opts.map(function(o){return '<option>'+o+'</option>';}).join('')+'</select>';
   } else if (f.textarea){
@@ -180,6 +182,31 @@ function fieldHtml(f){
    colour field so a mis-detected colour can be swapped in one click. */
 function brandPalette(){ var seen={}, out=[]; FIELDS.forEach(function(f){ if(!f.color) return; var n=el('f_'+f.k); if(!n) return; var v=(n.value||'').trim(); if(/^#[0-9a-fA-F]{6}$/.test(v) && !seen[v.toLowerCase()]){ seen[v.toLowerCase()]=1; out.push(v); } }); return out; }
 function renderSwatches(){ var pal=brandPalette(); document.querySelectorAll('.swatches').forEach(function(box){ var k=box.getAttribute('data-for'); box.innerHTML=pal.map(function(c){ return '<button type="button" class="sw" title="'+c+'" data-c="'+c+'" data-k="'+k+'" style="background:'+c+'"></button>'; }).join(''); }); }
+/* Menu editor: add/edit header + footer menu items as rows (for sites whose menu sits in a
+   separate row and isn't captured). Rows sync to the hidden JSON textarea that getValues reads. */
+function escAttr(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+function menuRead(k){ try{ var t=el('f_'+k); var a=JSON.parse((t&&t.value)||'[]'); return Array.isArray(a)?a:[]; }catch(e){ return []; } }
+function menuWrite(k,arr){ var t=el('f_'+k); if(t) t.value=JSON.stringify(arr); }
+function renderMenuEditors(){
+  document.querySelectorAll('.menued').forEach(function(box){
+    var k=box.getAttribute('data-for'); var arr=menuRead(k);
+    box.innerHTML = arr.map(function(it,i){
+      return '<div class="menurow" data-i="'+i+'" style="display:flex;gap:6px;margin:0 0 6px">'
+        +'<input class="mlabel" placeholder="Label" value="'+escAttr(it.label||'')+'" style="flex:0 0 34%">'
+        +'<input class="murl" placeholder="https://..." value="'+escAttr(it.url||'')+'" style="flex:1">'
+        +'<button type="button" class="menurm" title="Remove" style="flex:0 0 auto">Remove</button></div>';
+    }).join('') || '<div style="font-size:12px;color:#888;margin:0 0 6px">No menu items. Add them below.</div>';
+  });
+}
+function syncMenuFromRows(box){
+  var k=box.getAttribute('data-for'); var arr=[];
+  box.querySelectorAll('.menurow').forEach(function(r){ var l=(r.querySelector('.mlabel').value||'').trim(), u=(r.querySelector('.murl').value||'').trim(); if(l||u) arr.push({label:l,url:u}); });
+  menuWrite(k,arr);
+}
+function pickEye(k){
+  if(!window.EyeDropper){ alert('Pick-from-screen needs Chrome or Edge. You can type a # value instead.'); return; }
+  new window.EyeDropper().open().then(function(res){ var c=res.sRGBHex; var inp=el('f_'+k); if(inp) inp.value=c; var cp=document.querySelector('input[type=color][data-color="'+k+'"]'); if(cp) cp.value=c; updatePreview(); }).catch(function(){});
+}
 function buildForm(){
   var tabs='', groups='';
   GROUPS.forEach(function(g,i){
@@ -197,10 +224,16 @@ function buildForm(){
   el('form').addEventListener('input', onChange);
   el('form').addEventListener('change', onChange);
   el('form').addEventListener('click', function(e){ var b=e.target.closest('.sw'); if(!b) return; var k=b.getAttribute('data-k'), col=b.getAttribute('data-c'); var inp=el('f_'+k); if(!inp) return; inp.value=col; var cp=document.querySelector('input[type=color][data-color="'+k+'"]'); if(cp) cp.value=col; updatePreview(); });
+  el('form').addEventListener('click', function(e){
+    var edb=e.target.closest('[data-eyed]'); if(edb){ pickEye(edb.getAttribute('data-eyed')); return; }
+    var add=e.target.closest('[data-menuadd]'); if(add){ var k=add.getAttribute('data-menuadd'); var arr=menuRead(k); arr.push({label:'',url:''}); menuWrite(k,arr); renderMenuEditors(); return; }
+    var rm=e.target.closest('.menurm'); if(rm){ var box=rm.closest('.menued'); var row=rm.closest('.menurow'); if(row) row.remove(); syncMenuFromRows(box); renderMenuEditors(); updatePreview(); return; }
+  });
+  el('form').addEventListener('input', function(e){ var box=e.target.closest && e.target.closest('.menued'); if(box){ syncMenuFromRows(box); updatePreview(); } });
   document.querySelectorAll('input[type=color]').forEach(function(c){
     c.addEventListener('input', function(){ var k=c.getAttribute('data-color'); el('f_'+k).value = c.value; updatePreview(); });
   });
-  renderSwatches();
+  renderSwatches(); renderMenuEditors();
 }
 function onChange(e){
   var t = e.target;
@@ -228,6 +261,7 @@ function setValues(v){
     var c = document.querySelector('input[type=color][data-color="'+f.k+'"]');
     if (c && /^#[0-9a-fA-F]{6}$/.test(val)) c.value = val;
   });
+  renderMenuEditors();
   updatePreview();
 }
 var _pvTimer;
@@ -288,12 +322,13 @@ function previewCSS(v){
       bfont=v.button_font?fontStack(v.button_font,''):B,
       fbg=v.footer_bg_color||hc, ftxt=v.footer_text_color||'#fff',
       nink=v.nav_text_color||((function(h){var m=(h||'').replace('#','').match(/.{2}/g);var L=m?(0.299*parseInt(m[0],16)+0.587*parseInt(m[1],16)+0.114*parseInt(m[2],16))/255:1;return L<0.5?'#ffffff':'#1d1d1f';})(hb)),
-      hsize=v.heading_font_size||'40px', hwt=wt(v.heading_weight)||'900', nsize=v.nav_font_size||'16px', nwt=wt(v.nav_weight)||'500', bwt=wt(v.button_weight)||'600';
+      hsize=v.heading_font_size||'40px', hwt=wt(v.heading_weight)||'900', nsize=v.nav_font_size||'16px', nwt=wt(v.nav_weight)||'500', bwt=wt(v.button_weight)||'600',
+      lh=(function(x){var n=parseInt(x||'',10); if(!n) n=44; return Math.max(28,Math.min(60,n));})(v.logo_height)+'px';
   return '*{box-sizing:border-box}body{margin:0;background:'+pb+';color:'+bc+';font-family:'+B+';font-size:18px;line-height:1.7}'
    +'h1{font-family:'+H+';font-weight:'+hwt+';font-size:'+hsize+';color:'+hc+';margin:0 0 14px}'
    +'header{background:'+hb+';border-bottom:1px solid rgba(0,0,0,.08)}'
    +'.hwrap{max-width:1100px;margin:0 auto;padding:16px 24px;display:flex;align-items:center;justify-content:space-between;gap:20px}'
-   +'.logo img{height:50px;display:block}.logo .fb{font-family:'+H+';font-weight:900;font-size:22px;color:'+hc+'}'
+   +'.logo img{height:'+lh+';width:auto;display:block}.logo .fb{font-family:'+H+';font-weight:900;font-size:22px;color:'+hc+'}'
    +'nav{display:flex;gap:16px;flex-wrap:wrap;flex:1;justify-content:center}nav a{font-family:'+H+';font-weight:'+nwt+';font-size:'+nsize+';color:'+nink+';text-decoration:none;white-space:nowrap}'
    +'.phone{font-weight:600;color:'+hc+';white-space:nowrap}'
    +'.mwrap{max-width:760px;margin:0 auto;padding:30px 24px}'
