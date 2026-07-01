@@ -329,7 +329,9 @@ async function etbSave(loc, state, contactId, status, opts){
   var values = etbExtract(state, status || 'started');
   var cf = []; var written = [], noField = [];
   Object.keys(values).forEach(function(name){ var id = map[name.toLowerCase()]; if (id){ cf.push({ id: id, value: String(values[name]) }); written.push(name); } else { noField.push(name); } });
-  var base = { firstName: pd.firstName||'', lastName: pd.lastName||'', email: pd.email||'', phone: pd.phone||'', address1: pd.address||'', city: pd.city||'', postalCode: pd.postcode||'', customFields: cf };
+  var base = { customFields: cf }; // GHL PUT rejects empty email, so only send personal fields that actually have a value
+  var pmap = { firstName: pd.firstName, lastName: pd.lastName, email: pd.email, phone: pd.phone, address1: pd.address, city: pd.city, postalCode: pd.postcode };
+  Object.keys(pmap).forEach(function(k){ if (pmap[k]!=null && String(pmap[k]).trim()!=='') base[k]=pmap[k]; });
   var up = await upsertOrUpdateContact(token, loc, contactId, base);
   var cid = (up.contact && up.contact.id) || up.id || contactId || '';
   var readback = null;
@@ -424,7 +426,8 @@ async function willSave(loc, state, contactId, opts){
   var fieldName='Will State Json'; var fid=map[fieldName.toLowerCase()];
   if(!fid){ try{ var c=await ghl('POST','/locations/'+loc+'/customFields',token,{name:fieldName,dataType:'LARGE_TEXT',model:'contact'}); var nf=c.customField||c; if(nf&&nf.id) fid=nf.id; }catch(e){ console.error('will field create', e.message); } }
   var p=(state&&state.personal)||{};
-  var base={ firstName:p.firstName||'', lastName:p.lastName||'', email:p.email||'', phone:p.phone||'' };
+  var base={}; var pmap={ firstName:p.firstName, lastName:p.lastName, email:p.email, phone:p.phone }; // GHL PUT rejects empty email
+  Object.keys(pmap).forEach(function(k){ if(pmap[k]!=null && String(pmap[k]).trim()!=='') base[k]=pmap[k]; });
   if(fid){ try{ base.customFields=[{ id:fid, value: JSON.stringify(state||{}) }]; }catch(e){} }
   var up=await upsertOrUpdateContact(token, loc, contactId, base);
   var cid=(up.contact&&up.contact.id)||up.id||contactId||'';
