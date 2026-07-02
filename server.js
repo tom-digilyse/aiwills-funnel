@@ -905,7 +905,7 @@ const server = http.createServer(async (req, res) => {
       } catch(e){ return send(res, 200, { error: e.message }); }
     }
     if (!authed(req)){
-      res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="AI Wills onboarding"' });
+      res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="AI Wills onboarding"', 'Content-Type':'text/plain; charset=utf-8' });
       return res.end('Authentication required.');
     }
     if (req.method === 'POST' && req.url === '/api/scrape'){
