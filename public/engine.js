@@ -29,7 +29,7 @@ function wt(s){return {Light:'300',Normal:'400',Medium:'500',Semibold:'600',Bold
 function el(id){ return document.getElementById(id); }
 function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
 function age(d){ if(!d) return null; var t=new Date(d); if(isNaN(t)) return null; var n=new Date(), a=n.getFullYear()-t.getFullYear(), m=n.getMonth()-t.getMonth(); if(m<0||(m===0&&n.getDate()<t.getDate())) a--; return a; }
-function saveToGhl(state, opts){ var _pdf=!!(opts&&opts.pdf); try{ if(FUNNEL===ETB_FUNNEL){ if(!loc) return; var st=(state.payment&&state.payment.paid)?'paid':'started'; try{ fetch(API+'/api/etb-save',{method:'POST',body:JSON.stringify({locationId:loc,state:state,status:st,contactId:(window.AIWILLS_ETB_CID||''),pdf:_pdf})}).then(function(r){return r.json();}).then(function(j){ if(j&&j.contactId) window.AIWILLS_ETB_CID=j.contactId; }).catch(function(){}); }catch(e){} return; } }catch(e){} var p=state.personal||{}; if(loc){ try{ fetch(API+'/api/will-save',{method:'POST',body:JSON.stringify({locationId:loc,contactId:(window.AIWILLS_CONTACT_ID||''),state:state,pdf:_pdf})}).then(function(r){return r.json();}).then(function(j){ if(j&&j.contactId) window.AIWILLS_CONTACT_ID=j.contactId; }).catch(function(){}); }catch(e){} } var url=CFG.will_save_webhook_url; if(url){ try{ fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contactId:(window.AIWILLS_CONTACT_ID||''),email:p.email||'',firstName:p.firstName||'',lastName:p.lastName||'',phone:p.phone||'',status:(state.payment&&state.payment.paid)?'paid':'started',willJson:JSON.stringify(state)})}); }catch(e){} } }
+function saveToGhl(state, opts){ var _pdf=!!(opts&&opts.pdf); try{ if(FUNNEL===ETB_FUNNEL){ if(!loc) return; var st=(state.payment&&state.payment.paid)?'paid':'started'; try{ fetch(API+'/api/etb-save',{method:'POST',body:JSON.stringify({locationId:loc,state:state,status:st,contactId:(window.AIWILLS_ETB_CID||''),pdf:_pdf})}).then(function(r){return r.json();}).then(function(j){ if(j&&j.contactId) window.AIWILLS_ETB_CID=j.contactId; }).catch(function(){}); }catch(e){} return; } }catch(e){} try{ if(FUNNEL===LPA_FUNNEL){ if(!loc) return; try{ fetch(API+'/api/lpa-save',{method:'POST',body:JSON.stringify({locationId:loc,contactId:(window.AIWILLS_CONTACT_ID||''),state:state,pdf:_pdf})}).then(function(r){return r.json();}).then(function(j){ if(j&&j.contactId) window.AIWILLS_CONTACT_ID=j.contactId; }).catch(function(){}); }catch(e){} return; } }catch(e){} var p=state.personal||{}; if(loc){ try{ fetch(API+'/api/will-save',{method:'POST',body:JSON.stringify({locationId:loc,contactId:(window.AIWILLS_CONTACT_ID||''),state:state,pdf:_pdf})}).then(function(r){return r.json();}).then(function(j){ if(j&&j.contactId) window.AIWILLS_CONTACT_ID=j.contactId; }).catch(function(){}); }catch(e){} } var url=CFG.will_save_webhook_url; if(url){ try{ fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contactId:(window.AIWILLS_CONTACT_ID||''),email:p.email||'',firstName:p.firstName||'',lastName:p.lastName||'',phone:p.phone||'',status:(state.payment&&state.payment.paid)?'paid':'started',willJson:JSON.stringify(state)})}); }catch(e){} } }
 
 var GIFT_FIELDS = [
   { key:'items', type:'repeater', itemLabel:'Item gift', max:20, fields:[
@@ -273,7 +273,74 @@ var ETB_FUNNEL = [
   { id:'done', name:'Done', title:'Your Toolbox is active', kind:'done' }
 ];
 
-var FUNNEL = (function(){ var f=((window.AIWILLS_CONFIG&&window.AIWILLS_CONFIG.funnel)||window.AIWILLS_FUNNEL||'').toString().toLowerCase(); return f==='etb'?ETB_FUNNEL:WILLS_FUNNEL; })();
+var LPA_FUNNEL = [
+  { id:'your_details', name:'Your details', title:'Your details (the donor)', lead:'The LPA is made by you, the donor. We start with your details.', fields:[
+    { type:'row', fields:[ {key:'firstName',type:'text',label:'First name',required:true}, {key:'lastName',type:'text',label:'Last name',required:true} ] },
+    { type:'row', fields:[ {key:'email',type:'email',label:'Email',required:true}, {key:'phone',type:'tel',label:'Phone',required:true} ] },
+    { key:'address', type:'text', label:'Home address', required:true },
+    { type:'row', fields:[ {key:'city',type:'text',label:'Town / city',required:true}, {key:'postcode',type:'text',label:'Postcode',required:true} ] },
+    { key:'dob', type:'text', label:'Date of birth (DD/MM/YYYY)', required:true }
+  ]},
+  { id:'attorneys', name:'Attorneys', title:'Your attorneys', lead:'The people you appoint to make decisions. Add up to four, each with an optional replacement.', fields:[
+    { key:'list', type:'repeater', itemLabel:'Attorney', required:true, max:4, emptyMsg:'Add at least one attorney.', fields:[
+      { type:'row', fields:[ {key:'firstName',type:'text',label:'First name',required:true}, {key:'lastName',type:'text',label:'Last name',required:true} ] },
+      { key:'address', type:'text', label:'Address', required:true },
+      { type:'row', fields:[ {key:'phone',type:'tel',label:'Phone'}, {key:'email',type:'email',label:'Email'} ] },
+      { key:'relationship', type:'text', label:'Relationship to donor', required:true },
+      { key:'hasReplacement', type:'radio', label:'Add a replacement attorney for this person?', reflow:true, options:['Yes','No'] },
+      { key:'repFirstName', type:'text', label:'Replacement first name', showIf:function(s,b){return getP(b+'.hasReplacement')==='Yes';} },
+      { key:'repLastName', type:'text', label:'Replacement last name', showIf:function(s,b){return getP(b+'.hasReplacement')==='Yes';} },
+      { key:'repAddress', type:'text', label:'Replacement address', showIf:function(s,b){return getP(b+'.hasReplacement')==='Yes';} }
+    ]}
+  ]},
+  { id:'lpa_type', name:'LPA type', title:'Which LPA would you like?', lead:'You can make one or both types.', fields:[
+    { key:'type', type:'radio', label:'LPA type', required:true, reflow:true, options:['Property & Financial Affairs','Health & Welfare','Both'] }
+  ]},
+  { id:'decisions', name:'Decisions', title:'How should attorneys make decisions?', fields:[
+    { key:'mode', type:'radio', label:'How should attorneys act?', required:true, reflow:true, options:['Jointly (all must agree)','Jointly and severally (together or independently)','Jointly for some, severally for others'] },
+    { key:'mixedDetail', type:'textarea', label:'Which decisions must be made jointly?', showIf:function(s){return s.decisions.mode==='Jointly for some, severally for others';} }
+  ]},
+  { id:'treatment', name:'Treatment', title:'Life-sustaining treatment', lead:'Health & Welfare only.', showIf:function(s){var t=s.lpa_type.type; return t==='Health & Welfare'||t==='Both';}, fields:[
+    { key:'lifeSustaining', type:'radio', label:'Do you want your attorneys to be able to make decisions about life-sustaining treatment?', required:true, options:['Yes','No'] }
+  ]},
+  { id:'preferences', name:'Preferences', title:'Preferences & instructions', fields:[
+    { key:'hasPreferences', type:'radio', label:'Do you want to include any preferences?', reflow:true, options:['Yes','No'] },
+    { key:'preferences', type:'textarea', label:'Your preferences', showIf:function(s){return s.preferences.hasPreferences==='Yes';} },
+    { key:'hasInstructions', type:'radio', label:'Do you want to include legally binding instructions?', reflow:true, options:['Yes','No'] },
+    { key:'instructions', type:'textarea', label:'Your instructions', showIf:function(s){return s.preferences.hasInstructions==='Yes';} }
+  ]},
+  { id:'usage', name:'Usage', title:'When can the LPA be used?', lead:'Property & Financial only.', showIf:function(s){var t=s.lpa_type.type; return t==='Property & Financial Affairs'||t==='Both';}, fields:[
+    { key:'when', type:'radio', label:'When can attorneys start using the Property & Financial LPA?', required:true, options:['As soon as it is registered','Only if I lose mental capacity'] }
+  ]},
+  { id:'notify', name:'Notify', title:'People to notify', lead:'Optional. People told when the LPA is registered.', fields:[
+    { key:'has', type:'radio', label:'Do you want to notify anyone when the LPA is registered?', reflow:true, options:['Yes','No'] },
+    { key:'list', type:'repeater', itemLabel:'Person to notify', max:5, showIf:function(s){return s.notify.has==='Yes';}, fields:[
+      { type:'row', fields:[ {key:'firstName',type:'text',label:'First name',required:true}, {key:'lastName',type:'text',label:'Last name',required:true} ] },
+      { key:'contact', type:'text', label:'Address or email' }
+    ]}
+  ]},
+  { id:'provider', name:'Provider', title:'Certificate provider', lead:'An independent person who confirms you understand the LPA.', fields:[
+    { key:'kind', type:'radio', label:'Who will be your certificate provider?', required:true, options:['Someone who has known me 2+ years','A professional (doctor, solicitor, etc.)'] },
+    { type:'row', fields:[ {key:'firstName',type:'text',label:'First name',required:true}, {key:'lastName',type:'text',label:'Last name',required:true} ] },
+    { key:'address', type:'text', label:'Address' },
+    { type:'row', fields:[ {key:'phone',type:'tel',label:'Phone'}, {key:'occupation',type:'text',label:'Occupation'} ] }
+  ]},
+  { id:'registration', name:'Registration', title:'Who will register the LPA?', fields:[
+    { key:'who', type:'radio', label:'Who registers the LPA?', required:true, options:['Donor','Attorney(s)'] }
+  ]},
+  { id:'exemption', name:'Fee', title:'Registration fee', lead:'The OPG charges £92 per LPA to register. You may qualify for a reduction.', fields:[
+    { key:'status', type:'radio', label:'Do you qualify for a fee reduction or exemption?', required:true, options:['No','Yes - low income','Yes - certain benefits'] }
+  ]},
+  { id:'declaration', name:'Declaration', title:'Declaration', lead:'Confirm the following. You sign the official form by hand later.', fields:[
+    { key:'over18', type:'radio', label:'I confirm I am over 18', required:true, options:['Yes'] },
+    { key:'capacity', type:'radio', label:'I confirm I have mental capacity to make this LPA', required:true, options:['Yes'] },
+    { key:'understand', type:'radio', label:'I understand the LPA must be signed and witnessed in person to be valid', required:true, options:['Yes'] },
+    { key:'signature', type:'text', label:'Type your full name to confirm', required:true }
+  ]},
+  { id:'review', name:'Review', title:'Review your LPA details', lead:'Check everything below. You can jump back to any section to edit.', kind:'review' }
+];
+
+var FUNNEL = (function(){ var f=((window.AIWILLS_CONFIG&&window.AIWILLS_CONFIG.funnel)||window.AIWILLS_FUNNEL||'').toString().toLowerCase(); return f==='etb'?ETB_FUNNEL:(f==='lpa'?LPA_FUNNEL:WILLS_FUNNEL); })();
 
 var state, cur=0;
 function flat(fields){ var r=[]; (fields||[]).forEach(function(f){ if(f.type==='row') r=r.concat(flat(f.fields)); else r.push(f); }); return r; }
@@ -379,7 +446,7 @@ function review(){
   var html=''; var ed=(window.AIWILLS_EDIT===true);
   visible().forEach(function(s){ if(!(s.fields&&s.fields.length)) return; var rows=summary(s.id,s.fields); if(!rows && !ed) return; var body=rows||'<div style="padding:2px 0 8px;color:#8a8a8a;font-size:14px">Nothing added yet.</div>'; html+='<div class="sum"><h3>'+esc(s.name)+'<button type="button" class="edit" data-goto="'+s.id+'">'+(rows?'Edit':'Add')+'</button></h3>'+body+'</div>'; });
   if(window.AIWILLS_EDIT===true){ var _tok=window.AIWILLS_TOKEN||''; var _isE=(FUNNEL===ETB_FUNNEL); var _dl='<a class="btn wide" href="'+API+(_isE?'/api/etb-pdf?t=':'/api/will-pdf?t=')+encodeURIComponent(_tok)+'" target="_blank" rel="noopener" style="display:block;text-align:center;text-decoration:none;margin-top:8px">'+(_isE?'Download summary (PDF)':'Download your will (PDF)')+'</a>'; var _docs=[]; visible().forEach(function(s){ if(!s.fields) return; flat(s.fields).forEach(function(f){ if(f.type!=='file') return; var fp=s.id+'.'+f.key; var u=getP(fp+'_url'); if(u) _docs.push({name:(getP(fp)||f.label||'Document'), url:u}); }); }); var _fh=_docs.length?('<div class="sum" style="margin-top:12px"><h3>Your documents</h3>'+_docs.map(function(d){return '<div style="padding:4px 0"><a href="'+esc(d.url)+'" target="_blank" rel="noopener">'+esc(d.name)+'</a></div>';}).join('')+'</div>'):''; return html+_dl+_fh; }
-  return html+((FUNNEL===ETB_FUNNEL)?'':'<button type="button" class="btn wide" id="dl" style="margin-top:8px">Download will (PDF)</button>');
+  return html+((FUNNEL===WILLS_FUNNEL)?'<button type="button" class="btn wide" id="dl" style="margin-top:8px">Download will (PDF)</button>':'');
 }
 
 function render(){
@@ -502,7 +569,7 @@ setTimeout(closeGaps,400); setTimeout(closeGaps,1200);
     if(_tok){ // edit mode: load this contact's saved answers (token-gated), prefill, then render
       window.AIWILLS_TOKEN=_tok;
       fetch(API+'/api/state-load?t='+encodeURIComponent(_tok)).then(function(r){return r.json();}).then(function(j){
-        if(j&&j.ok){ window.AIWILLS_EDIT=true; window.AIWILLS_FILES=j.files||[]; if(j.state) window.AIWILLS_PREFILL=j.state; if(j.funnel==='wills'){ window.AIWILLS_CONTACT_ID=j.contactId; } else { window.AIWILLS_ETB_CID=j.contactId; } }
+        if(j&&j.ok){ window.AIWILLS_EDIT=true; window.AIWILLS_FILES=j.files||[]; if(j.state) window.AIWILLS_PREFILL=j.state; if(j.funnel==='wills'||j.funnel==='lpa'){ window.AIWILLS_CONTACT_ID=j.contactId; } else { window.AIWILLS_ETB_CID=j.contactId; } }
       }).catch(function(){}).then(_runBranded);
     } else { _runBranded(); }
   })();
