@@ -420,4 +420,47 @@ function buildEtbPdf(state, brand){
     } catch(e){ reject(e); }
   });
 }
-module.exports = { buildWillPdf: buildWillPdf, normalizeWill: normalizeWill, buildEtbPdf: buildEtbPdf };
+
+function buildLpaPdf(state, brand){
+  state=state||{}; brand=brand||{};
+  return new Promise(function(resolve,reject){
+    try{
+      var doc=new PDFDocument({size:'A4',margins:{top:60,bottom:64,left:60,right:60},bufferPages:true});
+      var chunks=[]; doc.on('data',function(c){chunks.push(c);}); doc.on('end',function(){resolve(Buffer.concat(chunks));}); doc.on('error',reject);
+      var company=brand.company_name||'AI Wills';
+      var yd=state.your_details||{}, type=(state.lpa_type&&state.lpa_type.type)||'';
+      doc.font('Helvetica-Bold').fontSize(20).fillColor('#0B3D2E').text(company);
+      doc.font('Helvetica').fontSize(12).fillColor('#555').text('Lasting Power of Attorney - application details');
+      doc.moveDown(0.2); doc.font('Helvetica').fontSize(9).fillColor('#888').text('Generated '+new Date().toLocaleDateString('en-GB'));
+      doc.moveDown(0.5); doc.font('Helvetica-Bold').fontSize(10).fillColor('#8a1f11').text('Important: this is a draft summary of your answers to help complete the official forms. It is not a registered LPA.');
+      doc.font('Helvetica').fontSize(9).fillColor('#555').text('An LPA is only valid on the official Office of the Public Guardian forms LP1F (Property & Financial Affairs) and/or LP1H (Health & Welfare), signed by each person in the correct order, witnessed in person, then registered with the OPG (currently 92 pounds per LPA). Digital signatures and video witnessing are not accepted.');
+      etbH(doc,'Donor (you)');
+      etbLine(doc,'Name',[yd.firstName,yd.lastName].filter(Boolean).join(' '));
+      etbLine(doc,'Date of birth',yd.dob); etbLine(doc,'Email',yd.email); etbLine(doc,'Phone',yd.phone);
+      etbLine(doc,'Address',[yd.address,yd.city,yd.postcode].filter(Boolean).join(', '));
+      etbH(doc,'LPA type'); etbLine(doc,'Type',type||'Not chosen');
+      var at=arr(state.attorneys&&state.attorneys.list);
+      if(at.length){ etbH(doc,'Attorneys'); at.forEach(function(a,i){ etbLine(doc,'Attorney '+(i+1),[[a.firstName,a.lastName].filter(Boolean).join(' '),a.relationship,a.address,a.phone,a.email].filter(Boolean).join(' - ')); if(String(a.hasReplacement).toLowerCase()==='yes'){ etbLine(doc,'  Replacement',[[a.repFirstName,a.repLastName].filter(Boolean).join(' '),a.repAddress].filter(Boolean).join(' - ')); } }); }
+      var dec=state.decisions||{}; etbH(doc,'How attorneys decide'); etbLine(doc,'Mode',dec.mode); etbLine(doc,'Joint decisions',dec.mixedDetail);
+      var tr=state.treatment||{}; if(tr.lifeSustaining){ etbH(doc,'Life-sustaining treatment'); etbLine(doc,'Attorneys can decide',tr.lifeSustaining); }
+      var pf=state.preferences||{}; if(String(pf.hasPreferences).toLowerCase()==='yes'||String(pf.hasInstructions).toLowerCase()==='yes'){ etbH(doc,'Preferences & instructions'); etbLine(doc,'Preferences',pf.preferences); etbLine(doc,'Instructions',pf.instructions); }
+      var us=state.usage||{}; if(us.when){ etbH(doc,'When usable (Property & Financial)'); etbLine(doc,'When',us.when); }
+      var nt=state.notify||{}; if(String(nt.has).toLowerCase()==='yes'){ etbH(doc,'People to notify'); arr(nt.list).forEach(function(p,i){ etbLine(doc,'Person '+(i+1),[[p.firstName,p.lastName].filter(Boolean).join(' '),p.contact].filter(Boolean).join(' - ')); }); }
+      var pv=state.provider||{}; etbH(doc,'Certificate provider'); etbLine(doc,'Type',pv.kind); etbLine(doc,'Name',[pv.firstName,pv.lastName].filter(Boolean).join(' ')); etbLine(doc,'Address',pv.address); etbLine(doc,'Phone',pv.phone); etbLine(doc,'Occupation',pv.occupation);
+      var rg=state.registration||{}; etbH(doc,'Registration'); etbLine(doc,'Registered by',rg.who);
+      var ex=state.exemption||{}; etbLine(doc,'Fee reduction/exemption',ex.status);
+      doc.addPage();
+      doc.font('Helvetica-Bold').fontSize(15).fillColor('#0B3D2E').text('Signing & witnessing guide');
+      doc.moveDown(0.3);
+      var stps=['Print the official LP1F and/or LP1H form(s) from GOV.UK, completed with the details above.',
+        'Sign in the correct order: (1) the donor signs the statement, (2) the certificate provider signs, (3) each attorney and any replacement signs. Each signature must be witnessed in person by someone aged 18 or over who is not an attorney.',
+        'Signing out of order is the most common reason the OPG rejects an LPA - follow the order exactly.',
+        'Send the completed, signed forms to the OPG to register, with the fee per LPA (or the LP120 reduced-fee form if eligible).',
+        'The LPA can only be used once the OPG has registered it.'];
+      stps.forEach(function(t,i){ doc.font('Helvetica-Bold').fontSize(10).fillColor('#111').text((i+1)+'. ',{continued:true}).font('Helvetica').text(t); doc.moveDown(0.2); });
+      doc.moveDown(0.4); doc.font('Helvetica').fontSize(9).fillColor('#888').text('Declaration confirmed by: '+((state.declaration&&state.declaration.signature)||'-'));
+      doc.end();
+    }catch(e){ reject(e); }
+  });
+}
+module.exports = { buildWillPdf: buildWillPdf, normalizeWill: normalizeWill, buildEtbPdf: buildEtbPdf, buildLpaPdf: buildLpaPdf };
