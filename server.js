@@ -220,7 +220,8 @@ async function fetchText(url, ms){
     if (!r.ok) throw new Error('Fetch ' + url + ' returned ' + r.status);
     return await r.text();
   } catch(e){
-    if (e && (e.name === 'AbortError' || /aborted/i.test(e.message||''))) throw new Error('Timed out fetching ' + url + ' - the site is slow or blocking automated requests. Use the Measure bookmarklet or enter the brand manually.');
+    var ab = e && (e.name === 'AbortError' || (e.cause && (e.cause.name === 'AbortError' || /abort/i.test(e.cause.message||''))) || /abort|timed?\s*out/i.test(e.message||''));
+    if (ab) throw new Error('Timed out fetching ' + url + ' - the site is slow or blocking automated requests. Use the Measure bookmarklet or enter the brand manually.');
     throw e;
   } finally { clearTimeout(t); }
 }
