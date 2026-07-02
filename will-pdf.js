@@ -491,11 +491,12 @@ async function fillLpaForm(PL, bytes, state){
 async function buildLpaOfficial(state, brand){
   var PL=require('pdf-lib'); var fsx=require('fs'), pathx=require('path');
   var dir=pathx.join(__dirname,'public','forms');
+  var readBlank=function(names){ for(var i=0;i<names.length;i++){ var p=pathx.join(dir,names[i]); try{ if(fsx.existsSync(p)) return fsx.readFileSync(p); }catch(e){} } throw new Error('blank form not found: '+names.join(' / ')); };
   var out=[];
   try { var g=await buildLpaPdf(state, brand); out.push({field:'LPA Guide PDF', fname:'lpa-signing-guide.pdf', bytes:g}); } catch(e){}
   var type=(state.lpa_type&&state.lpa_type.type)||'';
-  if(/Property|Both/i.test(type)) out.push({field:'LPA LP1F PDF', fname:'LP1F-property-financial.pdf', bytes: await fillLpaForm(PL, fsx.readFileSync(pathx.join(dir,'LP1F.pdf')), state)});
-  if(/Health|Both/i.test(type)) out.push({field:'LPA LP1H PDF', fname:'LP1H-health-welfare.pdf', bytes: await fillLpaForm(PL, fsx.readFileSync(pathx.join(dir,'LP1H.pdf')), state)});
+  if(/Property|Both/i.test(type)) out.push({field:'LPA LP1F PDF', fname:'LP1F-property-financial.pdf', bytes: await fillLpaForm(PL, readBlank(['LP1F.pdf','LP1F-Create-and-register-your-lasting-power-of-attorney.pdf']), state)});
+  if(/Health|Both/i.test(type)) out.push({field:'LPA LP1H PDF', fname:'LP1H-health-welfare.pdf', bytes: await fillLpaForm(PL, readBlank(['LP1H.pdf','LP1H-Create-and-register-your-lasting-power-of-attorney.pdf']), state)});
   if(out.length<2) throw new Error('LPA official forms not generated (type='+type+')');
   return out;
 }
