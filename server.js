@@ -436,7 +436,7 @@ function verifyEdit(token){ try{ var sec=editSecret(); if(!sec||!token) return n
 /* Read a saved funnel state JSON off a contact. funnel = 'etb' | 'wills'. */
 async function loadState(loc, contactId, funnel){
   var token = await getWriteToken(loc);
-  var fieldName = (funnel==='wills') ? 'Will State Json' : (funnel==='lpa' ? 'LPA State Json' : 'ETB State Json');
+  var fieldName = (funnel==='wills') ? 'Will State Json' : 'ETB State Json';
   var map = await etbFieldMap(token, loc); // generic contact-field name -> id
   var fid = map[fieldName.toLowerCase()];
   var got = await ghl('GET', '/contacts/' + contactId, token); var c = got.contact || got;
@@ -471,21 +471,6 @@ async function willSave(loc, state, contactId, opts){
   var cid=(up.contact&&up.contact.id)||up.id||contactId||'';
   var pdfRes; if (opts && opts.pdf && cid) pdfRes = await storeGeneratedPdf(loc, cid, 'wills');
   return { contactId: cid, saved: !!fid, pdf: pdfRes };
-}
-/* Persist the LPA funnel state JSON onto the contact (capture flow; PDF fill added later). */
-async function lpaSave(loc, state, contactId, opts){
-  if(!loc) throw new Error('locationId required');
-  var token = await getWriteToken(loc);
-  var map = await etbFieldMap(token, loc);
-  var fieldName='LPA State Json'; var fid=map[fieldName.toLowerCase()];
-  if(!fid){ try{ var c=await ghl('POST','/locations/'+loc+'/customFields',token,{name:fieldName,dataType:'LARGE_TEXT',model:'contact'}); var nf=c.customField||c; if(nf&&nf.id) fid=nf.id; }catch(e){ console.error('lpa field create', e.message); } }
-  var p=(state&&state.your_details)||{};
-  var base={}; var pmap={ firstName:p.firstName, lastName:p.lastName, email:p.email, phone:p.phone };
-  Object.keys(pmap).forEach(function(k){ if(pmap[k]!=null && String(pmap[k]).trim()!=='') base[k]=pmap[k]; });
-  if(fid){ try{ base.customFields=[{ id:fid, value: JSON.stringify(state||{}) }]; }catch(e){} }
-  var up=await upsertOrUpdateContact(token, loc, contactId, base);
-  var cid=(up.contact&&up.contact.id)||up.id||contactId||'';
-  return { contactId: cid, saved: !!fid };
 }
 // Generate the funnel's PDF (will or toolbox summary) from the contact's saved state and store it onto a FILE_UPLOAD field so the advisor sees it in GHL.
 async function storeGeneratedPdf(loc, contactId, funnel){
@@ -808,14 +793,6 @@ const server = http.createServer(async (req, res) => {
         return send(res, 200, await willSave(loc, b.state||{}, b.contactId||'', { pdf: !!b.pdf }));
       } catch(e){ return send(res, 200, { error: e.message }); }
     }
-    if (req.method === 'POST' && pathOnly === '/api/lpa-save'){
-      res.setHeader('Access-Control-Allow-Origin','*');
-      try {
-        const b = JSON.parse((await readBody(req)) || '{}');
-        const loc = (b.locationId||'').replace(/[^A-Za-z0-9]/g,'');
-        return send(res, 200, await lpaSave(loc, b.state||{}, b.contactId||'', { pdf: !!b.pdf }));
-      } catch(e){ return send(res, 200, { error: e.message }); }
-    }
     // Load a saved funnel state for editing. Token-gated so a bare contactId can't read someone's data.
     if (req.method === 'GET' && pathOnly === '/api/state-load'){
       res.setHeader('Access-Control-Allow-Origin','*');
@@ -850,7 +827,7 @@ const server = http.createServer(async (req, res) => {
         if (!need || secret !== need) return send(res, 403, { error: 'forbidden' });
         const loc = (b.locationId||'').replace(/[^A-Za-z0-9]/g,'');
         const cid = (b.contactId||'').replace(/[^A-Za-z0-9]/g,'');
-        const funnel = (b.funnel==='wills')?'wills':'etb';
+        const funnel = (['wills','lpa','etb'].indexOf(b.funnel)>=0)?b.funnel:'etb';
         if (!loc || !cid) return send(res, 400, { error: 'locationId and contactId required' });
         const ttl = Math.min(parseInt(b.ttlDays||30,10)||30, 90);
         const token = signEdit({ loc:loc, cid:cid, funnel:funnel, exp: Date.now()+ttl*24*3600*1000 });
@@ -867,7 +844,7 @@ const server = http.createServer(async (req, res) => {
         const b = JSON.parse((await readBody(req)) || '{}');
         const loc = (b.locationId||'').replace(/[^A-Za-z0-9]/g,'');
         const email = (b.email||'').trim();
-        const funnel = (b.funnel==='wills')?'wills':'etb';
+        const funnel = (['wills','lpa','etb'].indexOf(b.funnel)>=0)?b.funnel:'etb';
         const base = b.returnBase || '';
         if (!loc || !email) return send(res, 400, { error: 'locationId and email required' });
         (async function(){
