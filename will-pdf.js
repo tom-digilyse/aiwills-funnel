@@ -463,4 +463,40 @@ function buildLpaPdf(state, brand){
     }catch(e){ reject(e); }
   });
 }
-module.exports = { buildWillPdf: buildWillPdf, normalizeWill: normalizeWill, buildEtbPdf: buildEtbPdf, buildLpaPdf: buildLpaPdf };
+
+function dparts(iso){var m=/(\d{4})-(\d{2})-(\d{2})/.exec(iso||"");return m?{d:m[3],mo:m[2],y:m[1]}:{d:"",mo:"",y:""};}
+async function fillLpaForm(PL, bytes, state){
+  var pdf=await PL.PDFDocument.load(bytes); var form=pdf.getForm();
+  var set=function(n,v){try{if(v!=null&&String(v).trim()!=='')form.getTextField(n).setText(String(v));}catch(e){}};
+  var check=function(n){try{form.getCheckBox(n).check();}catch(e){}};
+  var yd=state.your_details||{}, db=dparts(yd.dob);
+  set('First names',yd.firstName);set('Last name',yd.lastName);set('Day',db.d);set('Month',db.mo);set('Year',db.y);
+  set('Address 1a',yd.address);set('Address 1b',yd.city);set('Postcode',yd.postcode);set('Email address optional',yd.email);
+  var A=[['_2','_3','Address 1_2'],['_3','_4','Address 1_3'],['_4','_5','Address 1_4a'],['_5','_6','Address 1_5a']];
+  var atts=(state.attorneys&&state.attorneys.list)||[];
+  atts.slice(0,4).forEach(function(a,i){var s=A[i];var d=dparts(a.dob);set('First names'+s[0],a.firstName);set('Last name'+s[0],a.lastName);set('Day'+s[1],d.d);set('Month'+s[1],d.mo);set('Year'+s[1],d.y);set(s[2],a.address);});
+  var reps=[]; atts.forEach(function(a){ if(String(a.hasReplacement).toLowerCase()==='yes'&&(a.repFirstName||a.repLastName)) reps.push({firstName:a.repFirstName,lastName:a.repLastName,address:a.repAddress}); });
+  var R=[['_6','Address 1_6a'],['_7','Address 1_7a']];
+  reps.slice(0,2).forEach(function(r,i){var s=R[i];set('First names'+s[0],r.firstName);set('Last name'+s[0],r.lastName);set(s[1],r.address);});
+  var N=[['_8','Address 1_8a'],['_9','Address 1_9a'],['_10','Address 1_10a'],['_11','Address 1_11a']];
+  var nl=(state.notify&&String(state.notify.has).toLowerCase()==='yes')?(state.notify.list||[]):[];
+  nl.slice(0,4).forEach(function(p,i){var s=N[i];set('First names'+s[0],p.firstName);set('Last name'+s[0],p.lastName);set(s[1],p.contact);});
+  var pv=state.provider||{};set('First names_12',pv.firstName);set('Last name_12',pv.lastName);set('Address 1_13a',pv.address);
+  if(/^Yes/i.test((state.exemption&&state.exemption.status)||'')) check('I want to apply to pay a reduced fee');
+  try{ form.acroForm.dict.set(PL.PDFName.of('NeedAppearances'), PL.PDFBool.True); }catch(e){}
+  return Buffer.from(await pdf.save());
+}
+// Fill the official OPG forms from the captured LPA state. Returns [{field,fname,bytes}] (signing guide + LP1F/LP1H).
+// Throws if pdf-lib or the blank forms are missing so the caller can fall back to the pdfkit summary pack.
+async function buildLpaOfficial(state, brand){
+  var PL=require('pdf-lib'); var fsx=require('fs'), pathx=require('path');
+  var dir=pathx.join(__dirname,'public','forms');
+  var out=[];
+  try { var g=await buildLpaPdf(state, brand); out.push({field:'LPA Guide PDF', fname:'lpa-signing-guide.pdf', bytes:g}); } catch(e){}
+  var type=(state.lpa_type&&state.lpa_type.type)||'';
+  if(/Property|Both/i.test(type)) out.push({field:'LPA LP1F PDF', fname:'LP1F-property-financial.pdf', bytes: await fillLpaForm(PL, fsx.readFileSync(pathx.join(dir,'LP1F.pdf')), state)});
+  if(/Health|Both/i.test(type)) out.push({field:'LPA LP1H PDF', fname:'LP1H-health-welfare.pdf', bytes: await fillLpaForm(PL, fsx.readFileSync(pathx.join(dir,'LP1H.pdf')), state)});
+  if(out.length<2) throw new Error('LPA official forms not generated (type='+type+')');
+  return out;
+}
+module.exports = { buildWillPdf: buildWillPdf, normalizeWill: normalizeWill, buildEtbPdf: buildEtbPdf, buildLpaPdf: buildLpaPdf, buildLpaOfficial: buildLpaOfficial };
