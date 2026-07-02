@@ -485,7 +485,8 @@ async function lpaSave(loc, state, contactId, opts){
   if(fid){ try{ base.customFields=[{ id:fid, value: JSON.stringify(state||{}) }]; }catch(e){} }
   var up=await upsertOrUpdateContact(token, loc, contactId, base);
   var cid=(up.contact&&up.contact.id)||up.id||contactId||'';
-  return { contactId: cid, saved: !!fid };
+  var pdfRes; if (opts && opts.pdf && cid) pdfRes = await storeGeneratedPdf(loc, cid, 'lpa');
+  return { contactId: cid, saved: !!fid, pdf: pdfRes };
 }
 // Generate the funnel's PDF (will or toolbox summary) from the contact's saved state and store it onto a FILE_UPLOAD field so the advisor sees it in GHL.
 async function storeGeneratedPdf(loc, contactId, funnel){
@@ -498,6 +499,7 @@ async function storeGeneratedPdf(loc, contactId, funnel){
     var wp = require('./will-pdf');
     var buf, fieldName, fname;
     if (funnel==='wills'){ buf = await wp.buildWillPdf(wp.normalizeWill(out.state), { company_name: company }); fieldName='Will PDF'; fname='will.pdf'; }
+    else if (funnel==='lpa'){ buf = await wp.buildLpaPdf(out.state, { company_name: company }); fieldName='LPA Application PDF'; fname='lpa-application.pdf'; }
     else { buf = await wp.buildEtbPdf(out.state, { company_name: company }); fieldName='ETB Summary PDF'; fname='toolbox-summary.pdf'; }
     var map = await etbFieldMap(token, loc);
     var fid = map[fieldName.toLowerCase()];
@@ -733,19 +735,20 @@ const server = http.createServer(async (req, res) => {
       } catch(e){ return send(res, 200, { error: e.message }); }
     }
     // ----- edit-mode downloads: real documents, token-gated (load state from GHL, generate) -----
-    if (req.method === 'GET' && (pathOnly === '/api/will-pdf' || pathOnly === '/api/etb-pdf')){
+    if (req.method === 'GET' && (pathOnly === '/api/will-pdf' || pathOnly === '/api/etb-pdf' || pathOnly === '/api/lpa-pdf')){
       res.setHeader('Access-Control-Allow-Origin','*');
       try {
         const tok=(new URL(req.url,'http://x')).searchParams.get('t')||'';
         const cl=verifyEdit(tok);
         if(!cl||!cl.loc||!cl.cid) return send(res, 403, { error: 'invalid or expired link' });
-        const isWill = (pathOnly === '/api/will-pdf');
-        const out = await loadState(cl.loc, cl.cid, isWill?'wills':'etb');
+        const fn = (pathOnly === '/api/will-pdf') ? 'wills' : (pathOnly === '/api/lpa-pdf' ? 'lpa' : 'etb');
+        const out = await loadState(cl.loc, cl.cid, fn);
         if(!out.state) return send(res, 404, { error: 'nothing saved yet' });
         let company=''; try { const cv=await getCustomValuesMap(cl.loc, await getWriteToken(cl.loc)); company=cv['company_name']||''; } catch(e){}
         const wp = require('./will-pdf');
         let buf, fname;
-        if (isWill){ const wd = wp.normalizeWill(out.state); buf = await wp.buildWillPdf(wd, { company_name: company }); fname='your-will.pdf'; }
+        if (fn==='wills'){ const wd = wp.normalizeWill(out.state); buf = await wp.buildWillPdf(wd, { company_name: company }); fname='your-will.pdf'; }
+        else if (fn==='lpa'){ buf = await wp.buildLpaPdf(out.state, { company_name: company }); fname='lpa-application.pdf'; }
         else { buf = await wp.buildEtbPdf(out.state, { company_name: company }); fname='executor-toolbox-summary.pdf'; }
         res.writeHead(200, { 'Content-Type':'application/pdf', 'Content-Disposition':'inline; filename="'+fname+'"', 'Cache-Control':'no-store', 'Access-Control-Allow-Origin':'*' });
         return res.end(buf);
