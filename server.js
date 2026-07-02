@@ -489,6 +489,22 @@ async function lpaSave(loc, state, contactId, opts){
   return { contactId: cid, saved: !!fid, pdf: pdfRes };
 }
 // Generate the funnel's PDF (will or toolbox summary) from the contact's saved state and store it onto a FILE_UPLOAD field so the advisor sees it in GHL.
+async function uploadPdfToContact(token, loc, map, contactId, fieldName, fname, buf){
+  var fid = map[fieldName.toLowerCase()];
+  if (!fid){ var cf = await ghl('POST','/locations/'+loc+'/customFields',token,{ name:fieldName, dataType:'FILE_UPLOAD', model:'contact' }); var nf=cf.customField||cf; if(nf&&nf.id){ fid=nf.id; map[fieldName.toLowerCase()]=fid; } }
+  if (!fid) return { ok:false, err:'no field id for '+fieldName };
+  var fileId = crypto.randomBytes(8).toString('hex');
+  var form = new FormData();
+  form.append('id', contactId); form.append('maxFiles','1');
+  form.append(fid + '_' + fileId, new Blob([buf], { type:'application/pdf' }), fname);
+  var r = await fetch(GHL_BASE + '/locations/' + loc + '/customFields/upload', { method:'POST', headers:{ Authorization:'Bearer '+token, Version:GHL_VERSION, Accept:'application/json' }, body:form });
+  var t = await r.text();
+  if (!r.ok) return { ok:false, err:'upload '+r.status+' '+t.slice(0,200) };
+  var json; try { json = JSON.parse(t); } catch(e){ json = null; }
+  var fileUrl=''; try { if (json && json.uploadedFiles){ fileUrl = json.uploadedFiles[fname] || (Object.keys(json.uploadedFiles).map(function(k){return json.uploadedFiles[k];})[0]) || ''; } if (!fileUrl && json && Array.isArray(json.meta) && json.meta[0]) fileUrl = json.meta[0].url || ''; } catch(e){}
+  var linked = await mirrorFileLink(token, loc, map, contactId, fieldName, fileUrl);
+  return { ok:true, field:fieldName, bytes:buf.length, url:fileUrl, link:!!linked };
+}
 async function storeGeneratedPdf(loc, contactId, funnel){
   try {
     if (!loc || !contactId) return { skip:'no id' };
@@ -497,27 +513,24 @@ async function storeGeneratedPdf(loc, contactId, funnel){
     if (!out.state) return { skip:'no state' };
     var company=''; try { var cv = await getCustomValuesMap(loc, token); company = cv['company_name'] || ''; } catch(e){}
     var wp = require('./will-pdf');
-    var buf, fieldName, fname;
-    if (funnel==='wills'){ buf = await wp.buildWillPdf(wp.normalizeWill(out.state), { company_name: company }); fieldName='Will PDF'; fname='will.pdf'; }
-    else if (funnel==='lpa'){ buf = await wp.buildLpaPdf(out.state, { company_name: company }); fieldName='LPA Application PDF'; fname='lpa-application.pdf'; }
-    else { buf = await wp.buildEtbPdf(out.state, { company_name: company }); fieldName='ETB Summary PDF'; fname='toolbox-summary.pdf'; }
+    var brand = { company_name: company };
     var map = await etbFieldMap(token, loc);
-    var fid = map[fieldName.toLowerCase()];
-    if (!fid){ var cf = await ghl('POST','/locations/'+loc+'/customFields',token,{ name:fieldName, dataType:'FILE_UPLOAD', model:'contact' }); var nf=cf.customField||cf; if(nf&&nf.id) fid=nf.id; }
-    if (!fid) return { ok:false, err:'no field id for '+fieldName };
-    var fileId = crypto.randomBytes(8).toString('hex');
-    var form = new FormData();
-    form.append('id', contactId); form.append('maxFiles','1');
-    form.append(fid + '_' + fileId, new Blob([buf], { type:'application/pdf' }), fname);
-    var r = await fetch(GHL_BASE + '/locations/' + loc + '/customFields/upload', { method:'POST', headers:{ Authorization:'Bearer '+token, Version:GHL_VERSION, Accept:'application/json' }, body:form });
-    var t = await r.text();
-    if (!r.ok) return { ok:false, err:'upload '+r.status+' '+t.slice(0,200) };
-    // GHL's contact UI + GET API do NOT surface FILE_UPLOAD values, so the file is in storage but invisible on the contact.
-    // Pull the storage URL out of the upload response and mirror it into a plain TEXT field so the advisor sees a clickable link.
-    var json; try { json = JSON.parse(t); } catch(e){ json = null; }
-    var fileUrl=''; try { if (json && json.uploadedFiles){ fileUrl = json.uploadedFiles[fname] || (Object.keys(json.uploadedFiles).map(function(k){return json.uploadedFiles[k];})[0]) || ''; } if (!fileUrl && json && Array.isArray(json.meta) && json.meta[0]) fileUrl = json.meta[0].url || ''; } catch(e){}
-    var linked = await mirrorFileLink(token, loc, map, contactId, fieldName, fileUrl);
-    return { ok:true, field:fieldName, bytes:buf.length, url:fileUrl, link:!!linked };
+    if (funnel==='lpa'){
+      try {
+        var outs = await wp.buildLpaOfficial(out.state, brand); // guide + LP1F/LP1H (throws if pdf-lib/blank forms missing)
+        var res=[]; for (var i=0;i<outs.length;i++){ res.push(await uploadPdfToContact(token, loc, map, contactId, outs[i].field, outs[i].fname, outs[i].bytes)); }
+        return { ok:true, official:true, docs:res };
+      } catch(e){
+        var gbuf = await wp.buildLpaPdf(out.state, brand); // fallback summary pack until pdf-lib + blanks are live
+        var one = await uploadPdfToContact(token, loc, map, contactId, 'LPA Application PDF', 'lpa-application.pdf', gbuf);
+        one.fallback = String(e&&e.message||e).slice(0,90);
+        return one;
+      }
+    }
+    var buf, fieldName, fname;
+    if (funnel==='wills'){ buf = await wp.buildWillPdf(wp.normalizeWill(out.state), brand); fieldName='Will PDF'; fname='will.pdf'; }
+    else { buf = await wp.buildEtbPdf(out.state, brand); fieldName='ETB Summary PDF'; fname='toolbox-summary.pdf'; }
+    return await uploadPdfToContact(token, loc, map, contactId, fieldName, fname, buf);
   } catch(e){ return { ok:false, err:String(e&&e.message||e) }; }
 }
 // GHL /contacts/upsert rejects an `id` (422 "property id should not exist"). Update a KNOWN contact with PUT /contacts/{id}; only upsert (match by email) when creating.
@@ -748,7 +761,7 @@ const server = http.createServer(async (req, res) => {
         const wp = require('./will-pdf');
         let buf, fname;
         if (fn==='wills'){ const wd = wp.normalizeWill(out.state); buf = await wp.buildWillPdf(wd, { company_name: company }); fname='your-will.pdf'; }
-        else if (fn==='lpa'){ buf = await wp.buildLpaPdf(out.state, { company_name: company }); fname='lpa-application.pdf'; }
+        else if (fn==='lpa'){ try { const lo=await wp.buildLpaOfficial(out.state,{ company_name: company }); const pick=lo.filter(function(o){return o.field!=='LPA Guide PDF';})[0]||lo[0]; buf=pick.bytes; fname=pick.fname; } catch(e){ buf = await wp.buildLpaPdf(out.state, { company_name: company }); fname='lpa-application.pdf'; } }
         else { buf = await wp.buildEtbPdf(out.state, { company_name: company }); fname='executor-toolbox-summary.pdf'; }
         res.writeHead(200, { 'Content-Type':'application/pdf', 'Content-Disposition':'inline; filename="'+fname+'"', 'Cache-Control':'no-store', 'Access-Control-Allow-Origin':'*' });
         return res.end(buf);
