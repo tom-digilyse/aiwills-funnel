@@ -467,30 +467,72 @@ function buildLpaPdf(state, brand){
 function dparts(iso){var m=/(\d{4})-(\d{2})-(\d{2})/.exec(iso||"");return m?{d:m[3],mo:m[2],y:m[1]}:{d:"",mo:"",y:""};}
 function ukPost(s){if(!s)return"";var m=/([A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\s*$/i.exec(String(s).trim());return m?m[1].toUpperCase().replace(/\s+/," "):"";}
 function stripPost(s,pc){if(!s)return s;s=String(s);if(pc){s=s.replace(new RegExp(pc.replace(/\s/g,"\\s*")+"\\s*$","i"),"");}return s.replace(/[,\s]+$/,"");}
+function ukPost(s){if(!s)return"";var m=/([A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\s*$/i.exec(String(s).trim());return m?m[1].toUpperCase().replace(/\s+/," "):"";}
+function stripPost(s,pc){if(!s)return s;s=String(s);if(pc){s=s.replace(new RegExp(pc.replace(/\s/g,"\\s*")+"\\s*$","i"),"");}return s.replace(/[,\s]+$/,"");}
+function addrParts(p){p=p||{};var pc=String(p.postcode||"").trim();var l1=String(p.address||"");var l2=String(p.city||"");if(!pc){pc=ukPost(l1);if(pc)l1=stripPost(l1,pc);}return {l1:l1,l2:l2,pc:pc};}
+function fullName(p){p=p||{};return [p.title,p.firstName,p.lastName].filter(function(x){return x&&String(x).trim();}).join(" ");}
+function dparts(iso){var m=/(\d{4})-(\d{2})-(\d{2})/.exec(iso||"");return m?{d:m[3],mo:m[2],y:m[1]}:{d:"",mo:"",y:""};}
 async function fillLpaForm(PL, bytes, state, ftype){
   var pdf=await PL.PDFDocument.load(bytes); var ctx=pdf.context; var form=pdf.getForm();
   var set=function(n,v){try{if(v!=null&&String(v).trim()!=='')form.getTextField(n).setText(String(v));}catch(e){}};
   var check=function(n){try{form.getCheckBox(n).check();}catch(e){}};
-  var addr=function(line,pc,v){var p=ukPost(v);set(line,stripPost(v,p));if(p)set(pc,p);};
+  var setAddr=function(la,lb,pcf,p){var ap=addrParts(p);set(la,ap.l1);set(lb,ap.l2);set(pcf,ap.pc);};
+  var atts=(state.attorneys&&state.attorneys.list)||[];
+  // ---- Donor (p03) ----
   var yd=state.your_details||{}, db=dparts(yd.dob);
   set('Title',yd.title);set('First names',yd.firstName);set('Last name',yd.lastName);
   set('Day',db.d);set('Month',db.mo);set('Year',db.y);
-  set('Address 1a',yd.address);set('Address 1b',yd.city);set('Postcode',yd.postcode);set('Email address optional',yd.email);
-  var A=[['_2','_3','Address 1_2','undefined_2'],['_3','_4','Address 1_3','undefined_3'],['_4','_5','Address 1_4a','undefined_4'],['_5','_6','Address 1_5a','undefined_5']];
-  var atts=(state.attorneys&&state.attorneys.list)||[];
-  atts.slice(0,4).forEach(function(a,i){var s=A[i];var d=dparts(a.dob);set('Title'+s[0],a.title);set('First names'+s[0],a.firstName);set('Last name'+s[0],a.lastName);set('Day'+s[1],d.d);set('Month'+s[1],d.mo);set('Year'+s[1],d.y);addr(s[2],s[3],a.address);set('Email address optional'+s[0],a.email);});
-  var reps=[];atts.forEach(function(a){if(String(a.hasReplacement).toLowerCase()==='yes'&&(a.repFirstName||a.repLastName))reps.push({firstName:a.repFirstName,lastName:a.repLastName,address:a.repAddress,dob:a.repDob});});
-  var R=[['_6','_7','Address 1_6a','undefined_6'],['_7','_8','Address 1_7a','undefined_7']];
-  reps.slice(0,2).forEach(function(r,i){var s=R[i];var d=dparts(r.dob);set('First names'+s[0],r.firstName);set('Last name'+s[0],r.lastName);set('Day'+s[1],d.d);set('Month'+s[1],d.mo);set('Year'+s[1],d.y);addr(s[2],s[3],r.address);});
+  set('Address 1a',addrParts(yd).l1);set('Address 1b',addrParts(yd).l2);set('Postcode',addrParts(yd).pc);
+  set('Email address optional',yd.email);
+  // ---- Attorneys (p04-05) ----
+  var A=[
+    {t:'_2',d:'_3',a:'Address 1_2',b:'Address 1_2b',pc:'undefined_2'},
+    {t:'_3',d:'_4',a:'Address 1_3',b:'Address 1_3b',pc:'undefined_3'},
+    {t:'_4',d:'_5',a:'Address 1_4a',b:'Address 1_4b',pc:'undefined_4'},
+    {t:'_5',d:'_6',a:'Address 1_5a',b:'Address 1_5b',pc:'undefined_5'}
+  ];
+  atts.slice(0,4).forEach(function(a,i){var s=A[i];var d=dparts(a.dob);
+    set('Title'+s.t,a.title);set('First names'+s.t,a.firstName);set('Last name'+s.t,a.lastName);
+    set('Day'+s.d,d.d);set('Month'+s.d,d.mo);set('Year'+s.d,d.y);
+    setAddr(s.a,s.b,s.pc,a);set('Email address optional'+s.t,a.email);
+  });
+  if(atts[0]&&String(atts[0].isTrustCorp).toLowerCase()==='yes') check('This attorney is a trust corporation');
+  // ---- Replacement attorneys (p07) ----
+  var reps=[];atts.forEach(function(a){if(String(a.hasReplacement).toLowerCase()==='yes'&&(a.repFirstName||a.repLastName))reps.push({title:a.repTitle,firstName:a.repFirstName,lastName:a.repLastName,address:a.repAddress,city:a.repCity,postcode:a.repPostcode,dob:a.repDob});});
+  var R=[{t:'_6',d:'_7',a:'Address 1_6a',b:'Address 1_6b',pc:'undefined_6'},{t:'_7',d:'_8',a:'Address 1_7a',b:'Address 1_7b',pc:'undefined_7'}];
+  reps.slice(0,2).forEach(function(r,i){var s=R[i];var d=dparts(r.dob);
+    set('Title'+s.t,r.title);set('First names'+s.t,r.firstName);set('Last name'+s.t,r.lastName);
+    set('Day'+s.d,d.d);set('Month'+s.d,d.mo);set('Year'+s.d,d.y);
+    setAddr(s.a,s.b,s.pc,r);
+  });
+  // ---- Preferences / Instructions (p10) + continuation ----
   var pf=state.preferences||{};
-  if(String(pf.hasPreferences).toLowerCase()==='yes')set('Preferences  use words like prefer and would like',pf.preferences);
-  if(String(pf.hasInstructions).toLowerCase()==='yes')set('Instructions  use words like must and have to',pf.instructions);
-  var N=[['_8','Address 1_8a','undefined_8'],['_9','Address 1_9a','undefined_9'],['_10','Address 1_10a','undefined_10'],['_11','Address 1_11a','undefined_11']];
+  var prefTxt=(String(pf.hasPreferences).toLowerCase()==='yes')?String(pf.preferences||''):'';
+  var instrTxt=(String(pf.hasInstructions).toLowerCase()==='yes')?String(pf.instructions||''):'';
+  var LIM=210;
+  if(prefTxt){ set('Preferences  use words like prefer and would like', prefTxt.length>LIM?(prefTxt.slice(0,LIM-24).replace(/\s+\S*$/,'')+'  (continued on sheet 2)'):prefTxt); if(prefTxt.length>LIM) check('I need more space  use Continuation sheet 2'); }
+  if(instrTxt){ set('Instructions  use words like must and have to', instrTxt.length>LIM?(instrTxt.slice(0,LIM-24).replace(/\s+\S*$/,'')+'  (continued on sheet 2)'):instrTxt); if(instrTxt.length>LIM) check('I need more space  use Continuation sheet 2_2'); }
+  // ---- People to notify (p09) ----
+  var N=[{t:'_8',a:'Address 1_8a',b:'Address 1_8b',pc:'undefined_8'},{t:'_9',a:'Address 1_9a',b:'Address 1_9b',pc:'undefined_9'},{t:'_10',a:'Address 1_10a',b:'Address 1_10b',pc:'undefined_10'},{t:'_11',a:'Address 1_11a',b:'Address 1_11b',pc:'undefined_11'}];
   var nl=(state.notify&&String(state.notify.has).toLowerCase()==='yes')?(state.notify.list||[]):[];
-  nl.slice(0,4).forEach(function(p,i){var s=N[i];set('First names'+s[0],p.firstName);set('Last name'+s[0],p.lastName);addr(s[1],s[2],p.contact);});
-  var pv=state.provider||{};set('Title_12',pv.title);set('First names_12',pv.firstName);set('Last name_12',pv.lastName);addr('Address 1_13a','undefined_15',pv.address);
-  if(/^Yes/i.test((state.exemption&&state.exemption.status)||''))check('I want to apply to pay a reduced fee');
+  nl.slice(0,4).forEach(function(p,i){var s=N[i];set('Title'+s.t,p.title);set('First names'+s.t,p.firstName);set('Last name'+s.t,p.lastName);
+    // back-compat: old data stored a single 'contact' (address or email); use only if it is not an email
+    var pp=p; if(!p.address && p.contact && String(p.contact).indexOf('@')<0) pp={address:p.contact,city:p.city,postcode:p.postcode};
+    setAddr(s.a,s.b,s.pc,pp);
+  });
+  // ---- Certificate provider (p13) ----
+  var pv=state.provider||{};set('Title_12',pv.title);set('First names_12',pv.firstName);set('Last name_12',pv.lastName);
+  setAddr('Address 1_13a','Address 1_13b','undefined_15',pv);
+  // ---- Reduced fee (p21) ----
+  if(/^Yes/i.test((state.exemption&&state.exemption.status)||'')) check('I want to apply to pay a reduced fee');
+  // ---- Page 2 overview (names to refer back) ----
+  var pn=function(names,list,mk){ names.forEach(function(fld,i){ if(list[i]) set(fld, mk(list[i])); }); };
+  pn(['Text4','Text4a','Text4b','Text4c'], atts.slice(0,4), fullName);
+  pn(['Text6','Text6b','Text6c','Text6d'], reps.slice(0,4), fullName);
+  pn(['Text7','Text7b','Text7c','Text7d'], nl.slice(0,4), fullName);
+  // ---- generate text appearances for filled text fields ----
   try{form.updateFieldAppearances();}catch(e){}
+  // ---- grouped tick controls via raw page-annotation walk (widget /AS), preserved by updateFieldAppearances:false on save ----
   var mode=(state.decisions&&state.decisions.mode)||'';
   var decV=atts.length<=1?'section 4':(/^Jointly and severally/i.test(mode)?'1':(/^Jointly \(all/i.test(mode)?'2':(/some/i.test(mode)?'3':null)));
   var targets={};
@@ -502,6 +544,27 @@ async function fillLpaForm(PL, bytes, state, ftype){
   var fname=function(w){var cur=w,parts=[],g=0;while(cur&&g++<6){var t=txt(cur.get(T));if(t)parts.unshift(t);var pr=cur.get(P);cur=pr?ctx.lookup(pr,PL.PDFDict):null;}return parts.join('.');};
   var onKey=function(w){try{var n=ctx.lookup(w.get(AP),PL.PDFDict);var nn=ctx.lookup(n.get(Nn),PL.PDFDict);return nn.keys().map(function(x){return x.asString();}).find(function(x){return x!=='/Off';});}catch(e){return null;}};
   pdf.getPages().forEach(function(pg){var an=pg.node.Annots&&pg.node.Annots();if(!an)return;for(var i=0;i<an.size();i++){var w=ctx.lookup(an.get(i),PL.PDFDict);if(!w||!w.get)continue;var nm=fname(w);if(!(nm in targets))continue;var want=PL.PDFName.of(targets[nm]).asString();if(onKey(w)===want)w.set(AS,PL.PDFName.of(targets[nm]));else w.set(AS,PL.PDFName.of('Off'));}});
+  // ---- Continuation sheet for long preferences/instructions ----
+  if((prefTxt&&prefTxt.length>LIM)||(instrTxt&&instrTxt.length>LIM)){
+    try{
+      var font=await pdf.embedFont(PL.StandardFonts.Helvetica);
+      var bold=await pdf.embedFont(PL.StandardFonts.HelveticaBold);
+      var donor=fullName(yd)||'the donor';
+      var wrap=function(t,f,sz,maxw){var out=[];String(t||'').split(/\n/).forEach(function(par){var words=par.split(/\s+/),line='';words.forEach(function(w){var test=line?line+' '+w:w;if(f.widthOfTextAtSize(test,sz)>maxw){if(line)out.push(line);line=w;}else line=test;});out.push(line);});return out;};
+      var pg=pdf.addPage([595.28,841.89]);var y=800;var L=56,MW=595.28-112;
+      var drawT=function(s,f,sz,color){pg.drawText(String(s),{x:L,y:y,size:sz,font:f,color:color||PL.rgb(0,0,0)});y-=sz+6;};
+      drawT('Continuation sheet 2',bold,16);drawT('Preferences and instructions (overflow from the LPA)',font,11,PL.rgb(0.3,0.3,0.3));y-=6;
+      drawT('Donor: '+donor,font,11);y-=6;
+      var block=function(title,body){ if(!body)return; drawT(title,bold,12); wrap(body,font,11,MW).forEach(function(ln){ if(y<120){ pg=pdf.addPage([595.28,841.89]); y=800; } pg.drawText(ln,{x:L,y:y,size:11,font:font}); y-=16; }); y-=8; };
+      if(prefTxt&&prefTxt.length>LIM) block('Preferences',prefTxt);
+      if(instrTxt&&instrTxt.length>LIM) block('Instructions',instrTxt);
+      if(y<170){ pg=pdf.addPage([595.28,841.89]); y=800; }
+      y-=10; drawT('This continuation sheet must be signed and dated by the donor and witnessed, in the same way as the main form.',font,10,PL.rgb(0.3,0.3,0.3));y-=18;
+      pg.drawText('Donor signature: ______________________________     Date: ______________',{x:L,y:y,size:11,font:font});y-=34;
+      pg.drawText('Witness signature: _____________________________     Date: ______________',{x:L,y:y,size:11,font:font});y-=18;
+      pg.drawText('Witness name & address: _________________________________________________',{x:L,y:y,size:11,font:font});
+    }catch(e){}
+  }
   try{form.acroForm.dict.set(PL.PDFName.of('NeedAppearances'),PL.PDFBool.True);}catch(e){}
   return Buffer.from(await pdf.save({updateFieldAppearances:false}));
 }
