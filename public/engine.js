@@ -12,7 +12,7 @@
     var st=document.createElement('style'); st.textContent=CSS; document.head.appendChild(st);
   }catch(e){}
   var mount=document.getElementById('aiwills-funnel') || document.body;
-  mount.innerHTML=MARKUP;
+  mount.innerHTML=(String((window.AIWILLS_CONFIG||{}).funnel||'').toLowerCase()==='hub')?'':MARKUP;
   function scrapeLoc(){ try{ var h=document.documentElement.innerHTML; var fid=(location.pathname.match(/([A-Za-z0-9]{20})/)||[])[1]; if(fid){ var m=h.match(new RegExp('"'+fid+'","[^"]*","([A-Za-z0-9]{15,30})"')); if(m) return m[1]; } var m2=h.match(/"locationId":"([A-Za-z0-9]{15,30})"/); if(m2) return m2[1]; return ''; }catch(e){ return ''; } }
   var rootEl=document.getElementById('aiwills-funnel');
   var loc=(rootEl&&rootEl.getAttribute('data-loc'))||'';
@@ -30,7 +30,7 @@ var CFG = window.AIWILLS_CONFIG || {}; (function(){ var _m='{'+'{'; for(var _k i
       {key:'etb',title:(CFG.etb_title||'Executor Toolbox'),blurb:(CFG.etb_blurb||'A secure place for everything your executors will need to find.'),url:CFG.etb_url,icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5.5A3.5 3.5 0 0 1 16 5.5V7"/><path d="M3 12h18"/></svg>'}
     ];
     mount.innerHTML='<header id="hdr" class="hdr"></header><main class="main"><div class="hubwrap"><h1 class="hubh1">Your documents</h1><p class="lead">Choose a service to get started, or open one you have already begun.</p><div class="hubgrid" id="hubgrid"></div></div></main><footer id="ftr" class="ftr"></footer>';
-    try{ applyBrand(); }catch(e){}
+    try{ applyBrand(); }catch(e){} try{ closeGaps(); }catch(e){} try{ window.addEventListener('load',function(){try{closeGaps();}catch(e){}}); setTimeout(function(){try{closeGaps();}catch(e){}},300); setTimeout(function(){try{closeGaps();}catch(e){}},1000); }catch(e){}
     var contact=(rootEl&&rootEl.getAttribute('data-contact'))||'';
     function card(s,st){
       var done=st&&(st.paid||st.started);
