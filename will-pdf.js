@@ -465,26 +465,45 @@ function buildLpaPdf(state, brand){
 }
 
 function dparts(iso){var m=/(\d{4})-(\d{2})-(\d{2})/.exec(iso||"");return m?{d:m[3],mo:m[2],y:m[1]}:{d:"",mo:"",y:""};}
-async function fillLpaForm(PL, bytes, state){
-  var pdf=await PL.PDFDocument.load(bytes); var form=pdf.getForm();
+function ukPost(s){if(!s)return"";var m=/([A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\s*$/i.exec(String(s).trim());return m?m[1].toUpperCase().replace(/\s+/," "):"";}
+function stripPost(s,pc){if(!s)return s;s=String(s);if(pc){s=s.replace(new RegExp(pc.replace(/\s/g,"\\s*")+"\\s*$","i"),"");}return s.replace(/[,\s]+$/,"");}
+async function fillLpaForm(PL, bytes, state, ftype){
+  var pdf=await PL.PDFDocument.load(bytes); var ctx=pdf.context; var form=pdf.getForm();
   var set=function(n,v){try{if(v!=null&&String(v).trim()!=='')form.getTextField(n).setText(String(v));}catch(e){}};
   var check=function(n){try{form.getCheckBox(n).check();}catch(e){}};
+  var addr=function(line,pc,v){var p=ukPost(v);set(line,stripPost(v,p));if(p)set(pc,p);};
   var yd=state.your_details||{}, db=dparts(yd.dob);
-  set('First names',yd.firstName);set('Last name',yd.lastName);set('Day',db.d);set('Month',db.mo);set('Year',db.y);
+  set('Title',yd.title);set('First names',yd.firstName);set('Last name',yd.lastName);
+  set('Day',db.d);set('Month',db.mo);set('Year',db.y);
   set('Address 1a',yd.address);set('Address 1b',yd.city);set('Postcode',yd.postcode);set('Email address optional',yd.email);
-  var A=[['_2','_3','Address 1_2'],['_3','_4','Address 1_3'],['_4','_5','Address 1_4a'],['_5','_6','Address 1_5a']];
+  var A=[['_2','_3','Address 1_2','undefined_2'],['_3','_4','Address 1_3','undefined_3'],['_4','_5','Address 1_4a','undefined_4'],['_5','_6','Address 1_5a','undefined_5']];
   var atts=(state.attorneys&&state.attorneys.list)||[];
-  atts.slice(0,4).forEach(function(a,i){var s=A[i];var d=dparts(a.dob);set('First names'+s[0],a.firstName);set('Last name'+s[0],a.lastName);set('Day'+s[1],d.d);set('Month'+s[1],d.mo);set('Year'+s[1],d.y);set(s[2],a.address);});
-  var reps=[]; atts.forEach(function(a){ if(String(a.hasReplacement).toLowerCase()==='yes'&&(a.repFirstName||a.repLastName)) reps.push({firstName:a.repFirstName,lastName:a.repLastName,address:a.repAddress}); });
-  var R=[['_6','Address 1_6a'],['_7','Address 1_7a']];
-  reps.slice(0,2).forEach(function(r,i){var s=R[i];set('First names'+s[0],r.firstName);set('Last name'+s[0],r.lastName);set(s[1],r.address);});
-  var N=[['_8','Address 1_8a'],['_9','Address 1_9a'],['_10','Address 1_10a'],['_11','Address 1_11a']];
+  atts.slice(0,4).forEach(function(a,i){var s=A[i];var d=dparts(a.dob);set('Title'+s[0],a.title);set('First names'+s[0],a.firstName);set('Last name'+s[0],a.lastName);set('Day'+s[1],d.d);set('Month'+s[1],d.mo);set('Year'+s[1],d.y);addr(s[2],s[3],a.address);set('Email address optional'+s[0],a.email);});
+  var reps=[];atts.forEach(function(a){if(String(a.hasReplacement).toLowerCase()==='yes'&&(a.repFirstName||a.repLastName))reps.push({firstName:a.repFirstName,lastName:a.repLastName,address:a.repAddress,dob:a.repDob});});
+  var R=[['_6','_7','Address 1_6a','undefined_6'],['_7','_8','Address 1_7a','undefined_7']];
+  reps.slice(0,2).forEach(function(r,i){var s=R[i];var d=dparts(r.dob);set('First names'+s[0],r.firstName);set('Last name'+s[0],r.lastName);set('Day'+s[1],d.d);set('Month'+s[1],d.mo);set('Year'+s[1],d.y);addr(s[2],s[3],r.address);});
+  var pf=state.preferences||{};
+  if(String(pf.hasPreferences).toLowerCase()==='yes')set('Preferences  use words like prefer and would like',pf.preferences);
+  if(String(pf.hasInstructions).toLowerCase()==='yes')set('Instructions  use words like must and have to',pf.instructions);
+  var N=[['_8','Address 1_8a','undefined_8'],['_9','Address 1_9a','undefined_9'],['_10','Address 1_10a','undefined_10'],['_11','Address 1_11a','undefined_11']];
   var nl=(state.notify&&String(state.notify.has).toLowerCase()==='yes')?(state.notify.list||[]):[];
-  nl.slice(0,4).forEach(function(p,i){var s=N[i];set('First names'+s[0],p.firstName);set('Last name'+s[0],p.lastName);set(s[1],p.contact);});
-  var pv=state.provider||{};set('First names_12',pv.firstName);set('Last name_12',pv.lastName);set('Address 1_13a',pv.address);
-  if(/^Yes/i.test((state.exemption&&state.exemption.status)||'')) check('I want to apply to pay a reduced fee');
-  try{ form.acroForm.dict.set(PL.PDFName.of('NeedAppearances'), PL.PDFBool.True); }catch(e){}
-  return Buffer.from(await pdf.save());
+  nl.slice(0,4).forEach(function(p,i){var s=N[i];set('First names'+s[0],p.firstName);set('Last name'+s[0],p.lastName);addr(s[1],s[2],p.contact);});
+  var pv=state.provider||{};set('Title_12',pv.title);set('First names_12',pv.firstName);set('Last name_12',pv.lastName);addr('Address 1_13a','undefined_15',pv.address);
+  if(/^Yes/i.test((state.exemption&&state.exemption.status)||''))check('I want to apply to pay a reduced fee');
+  try{form.updateFieldAppearances();}catch(e){}
+  var mode=(state.decisions&&state.decisions.mode)||'';
+  var decV=atts.length<=1?'section 4':(/^Jointly and severally/i.test(mode)?'1':(/^Jointly \(all/i.test(mode)?'2':(/some/i.test(mode)?'3':null)));
+  var targets={};
+  if(decV)targets['Jointly and severally']=decV;
+  if(ftype==='F'){var when=(state.usage&&state.usage.when)||'';if(/registered/i.test(when))targets['As soon as my LPA has been registered']='On';else if(/capacity/i.test(when))targets['As soon as my LPA has been registered']='off';}
+  targets['receive the lpa']='1';targets['receive lpa']='1';
+  var T=PL.PDFName.of('T'),AS=PL.PDFName.of('AS'),AP=PL.PDFName.of('AP'),Nn=PL.PDFName.of('N'),P=PL.PDFName.of('Parent');
+  var txt=function(o){if(!o)return null;o=o.decodeText?o:ctx.lookup(o);return o&&o.decodeText?o.decodeText():null;};
+  var fname=function(w){var cur=w,parts=[],g=0;while(cur&&g++<6){var t=txt(cur.get(T));if(t)parts.unshift(t);var pr=cur.get(P);cur=pr?ctx.lookup(pr,PL.PDFDict):null;}return parts.join('.');};
+  var onKey=function(w){try{var n=ctx.lookup(w.get(AP),PL.PDFDict);var nn=ctx.lookup(n.get(Nn),PL.PDFDict);return nn.keys().map(function(x){return x.asString();}).find(function(x){return x!=='/Off';});}catch(e){return null;}};
+  pdf.getPages().forEach(function(pg){var an=pg.node.Annots&&pg.node.Annots();if(!an)return;for(var i=0;i<an.size();i++){var w=ctx.lookup(an.get(i),PL.PDFDict);if(!w||!w.get)continue;var nm=fname(w);if(!(nm in targets))continue;var want=PL.PDFName.of(targets[nm]).asString();if(onKey(w)===want)w.set(AS,PL.PDFName.of(targets[nm]));else w.set(AS,PL.PDFName.of('Off'));}});
+  try{form.acroForm.dict.set(PL.PDFName.of('NeedAppearances'),PL.PDFBool.True);}catch(e){}
+  return Buffer.from(await pdf.save({updateFieldAppearances:false}));
 }
 // Fill the official OPG forms from the captured LPA state. Returns [{field,fname,bytes}] (signing guide + LP1F/LP1H).
 // Throws if pdf-lib or the blank forms are missing so the caller can fall back to the pdfkit summary pack.
@@ -495,8 +514,8 @@ async function buildLpaOfficial(state, brand){
   var out=[];
   try { var g=await buildLpaPdf(state, brand); out.push({field:'LPA Guide PDF', fname:'lpa-signing-guide.pdf', bytes:g}); } catch(e){}
   var type=(state.lpa_type&&state.lpa_type.type)||'';
-  if(/Property|Both/i.test(type)) out.push({field:'LPA LP1F PDF', fname:'LP1F-property-financial.pdf', bytes: await fillLpaForm(PL, readBlank(['LP1F.pdf','LP1F-Create-and-register-your-lasting-power-of-attorney.pdf']), state)});
-  if(/Health|Both/i.test(type)) out.push({field:'LPA LP1H PDF', fname:'LP1H-health-welfare.pdf', bytes: await fillLpaForm(PL, readBlank(['LP1H.pdf','LP1H-Create-and-register-your-lasting-power-of-attorney.pdf']), state)});
+  if(/Property|Both/i.test(type)) out.push({field:'LPA LP1F PDF', fname:'LP1F-property-financial.pdf', bytes: await fillLpaForm(PL, readBlank(['LP1F.pdf','LP1F-Create-and-register-your-lasting-power-of-attorney.pdf']), state, 'F')});
+  if(/Health|Both/i.test(type)) out.push({field:'LPA LP1H PDF', fname:'LP1H-health-welfare.pdf', bytes: await fillLpaForm(PL, readBlank(['LP1H.pdf','LP1H-Create-and-register-your-lasting-power-of-attorney.pdf']), state, 'H')});
   if(out.length<2) throw new Error('LPA official forms not generated (type='+type+')');
   return out;
 }
