@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>My services</title>
+<style>html,body{margin:0;padding:0;background:transparent}</style>
+</head>
+<body>
+<!-- AI Wills services hub - embeddable. Pass identity via URL:
+     ?aw_loc=<GHL location id>&aw_c=<GHL contact id>
+     e.g. from a GHL client portal embed: ?aw_loc={{location.id}}&aw_c={{contact.id}}
+     With no identity it renders the public "Get started" state. -->
+<div id="aiwills-funnel"></div>
+<script>window.AIWILLS_CONFIG={funnel:'hub'};</script>
+<script src="https://aiwills.digilyse.co/api/engine"></script>
+</body>
+</html>
