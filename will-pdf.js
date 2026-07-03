@@ -561,16 +561,44 @@ async function buildLpaContinuation(PL, lpcBytes, state){
   var prefTxt=(String(pf.hasPreferences).toLowerCase()==='yes')?String(pf.preferences||''):'';
   var instrTxt=(String(pf.hasInstructions).toLowerCase()==='yes')?String(pf.instructions||''):'';
   var LIM=210; var needP=prefTxt.length>LIM, needI=instrTxt.length>LIM;
-  if(!needP&&!needI) return null;
+  var atts=(state.attorneys&&state.attorneys.list)||[];
+  var reps=[]; atts.forEach(function(a){ if(String(a.hasReplacement).toLowerCase()==='yes'&&(a.repFirstName||a.repLastName)) reps.push({type:'2',title:a.repTitle,firstName:a.repFirstName,lastName:a.repLastName,address:a.repAddress,city:a.repCity,postcode:a.repPostcode,dob:a.repDob}); });
+  var nl=(state.notify&&String(state.notify.has).toLowerCase()==='yes')?(state.notify.list||[]):[];
+  var overflow=[];
+  reps.slice(2).forEach(function(r){overflow.push(r);});
+  nl.slice(4).forEach(function(p){overflow.push({type:'3',title:p.title,firstName:p.firstName,lastName:p.lastName,address:p.address,city:p.city,postcode:p.postcode});});
+  var canSign = String((state.declaration&&state.declaration.canSign)||'').toLowerCase()!=='no';
+  var signerName=(state.declaration&&state.declaration.signerName)||'';
+  var trust=atts.filter(function(a){return String(a.isTrustCorp).toLowerCase()==='yes';});
+  var trustReg=trust.length?(trust[0].companyRegNumber||''):'';
+  if(!needP&&!needI&&!overflow.length&&canSign&&!trust.length) return null;
   var lpc=await PL.PDFDocument.load(lpcBytes); var form=lpc.getForm(); var ctx=lpc.context;
   var donor=fullName(state.your_details||{});
   var set=function(n,v){try{if(v!=null&&String(v).trim()!=='')form.getTextField(n).setText(String(v));}catch(e){}};
-  var pages=[]; var cbTargets={};
-  if(needP){ set('Instructions LPA section 7', prefTxt); set('Full name_3', donor); cbTargets['Decisions attorneys should make jointly LPA section 3']='3'; pages.push(4); }
-  if(needI){
-    if(needP){ set('Instructions LPA section 7_2', instrTxt); set('Full name_4', donor); cbTargets['Decisions attorneys should make jointly LPA section 3_2']='4'; pages.push(5); }
-    else { set('Instructions LPA section 7', instrTxt); set('Full name_3', donor); cbTargets['Decisions attorneys should make jointly LPA section 3']='4'; pages.push(4); }
+  var cbTargets={}; var pages=[];
+  if(overflow.length){
+    var S=[
+      {cb:'Attorney LPA section 2_1',ti:'Title',fn:'First names',ln:'Last name',dd:'Date of birth not required for person to notify',mm:'Month',yy:'Year',a1:'Address 1',a2:'Address 2',pc:'undefined',pg:2,full:'Full name'},
+      {cb:'Attorney LPA section 2_2',ti:'Title_2',fn:'First names_2',ln:'Last name_2',dd:'Date of birth not required for person to notify_2',mm:'Month_2',yy:'Year_2',a1:'Address 1_2',a2:'Address 2_2',pc:'undefined_2',pg:2,full:'Full name'},
+      {cb:'Attorney LPA section 2_3',ti:'Title_3',fn:'First names_3',ln:'Last name_3',dd:'Date of birth not required for person to notify_3',mm:'Month_3',yy:'Year_3',a1:'Address 1_3',a2:'Address 2_3',pc:'undefined_5',pg:3,full:'Full name_2'},
+      {cb:'Attorney LPA section 2_4',ti:'Title_4',fn:'First names_4',ln:'Last name_4',dd:'Date of birth not required for person to notify_4',mm:'Month_4',yy:'Year_4',a1:'Address 1_4',a2:'Address 2_4',pc:'undefined_6',pg:3,full:'Full name_2'}
+    ];
+    overflow.slice(0,4).forEach(function(p,i){var s=S[i];var d=dparts(p.dob);var ap=addrParts(p);
+      set(s.ti,p.title);set(s.fn,p.firstName);set(s.ln,p.lastName);
+      if(d.d){set(s.dd,d.d);set(s.mm,d.mo);set(s.yy,d.y);}
+      set(s.a1,ap.l1);set(s.a2,ap.l2);set(s.pc,ap.pc);
+      cbTargets[s.cb]=p.type;
+      if(pages.indexOf(s.pg)<0){pages.push(s.pg); set(s.full,donor);}
+    });
   }
+  if(needP){ set('Instructions LPA section 7', prefTxt); set('Full name_3', donor); cbTargets['Decisions attorneys should make jointly LPA section 3']='3'; if(pages.indexOf(4)<0)pages.push(4); }
+  if(needI){
+    if(needP){ set('Instructions LPA section 7_2', instrTxt); set('Full name_4', donor); cbTargets['Decisions attorneys should make jointly LPA section 3_2']='4'; if(pages.indexOf(5)<0)pages.push(5); }
+    else { set('Instructions LPA section 7', instrTxt); set('Full name_3', donor); cbTargets['Decisions attorneys should make jointly LPA section 3']='4'; if(pages.indexOf(4)<0)pages.push(4); }
+  }
+  if(!canSign){ set('Full name_5', signerName||donor); if(pages.indexOf(6)<0)pages.push(6); }
+  if(trust.length){ set('Company registration number', trustReg); if(pages.indexOf(8)<0)pages.push(8); }
+  pages.sort(function(a,b){return a-b;});
   try{form.updateFieldAppearances();}catch(e){}
   var T=PL.PDFName.of('T'),AS=PL.PDFName.of('AS'),AP=PL.PDFName.of('AP'),Nn=PL.PDFName.of('N'),P=PL.PDFName.of('Parent');
   var txt=function(o){if(!o)return null;o=o.decodeText?o:ctx.lookup(o);return o&&o.decodeText?o.decodeText():null;};
