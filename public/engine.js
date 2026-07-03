@@ -20,6 +20,32 @@
   function run(){
 
 var CFG = window.AIWILLS_CONFIG || {}; (function(){ var _m='{'+'{'; for(var _k in CFG){ if(typeof CFG[_k]==='string' && CFG[_k].indexOf(_m)>=0) CFG[_k]=''; } })();
+  if(String((window.AIWILLS_CONFIG||{}).funnel||'').toLowerCase()==='hub'){ renderHub(); return; }
+  function renderHub(){
+    var enc=encodeURIComponent;
+    try{ var hs=document.createElement('style'); hs.textContent='.hubwrap{max-width:var(--site-max);margin:0 auto;padding:34px 24px 60px}.hubh1{margin-bottom:6px}.hubgrid{display:flex;flex-wrap:wrap;gap:20px;margin-top:24px}.hubcard{flex:1 1 280px;min-width:260px;max-width:360px;border:1px solid var(--line);border-radius:16px;background:#fff;padding:24px;display:flex;flex-direction:column;gap:12px}.hubic{width:54px;height:54px;border-radius:12px;background:#fff6f5;color:var(--primary);display:flex;align-items:center;justify-content:center}.hubic svg{width:30px;height:30px}.hubcard h3{font-size:20px;margin:0;font-family:var(--hf)}.hubcard .hubdesc{color:var(--muted);font-size:14px;flex:1;margin:0}.hubcard .hubstatus{font-size:12px;font-weight:700;color:#157a3f}.hubcard .btn{width:100%;text-align:center;text-decoration:none;display:block;padding:13px}@media(max-width:640px){.hubgrid{flex-direction:column}.hubcard{max-width:none}}'; document.head.appendChild(hs); }catch(e){}
+    var SVC=[
+      {key:'wills',title:(CFG.wills_title||'Your Will'),blurb:(CFG.wills_blurb||'Create a clear, properly structured will and keep it up to date.'),url:CFG.wills_url,icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h7l4 4v14H7z"/><path d="M14 3v4h4"/><path d="M10 12h6M10 16h4"/></svg>'},
+      {key:'lpa',title:(CFG.lpa_title||'Lasting Power of Attorney'),blurb:(CFG.lpa_blurb||'Appoint people you trust to make decisions for you if you ever cannot.'),url:CFG.lpa_url,icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.5"/><path d="M5 20c0-3.5 3.1-5.5 7-5.5s7 2 7 5.5"/></svg>'},
+      {key:'etb',title:(CFG.etb_title||'Executor Toolbox'),blurb:(CFG.etb_blurb||'A secure place for everything your executors will need to find.'),url:CFG.etb_url,icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5.5A3.5 3.5 0 0 1 16 5.5V7"/><path d="M3 12h18"/></svg>'}
+    ];
+    mount.innerHTML='<header id="hdr" class="hdr"></header><main class="main"><div class="hubwrap"><h1 class="hubh1">Your documents</h1><p class="lead">Choose a service to get started, or open one you have already begun.</p><div class="hubgrid" id="hubgrid"></div></div></main><footer id="ftr" class="ftr"></footer>';
+    try{ applyBrand(); }catch(e){}
+    var contact=(rootEl&&rootEl.getAttribute('data-contact'))||'';
+    function card(s,st){
+      var done=st&&(st.paid||st.started);
+      var btn;
+      if(!s.url){ btn='<button class="btn ghost" type="button" disabled>Coming soon</button>'; }
+      else if(done){ btn='<a class="btn ghost" href="'+esc(s.url)+'">Open / edit</a>'; }
+      else { btn='<a class="btn" href="'+esc(s.url)+'">Get started</a>'; }
+      var badge=done?('<div class="hubstatus">'+(st.paid?'Purchased':'In progress')+'</div>'):'';
+      return '<div class="hubcard"><div class="hubic">'+s.icon+'</div><h3>'+esc(s.title)+'</h3><p class="hubdesc">'+esc(s.blurb)+'</p>'+badge+btn+'</div>';
+    }
+    function paint(st){ var g=el('hubgrid'); if(g) g.innerHTML=SVC.map(function(s){return card(s, st[s.key]);}).join(''); }
+    paint({});
+    if(loc && contact){ fetch(API+'/api/hub-status?locationId='+enc(loc)+'&contactId='+enc(contact)).then(function(r){return r.json();}).then(function(j){ paint((j&&j.services)||{}); }).catch(function(){}); }
+  }
+
 /* Closest free Google font for a commercial/Adobe font, so the funnel falls to a near-match (not a generic serif) if the real font can't load (Typekit domain-lock, self-hosted). */
 function closestFont(n){n=(n||'').split(',')[0].replace(/["']/g,'').trim().toLowerCase();var M={'proxima nova':['Montserrat',1],'proxima-nova':['Montserrat',1],'omnes':['Nunito Sans',1],'omnes-pro':['Nunito Sans',1],'gotham':['Montserrat',1],'gotham rounded':['Nunito',1],'avenir':['Nunito Sans',1],'avenir next':['Nunito Sans',1],'futura':['Jost',1],'futura pt':['Jost',1],'circular':['Mulish',1],'circular std':['Mulish',1],'brandon grotesque':['Montserrat',1],'sofia pro':['Mulish',1],'din':['Archivo',1],'din next':['Archivo',1],'helvetica':['Inter',1],'helvetica neue':['Inter',1],'neue haas grotesk':['Inter',1],'arial':['Arimo',1],'frutiger':['Inter',1],'univers':['Inter',1],'gill sans':['Lato',1],'trade gothic':['Archivo',1],'museo sans':['Mulish',1],'effra':['Mulish',1],'graphik':['Inter',1],'founders grotesk':['Inter',1],'apercu':['Inter',1],'maison neue':['Inter',1],'garamond':['EB Garamond',0],'adobe garamond':['EB Garamond',0],'caslon':['Libre Caslon Text',0],'adobe caslon':['Libre Caslon Text',0],'sabon':['PT Serif',0],'minion':['Source Serif 4',0],'minion pro':['Source Serif 4',0],'baskerville':['Libre Baskerville',0],'didot':['Playfair Display',0],'bodoni':['Playfair Display',0],'times':['PT Serif',0],'times new roman':['PT Serif',0],'georgia':['Gelasio',0],'freight text':['Lora',0],'chronicle':['Lora',0],'mercury':['Lora',0]};if(M[n])return {g:M[n][0],gen:M[n][1]?'sans-serif':'serif'};var s=/serif|garamond|caslon|times|georgia|baskerville|minion|sabon|didot|bodoni|playfair|merriweather|lora|roman|palatino|cambria|chronicle|freight|mercury|tiempos|canela|noe/.test(n);return {g:'',gen:s?'serif':'sans-serif'};}
 function estack(name,def){var nm=name||def||'';if(!nm)return '';var s=closestFont(nm);var sub=(s.g&&s.g.toLowerCase()!==nm.toLowerCase())?(',"'+s.g+'"'):'';return '"'+nm+'"'+sub+','+s.gen;}
@@ -576,7 +602,7 @@ window.addEventListener('load', closeGaps);
 setTimeout(closeGaps,400); setTimeout(closeGaps,1200);
 
   }
-  try{ if(rootEl){ var _KEYS=['company_name','logo_url','primary_color','heading_color','body_color','header_bg_color','page_bg_color','nav_text_color','heading_font','body_font','site_max_width','footer_max_width','nav_font_size','nav_weight','body_font_size','logo_height','heading_font_size','heading_weight','button_weight','phone','email','address','privacy_url','legal_footer','nav_menu_json','footer_menu_json','font_css_links','will_price','button_color','button_hover_color','button_text_color','button_secondary_color','button_secondary_text_color','button_font','button_radius','footer_bg_color','footer_text_color','facebook_url','instagram_url','linkedin_url','twitter_url','youtube_url','tiktok_url']; var _pc={}, _mm='{'+'{'; _KEYS.forEach(function(k){ var v=rootEl.getAttribute('data-'+k); if(v!=null && v!=='' && v.indexOf(_mm)<0) _pc[k]=v; }); if(Object.keys(_pc).length) window.AIWILLS_CONFIG=Object.assign({}, window.AIWILLS_CONFIG||{}, _pc); } }catch(e){}
+  try{ if(rootEl){ var _KEYS=['company_name','logo_url','primary_color','heading_color','body_color','header_bg_color','page_bg_color','nav_text_color','heading_font','body_font','site_max_width','footer_max_width','nav_font_size','nav_weight','body_font_size','logo_height','heading_font_size','heading_weight','button_weight','phone','email','address','privacy_url','legal_footer','nav_menu_json','footer_menu_json','font_css_links','wills_url','lpa_url','etb_url','wills_title','wills_blurb','lpa_title','lpa_blurb','etb_title','etb_blurb','will_price','button_color','button_hover_color','button_text_color','button_secondary_color','button_secondary_text_color','button_font','button_radius','footer_bg_color','footer_text_color','facebook_url','instagram_url','linkedin_url','twitter_url','youtube_url','tiktok_url']; var _pc={}, _mm='{'+'{'; _KEYS.forEach(function(k){ var v=rootEl.getAttribute('data-'+k); if(v!=null && v!=='' && v.indexOf(_mm)<0) _pc[k]=v; }); if(Object.keys(_pc).length) window.AIWILLS_CONFIG=Object.assign({}, window.AIWILLS_CONFIG||{}, _pc); } }catch(e){}
   (function(){
     var _pcfg = window.AIWILLS_CONFIG || {};
     var _brandKeys = Object.keys(_pcfg).filter(function(k){ return k!=='funnel'; });
