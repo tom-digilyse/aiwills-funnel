@@ -283,14 +283,17 @@ var LPA_FUNNEL = [
   ]},
   { id:'attorneys', name:'Attorneys', title:'Your attorneys', lead:'The people you appoint to make decisions. Add up to four, each with an optional replacement.', fields:[
     { key:'list', type:'repeater', itemLabel:'Attorney', required:true, max:4, emptyMsg:'Add at least one attorney.', fields:[
+      { key:'title', type:'select', label:'Title', options:['Mr','Mrs','Miss','Ms','Mx','Dr','Prof','Other'] },
       { type:'row', fields:[ {key:'firstName',type:'text',label:'First name',required:true}, {key:'lastName',type:'text',label:'Last name',required:true} ] },
       { key:'address', type:'text', label:'Address', required:true },
+      { key:'dob', type:'date', label:'Date of birth', required:true },
       { type:'row', fields:[ {key:'phone',type:'tel',label:'Phone'}, {key:'email',type:'email',label:'Email'} ] },
       { key:'relationship', type:'text', label:'Relationship to donor', required:true },
       { key:'hasReplacement', type:'radio', label:'Add a replacement attorney for this person?', reflow:true, options:['Yes','No'] },
       { key:'repFirstName', type:'text', label:'Replacement first name', showIf:function(s,b){return getP(b+'.hasReplacement')==='Yes';} },
       { key:'repLastName', type:'text', label:'Replacement last name', showIf:function(s,b){return getP(b+'.hasReplacement')==='Yes';} },
-      { key:'repAddress', type:'text', label:'Replacement address', showIf:function(s,b){return getP(b+'.hasReplacement')==='Yes';} }
+      { key:'repAddress', type:'text', label:'Replacement address', showIf:function(s,b){return getP(b+'.hasReplacement')==='Yes';} },
+      { key:'repDob', type:'date', label:'Replacement date of birth', showIf:function(s,b){return getP(b+'.hasReplacement')==='Yes';} }
     ]}
   ]},
   { id:'lpa_type', name:'LPA type', title:'Which LPA would you like?', lead:'You can make one or both types.', fields:[
