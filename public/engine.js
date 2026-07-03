@@ -275,7 +275,8 @@ var ETB_FUNNEL = [
 
 var LPA_FUNNEL = [
   { id:'your_details', name:'Your details', title:'Your details (the donor)', lead:'The LPA is made by you, the donor. We start with your details.', fields:[
-    { type:'row', fields:[ {key:'firstName',type:'text',label:'First name',required:true}, {key:'lastName',type:'text',label:'Last name',required:true} ] },
+    { key:'title', type:'select', label:'Title', options:['Mr','Mrs','Miss','Ms','Mx','Dr','Prof','Other'] },
+      { type:'row', fields:[ {key:'firstName',type:'text',label:'First name',required:true}, {key:'lastName',type:'text',label:'Last name',required:true} ] },
     { type:'row', fields:[ {key:'email',type:'email',label:'Email',required:true}, {key:'phone',type:'tel',label:'Phone',required:true} ] },
     { key:'address', type:'text', label:'Home address', required:true },
     { type:'row', fields:[ {key:'city',type:'text',label:'Town / city',required:true}, {key:'postcode',type:'text',label:'Postcode',required:true} ] },
@@ -285,14 +286,19 @@ var LPA_FUNNEL = [
     { key:'list', type:'repeater', itemLabel:'Attorney', required:true, max:4, emptyMsg:'Add at least one attorney.', fields:[
       { key:'title', type:'select', label:'Title', options:['Mr','Mrs','Miss','Ms','Mx','Dr','Prof','Other'] },
       { type:'row', fields:[ {key:'firstName',type:'text',label:'First name',required:true}, {key:'lastName',type:'text',label:'Last name',required:true} ] },
-      { key:'address', type:'text', label:'Address', required:true },
       { key:'dob', type:'date', label:'Date of birth', required:true },
+      { key:'address', type:'text', label:'Address line 1', required:true },
+      { type:'row', fields:[ {key:'city',type:'text',label:'Town / city',required:true}, {key:'postcode',type:'text',label:'Postcode',required:true} ] },
       { type:'row', fields:[ {key:'phone',type:'tel',label:'Phone'}, {key:'email',type:'email',label:'Email'} ] },
       { key:'relationship', type:'text', label:'Relationship to donor', required:true },
+      { key:'isTrustCorp', type:'radio', label:'Is this attorney a trust corporation? (rare - usually No)', reflow:true, options:['No','Yes'] },
       { key:'hasReplacement', type:'radio', label:'Add a replacement attorney for this person?', reflow:true, options:['Yes','No'] },
+      { key:'repTitle', type:'select', label:'Replacement title', options:['Mr','Mrs','Miss','Ms','Mx','Dr','Prof','Other'], showIf:function(s,b){return getP(b+'.hasReplacement')==='Yes';} },
       { key:'repFirstName', type:'text', label:'Replacement first name', showIf:function(s,b){return getP(b+'.hasReplacement')==='Yes';} },
       { key:'repLastName', type:'text', label:'Replacement last name', showIf:function(s,b){return getP(b+'.hasReplacement')==='Yes';} },
-      { key:'repAddress', type:'text', label:'Replacement address', showIf:function(s,b){return getP(b+'.hasReplacement')==='Yes';} },
+      { key:'repAddress', type:'text', label:'Replacement address line 1', showIf:function(s,b){return getP(b+'.hasReplacement')==='Yes';} },
+      { key:'repCity', type:'text', label:'Replacement town / city', showIf:function(s,b){return getP(b+'.hasReplacement')==='Yes';} },
+      { key:'repPostcode', type:'text', label:'Replacement postcode', showIf:function(s,b){return getP(b+'.hasReplacement')==='Yes';} },
       { key:'repDob', type:'date', label:'Replacement date of birth', showIf:function(s,b){return getP(b+'.hasReplacement')==='Yes';} }
     ]}
   ]},
@@ -318,15 +324,19 @@ var LPA_FUNNEL = [
   { id:'notify', name:'Notify', title:'People to notify', lead:'Optional. People told when the LPA is registered.', fields:[
     { key:'has', type:'radio', label:'Do you want to notify anyone when the LPA is registered?', reflow:true, options:['Yes','No'] },
     { key:'list', type:'repeater', itemLabel:'Person to notify', max:5, showIf:function(s){return s.notify.has==='Yes';}, fields:[
+      { key:'title', type:'select', label:'Title', options:['Mr','Mrs','Miss','Ms','Mx','Dr','Prof','Other'] },
       { type:'row', fields:[ {key:'firstName',type:'text',label:'First name',required:true}, {key:'lastName',type:'text',label:'Last name',required:true} ] },
-      { key:'contact', type:'text', label:'Address or email' }
+      { key:'address', type:'text', label:'Address line 1' },
+      { type:'row', fields:[ {key:'city',type:'text',label:'Town / city'}, {key:'postcode',type:'text',label:'Postcode'} ] }
     ]}
   ]},
   { id:'provider', name:'Provider', title:'Certificate provider', lead:'An independent person who confirms you understand the LPA.', fields:[
     { key:'kind', type:'radio', label:'Who will be your certificate provider?', required:true, options:['Someone who has known me 2+ years','A professional (doctor, solicitor, etc.)'] },
-    { type:'row', fields:[ {key:'firstName',type:'text',label:'First name',required:true}, {key:'lastName',type:'text',label:'Last name',required:true} ] },
-    { key:'address', type:'text', label:'Address' },
-    { type:'row', fields:[ {key:'phone',type:'tel',label:'Phone'}, {key:'occupation',type:'text',label:'Occupation'} ] }
+    { key:'title', type:'select', label:'Title', options:['Mr','Mrs','Miss','Ms','Mx','Dr','Prof','Other'] },
+      { type:'row', fields:[ {key:'firstName',type:'text',label:'First name',required:true}, {key:'lastName',type:'text',label:'Last name',required:true} ] },
+      { key:'address', type:'text', label:'Address line 1' },
+      { type:'row', fields:[ {key:'city',type:'text',label:'Town / city'}, {key:'postcode',type:'text',label:'Postcode'} ] },
+      { type:'row', fields:[ {key:'phone',type:'tel',label:'Phone'}, {key:'occupation',type:'text',label:'Occupation'} ] }
   ]},
   { id:'registration', name:'Registration', title:'Who will register the LPA?', fields:[
     { key:'who', type:'radio', label:'Who registers the LPA?', required:true, options:['Donor','Attorney(s)'] }
