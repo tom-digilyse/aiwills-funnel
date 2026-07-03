@@ -472,6 +472,11 @@ function stripPost(s,pc){if(!s)return s;s=String(s);if(pc){s=s.replace(new RegEx
 function addrParts(p){p=p||{};var pc=String(p.postcode||"").trim();var l1=String(p.address||"");var l2=String(p.city||"");if(!pc){pc=ukPost(l1);if(pc)l1=stripPost(l1,pc);}return {l1:l1,l2:l2,pc:pc};}
 function fullName(p){p=p||{};return [p.title,p.firstName,p.lastName].filter(function(x){return x&&String(x).trim();}).join(" ");}
 function dparts(iso){var m=/(\d{4})-(\d{2})-(\d{2})/.exec(iso||"");return m?{d:m[3],mo:m[2],y:m[1]}:{d:"",mo:"",y:""};}
+function ukPost(s){if(!s)return"";var m=/([A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\s*$/i.exec(String(s).trim());return m?m[1].toUpperCase().replace(/\s+/," "):"";}
+function stripPost(s,pc){if(!s)return s;s=String(s);if(pc){s=s.replace(new RegExp(pc.replace(/\s/g,"\\s*")+"\\s*$","i"),"");}return s.replace(/[,\s]+$/,"");}
+function addrParts(p){p=p||{};var pc=String(p.postcode||"").trim();var l1=String(p.address||"");var l2=String(p.city||"");if(!pc){pc=ukPost(l1);if(pc)l1=stripPost(l1,pc);}return {l1:l1,l2:l2,pc:pc};}
+function fullName(p){p=p||{};return [p.title,p.firstName,p.lastName].filter(function(x){return x&&String(x).trim();}).join(" ");}
+function dparts(iso){var m=/(\d{4})-(\d{2})-(\d{2})/.exec(iso||"");return m?{d:m[3],mo:m[2],y:m[1]}:{d:"",mo:"",y:""};}
 async function fillLpaForm(PL, bytes, state, ftype){
   var pdf=await PL.PDFDocument.load(bytes); var ctx=pdf.context; var form=pdf.getForm();
   var set=function(n,v){try{if(v!=null&&String(v).trim()!=='')form.getTextField(n).setText(String(v));}catch(e){}};
@@ -544,32 +549,39 @@ async function fillLpaForm(PL, bytes, state, ftype){
   var fname=function(w){var cur=w,parts=[],g=0;while(cur&&g++<6){var t=txt(cur.get(T));if(t)parts.unshift(t);var pr=cur.get(P);cur=pr?ctx.lookup(pr,PL.PDFDict):null;}return parts.join('.');};
   var onKey=function(w){try{var n=ctx.lookup(w.get(AP),PL.PDFDict);var nn=ctx.lookup(n.get(Nn),PL.PDFDict);return nn.keys().map(function(x){return x.asString();}).find(function(x){return x!=='/Off';});}catch(e){return null;}};
   pdf.getPages().forEach(function(pg){var an=pg.node.Annots&&pg.node.Annots();if(!an)return;for(var i=0;i<an.size();i++){var w=ctx.lookup(an.get(i),PL.PDFDict);if(!w||!w.get)continue;var nm=fname(w);if(!(nm in targets))continue;var want=PL.PDFName.of(targets[nm]).asString();if(onKey(w)===want)w.set(AS,PL.PDFName.of(targets[nm]));else w.set(AS,PL.PDFName.of('Off'));}});
-  // ---- Continuation sheet for long preferences/instructions ----
-  if((prefTxt&&prefTxt.length>LIM)||(instrTxt&&instrTxt.length>LIM)){
-    try{
-      var font=await pdf.embedFont(PL.StandardFonts.Helvetica);
-      var bold=await pdf.embedFont(PL.StandardFonts.HelveticaBold);
-      var donor=fullName(yd)||'the donor';
-      var wrap=function(t,f,sz,maxw){var out=[];String(t||'').split(/\n/).forEach(function(par){var words=par.split(/\s+/),line='';words.forEach(function(w){var test=line?line+' '+w:w;if(f.widthOfTextAtSize(test,sz)>maxw){if(line)out.push(line);line=w;}else line=test;});out.push(line);});return out;};
-      var pg=pdf.addPage([595.28,841.89]);var y=800;var L=56,MW=595.28-112;
-      var drawT=function(s,f,sz,color){pg.drawText(String(s),{x:L,y:y,size:sz,font:f,color:color||PL.rgb(0,0,0)});y-=sz+6;};
-      drawT('Continuation sheet 2',bold,16);drawT('Preferences and instructions (overflow from the LPA)',font,11,PL.rgb(0.3,0.3,0.3));y-=6;
-      drawT('Donor: '+donor,font,11);y-=6;
-      var block=function(title,body){ if(!body)return; drawT(title,bold,12); wrap(body,font,11,MW).forEach(function(ln){ if(y<120){ pg=pdf.addPage([595.28,841.89]); y=800; } pg.drawText(ln,{x:L,y:y,size:11,font:font}); y-=16; }); y-=8; };
-      if(prefTxt&&prefTxt.length>LIM) block('Preferences',prefTxt);
-      if(instrTxt&&instrTxt.length>LIM) block('Instructions',instrTxt);
-      if(y<170){ pg=pdf.addPage([595.28,841.89]); y=800; }
-      y-=10; drawT('This continuation sheet must be signed and dated by the donor and witnessed, in the same way as the main form.',font,10,PL.rgb(0.3,0.3,0.3));y-=18;
-      pg.drawText('Donor signature: ______________________________     Date: ______________',{x:L,y:y,size:11,font:font});y-=34;
-      pg.drawText('Witness signature: _____________________________     Date: ______________',{x:L,y:y,size:11,font:font});y-=18;
-      pg.drawText('Witness name & address: _________________________________________________',{x:L,y:y,size:11,font:font});
-    }catch(e){}
-  }
+  // (Long preferences/instructions overflow is carried on the official LPC Continuation sheet 2,
+  //  generated separately by buildLpaContinuation and appended as its own document.)
   try{form.acroForm.dict.set(PL.PDFName.of('NeedAppearances'),PL.PDFBool.True);}catch(e){}
   return Buffer.from(await pdf.save({updateFieldAppearances:false}));
 }
 // Fill the official OPG forms from the captured LPA state. Returns [{field,fname,bytes}] (signing guide + LP1F/LP1H).
 // Throws if pdf-lib or the blank forms are missing so the caller can fall back to the pdfkit summary pack.
+async function buildLpaContinuation(PL, lpcBytes, state){
+  var pf=state.preferences||{};
+  var prefTxt=(String(pf.hasPreferences).toLowerCase()==='yes')?String(pf.preferences||''):'';
+  var instrTxt=(String(pf.hasInstructions).toLowerCase()==='yes')?String(pf.instructions||''):'';
+  var LIM=210; var needP=prefTxt.length>LIM, needI=instrTxt.length>LIM;
+  if(!needP&&!needI) return null;
+  var lpc=await PL.PDFDocument.load(lpcBytes); var form=lpc.getForm(); var ctx=lpc.context;
+  var donor=fullName(state.your_details||{});
+  var set=function(n,v){try{if(v!=null&&String(v).trim()!=='')form.getTextField(n).setText(String(v));}catch(e){}};
+  var pages=[]; var cbTargets={};
+  if(needP){ set('Instructions LPA section 7', prefTxt); set('Full name_3', donor); cbTargets['Decisions attorneys should make jointly LPA section 3']='3'; pages.push(4); }
+  if(needI){
+    if(needP){ set('Instructions LPA section 7_2', instrTxt); set('Full name_4', donor); cbTargets['Decisions attorneys should make jointly LPA section 3_2']='4'; pages.push(5); }
+    else { set('Instructions LPA section 7', instrTxt); set('Full name_3', donor); cbTargets['Decisions attorneys should make jointly LPA section 3']='4'; pages.push(4); }
+  }
+  try{form.updateFieldAppearances();}catch(e){}
+  var T=PL.PDFName.of('T'),AS=PL.PDFName.of('AS'),AP=PL.PDFName.of('AP'),Nn=PL.PDFName.of('N'),P=PL.PDFName.of('Parent');
+  var txt=function(o){if(!o)return null;o=o.decodeText?o:ctx.lookup(o);return o&&o.decodeText?o.decodeText():null;};
+  var fnm=function(w){var cur=w,parts=[],g=0;while(cur&&g++<6){var t=txt(cur.get(T));if(t)parts.unshift(t);var pr=cur.get(P);cur=pr?ctx.lookup(pr,PL.PDFDict):null;}return parts.join('.');};
+  var onKey=function(w){try{var n=ctx.lookup(w.get(AP),PL.PDFDict);var nn=ctx.lookup(n.get(Nn),PL.PDFDict);return nn.keys().map(function(x){return x.asString();}).find(function(x){return x!=='/Off';});}catch(e){return null;}};
+  lpc.getPages().forEach(function(pg){var an=pg.node.Annots&&pg.node.Annots();if(!an)return;for(var i=0;i<an.size();i++){var w=ctx.lookup(an.get(i),PL.PDFDict);if(!w||!w.get)continue;var nm=fnm(w);if(!(nm in cbTargets))continue;var want=PL.PDFName.of(cbTargets[nm]).asString();if(onKey(w)===want)w.set(AS,PL.PDFName.of(cbTargets[nm]));else w.set(AS,PL.PDFName.of('Off'));}});
+  var out=await PL.PDFDocument.create();
+  var copied=await out.copyPages(lpc, pages);
+  copied.forEach(function(pg){ out.addPage(pg); });
+  return Buffer.from(await out.save());
+}
 async function buildLpaOfficial(state, brand){
   var PL=require('pdf-lib'); var fsx=require('fs'), pathx=require('path');
   var dir=pathx.join(__dirname,'public','forms');
@@ -579,6 +591,7 @@ async function buildLpaOfficial(state, brand){
   var type=(state.lpa_type&&state.lpa_type.type)||'';
   if(/Property|Both/i.test(type)) out.push({field:'LPA LP1F PDF', fname:'LP1F-property-financial.pdf', bytes: await fillLpaForm(PL, readBlank(['LP1F.pdf','LP1F-Create-and-register-your-lasting-power-of-attorney.pdf']), state, 'F')});
   if(/Health|Both/i.test(type)) out.push({field:'LPA LP1H PDF', fname:'LP1H-health-welfare.pdf', bytes: await fillLpaForm(PL, readBlank(['LP1H.pdf','LP1H-Create-and-register-your-lasting-power-of-attorney.pdf']), state, 'H')});
+  try{ var _cont=await buildLpaContinuation(PL, readBlank(['LPC.pdf','LPC-Continuation-sheets.pdf']), state); if(_cont) out.push({field:'LPA Continuation PDF', fname:'lpa-continuation-sheet2.pdf', bytes:_cont}); }catch(e){}
   if(out.length<2) throw new Error('LPA official forms not generated (type='+type+')');
   return out;
 }
