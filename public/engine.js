@@ -292,6 +292,7 @@ var LPA_FUNNEL = [
       { type:'row', fields:[ {key:'phone',type:'tel',label:'Phone'}, {key:'email',type:'email',label:'Email'} ] },
       { key:'relationship', type:'text', label:'Relationship to donor', required:true },
       { key:'isTrustCorp', type:'radio', label:'Is this attorney a trust corporation? (rare - usually No)', reflow:true, options:['No','Yes'] },
+      { key:'companyRegNumber', type:'text', label:'Company registration number', showIf:function(s,b){return getP(b+'.isTrustCorp')==='Yes';} },
       { key:'hasReplacement', type:'radio', label:'Add a replacement attorney for this person?', reflow:true, options:['Yes','No'] },
       { key:'repTitle', type:'select', label:'Replacement title', options:['Mr','Mrs','Miss','Ms','Mx','Dr','Prof','Other'], showIf:function(s,b){return getP(b+'.hasReplacement')==='Yes';} },
       { key:'repFirstName', type:'text', label:'Replacement first name', showIf:function(s,b){return getP(b+'.hasReplacement')==='Yes';} },
@@ -348,6 +349,8 @@ var LPA_FUNNEL = [
     { key:'over18', type:'radio', label:'I confirm I am over 18', required:true, options:['Yes'] },
     { key:'capacity', type:'radio', label:'I confirm I have mental capacity to make this LPA', required:true, options:['Yes'] },
     { key:'understand', type:'radio', label:'I understand the LPA must be signed and witnessed in person to be valid', required:true, options:['Yes'] },
+      { key:'canSign', type:'radio', label:'Will you (the donor) sign the LPA form yourself?', required:true, reflow:true, options:['Yes','No'] },
+      { key:'signerName', type:'text', label:'Name of the person who will sign on your behalf', showIf:function(s){return s.declaration.canSign==='No';} },
     { key:'signature', type:'text', label:'Type your full name to confirm', required:true }
   ]},
   { id:'review', name:'Review', title:'Review your LPA details', lead:'Check everything below. You can jump back to any section to edit.', kind:'review' }
