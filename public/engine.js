@@ -444,7 +444,7 @@ function applyBrand(){
   if(CFG.page_bg_color) r.setProperty('--page-bg',CFG.page_bg_color);
   if(CFG.heading_font) r.setProperty('--hf',estack(CFG.heading_font,'Playfair Display'));
   if(CFG.body_font) r.setProperty('--bf',estack(CFG.body_font,'DM Sans'));
-  if(CFG.site_max_width) r.setProperty('--site-max',CFG.site_max_width);
+  if(CFG.site_max_width){ var _smw=parseInt(CFG.site_max_width)||1200; if(_smw<1120)_smw=1120; r.setProperty('--site-max',_smw+'px'); }
   if(CFG.nav_font_size) r.setProperty('--nav-size',CFG.nav_font_size);
   if(CFG.body_font_size) r.setProperty('--body-size',CFG.body_font_size);
   if(CFG.logo_height){ var _lh=parseInt(CFG.logo_height,10)||0; if(_lh) r.setProperty('--logo-h', Math.max(28,Math.min(60,_lh))+'px'); } // clamp to a header-sane range so a large captured value can't blow the logo out
