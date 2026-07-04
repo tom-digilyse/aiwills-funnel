@@ -847,6 +847,22 @@ const server = http.createServer(async (req, res) => {
         return send(res, 200, await lpaSave(loc, b.state||{}, b.contactId||'', { pdf: !!b.pdf }));
       } catch(e){ return send(res, 200, { error: e.message }); }
     }
+    // Mint a per-contact hub magic-link (for a GHL workflow to store on the contact + email). key-gated in production.
+    if (req.method === 'GET' && pathOnly === '/api/hub-link'){
+      res.setHeader('Access-Control-Allow-Origin','*');
+      try {
+        const u=new URL(req.url,'http://x');
+        const loc=u.searchParams.get('locationId')||''; const cid=u.searchParams.get('contactId')||''; const key=u.searchParams.get('key')||'';
+        const need=process.env.HUBLINK_SECRET||'';
+        if(need && key!==need) return send(res,403,{error:'bad key'});
+        if(!loc||!cid) return send(res,400,{error:'locationId and contactId required'});
+        const tok=signEdit({loc:loc,cid:cid,exp:Date.now()+1000*60*60*24*90});
+        if(!tok) return send(res,500,{error:'signing unavailable'});
+        const base=(process.env.PUBLIC_BASE||'https://aiwills.digilyse.co');
+        const link=base+'/hub.html?aw_loc='+encodeURIComponent(loc)+'&aw_c='+encodeURIComponent(cid)+'&aw_t='+encodeURIComponent(tok);
+        return send(res,200,{ ok:true, link:link, token:tok });
+      } catch(e){ return send(res, 200, { error: e.message }); }
+    }
     // Load a saved funnel state for editing. Token-gated so a bare contactId can't read someone's data.
     if (req.method === 'GET' && pathOnly === '/api/state-load'){
       res.setHeader('Access-Control-Allow-Origin','*');
@@ -854,8 +870,8 @@ const server = http.createServer(async (req, res) => {
         const tok=(new URL(req.url,'http://x')).searchParams.get('t')||'';
         const claims=verifyEdit(tok);
         if(!claims||!claims.loc||!claims.cid) return send(res,403,{error:'invalid or expired link'});
-        const out=await loadState(claims.loc, claims.cid, claims.funnel||'etb');
-        return send(res,200,{ ok:true, funnel:(claims.funnel||'etb'), contactId:claims.cid, state:out.state, contact:out.contact, found:out.found, files:out.files||[], filesRaw:out.filesRaw||[] });
+        const _qf=(new URL(req.url,'http://x')).searchParams.get('funnel'); const _uf=_qf||claims.funnel||'etb'; const out=await loadState(claims.loc, claims.cid, _uf);
+        return send(res,200,{ ok:true, funnel:_uf, contactId:claims.cid, state:out.state, contact:out.contact, found:out.found, files:out.files||[], filesRaw:out.filesRaw||[] });
       } catch(e){ return send(res, 200, { error: e.message }); }
     }
     // DEV ONLY: mint an edit token to test the edit flow. Disabled the moment EDIT_SECRET is set (production).
