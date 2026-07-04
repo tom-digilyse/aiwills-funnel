@@ -32,13 +32,13 @@ var CFG = window.AIWILLS_CONFIG || {}; (function(){ var _m='{'+'{'; for(var _k i
     ];
     mount.innerHTML='<header id="hdr" class="hdr"></header><main class="main"><div class="hubwrap"><h1 class="hubh1">Your documents</h1><p class="lead">Choose a service to get started, or open one you have already begun.</p><div class="hubgrid" id="hubgrid"></div></div></main><footer id="ftr" class="ftr"></footer>';
     try{ applyBrand(); }catch(e){} try{var _sm=parseInt(getComputedStyle(document.documentElement).getPropertyValue('--site-max'))||1200; if(_sm<1120) document.documentElement.style.setProperty('--site-max','1120px');}catch(e){} try{ closeGaps(); }catch(e){} try{ window.addEventListener('load',function(){try{closeGaps();}catch(e){}}); setTimeout(function(){try{closeGaps();}catch(e){}},300); setTimeout(function(){try{closeGaps();}catch(e){}},1000); }catch(e){}
-    var contact=(rootEl&&rootEl.getAttribute('data-contact'))||''; if(!contact||contact.indexOf('{'+'{')>=0) contact=qp('aw_c')||window.AIWILLS_CONTACT_ID||'';
+    var contact=(rootEl&&rootEl.getAttribute('data-contact'))||''; if(!contact||contact.indexOf('{'+'{')>=0) contact=qp('aw_c')||window.AIWILLS_CONTACT_ID||''; function withId(u){ if(!u) return u; var q=[]; if(loc)q.push('aw_loc='+enc(loc)); if(contact)q.push('aw_c='+enc(contact)); var _tk=qp('aw_t')||window.AIWILLS_TOKEN||''; if(_tk)q.push('aw_t='+enc(_tk)); if(!q.length) return u; return u+(u.indexOf('?')>=0?'&':'?')+q.join('&'); }
     function card(s,st){
       var done=st&&(st.paid||st.started);
       var btn;
       if(!s.url){ btn='<button class="btn ghost" type="button" disabled>Coming soon</button>'; }
-      else if(done){ btn='<a class="btn ghost" href="'+esc(s.url)+'">Open / edit</a>'; }
-      else { btn='<a class="btn" href="'+esc(s.url)+'">Get started</a>'; }
+      else if(done){ btn='<a class="btn ghost" href="'+esc(withId(s.url))+'">Open / edit</a>'; }
+      else { btn='<a class="btn" href="'+esc(withId(s.url))+'">Get started</a>'; }
       var badge=done?('<div class="hubstatus">'+(st.paid?'Purchased':'In progress')+'</div>'):'';
       return '<div class="hubcard"><div class="hubic">'+s.icon+'</div><h3>'+esc(s.title)+'</h3><p class="hubdesc">'+esc(s.blurb)+'</p>'+badge+btn+'</div>';
     }
@@ -615,7 +615,7 @@ setTimeout(closeGaps,400); setTimeout(closeGaps,1200);
     var _tok=null; try{ _tok=new URLSearchParams(location.search).get('aw_t'); }catch(e){}
     if(_tok){ // edit mode: load this contact's saved answers (token-gated), prefill, then render
       window.AIWILLS_TOKEN=_tok;
-      fetch(API+'/api/state-load?t='+encodeURIComponent(_tok)).then(function(r){return r.json();}).then(function(j){
+      fetch(API+'/api/state-load?t='+encodeURIComponent(_tok)+'&funnel='+encodeURIComponent(String((window.AIWILLS_CONFIG||{}).funnel||''))).then(function(r){return r.json();}).then(function(j){
         if(j&&j.ok){ window.AIWILLS_EDIT=true; window.AIWILLS_FILES=j.files||[]; if(j.state) window.AIWILLS_PREFILL=j.state; if(j.funnel==='wills'||j.funnel==='lpa'){ window.AIWILLS_CONTACT_ID=j.contactId; } else { window.AIWILLS_ETB_CID=j.contactId; } }
       }).catch(function(){}).then(_runBranded);
     } else { _runBranded(); }
