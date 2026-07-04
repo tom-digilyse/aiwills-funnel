@@ -451,8 +451,8 @@ function applyBrand(){
   if(CFG.footer_max_width) r.setProperty('--footer-max',CFG.footer_max_width);
   var bbg=CFG.button_color||CFG.primary_color; if(bbg) r.setProperty('--btn-bg',bbg);
   if(CFG.button_hover_color) r.setProperty('--btn-hover',CFG.button_hover_color); else if(bbg) r.setProperty('--btn-hover',darken(bbg,0.14));
-  if(CFG.button_text_color) r.setProperty('--btn-ink',CFG.button_text_color);
-  var _b2=CFG.button_secondary_color||'#ffffff'; r.setProperty('--btn2-bg',_b2); var _b2i=CFG.button_secondary_text_color; if(!_b2i){ var _b2l=lum(_b2); _b2i=(_b2l!=null&&_b2l<0.5)?'#ffffff':(CFG.primary_color||'#1B1D1F'); } r.setProperty('--btn2-ink',_b2i);
+  if(CFG.button_text_color){ r.setProperty('--btn-ink',CFG.button_text_color); } else if(bbg){ var _bl=lum(bbg); r.setProperty('--btn-ink',(_bl!=null&&_bl>0.6)?(CFG.heading_color||'#1B1D1F'):'#ffffff'); }
+  var _b2=CFG.button_secondary_color||'#ffffff'; r.setProperty('--btn2-bg',_b2); var _b2i=CFG.button_secondary_text_color; if(!_b2i){ var _b2l=lum(_b2); if(_b2l!=null&&_b2l<0.5){_b2i='#ffffff';} else { var _pc=CFG.primary_color||'#1B1D1F'; var _pl=lum(_pc); _b2i=(_pl!=null&&_pl>0.6)?(CFG.heading_color||'#1B1D1F'):_pc; } } r.setProperty('--btn2-ink',_b2i);
   if(CFG.button_font) r.setProperty('--btn-font',estack(CFG.button_font,''));
   if(CFG.button_radius) r.setProperty('--btn-radius',CFG.button_radius);
   if(CFG.heading_font_size) r.setProperty('--h-size',CFG.heading_font_size);
