@@ -25,7 +25,7 @@ const GHL_VERSION = process.env.GHL_API_VERSION || '2021-07-28';
    write to ANY client sub-account with no per-client token. See
    AiWills_ghl-agency-oauth-spec_v1.md. */
 const REDIRECT_URI = process.env.GHL_REDIRECT_URI || 'https://aiwills.digilyse.co/oauth/callback';
-const GHL_SCOPES = 'locations/customValues.readonly locations/customValues.write locations/customFields.readonly locations/customFields.write contacts.readonly contacts.write medias.readonly medias.write workflows.readonly opportunities.readonly opportunities.write conversations.readonly conversations.write conversations/message.readonly conversations/message.write conversations/reports.readonly conversations/livechat.write emails/builder.readonly emails/builder.write emails/schedule.readonly emails/schedule.write emails/templates.readonly emails/templates.write emails/campaigns.readonly emails/campaigns.write emails/stats.readonly';
+const GHL_SCOPES = 'locations/customValues.readonly locations/customValues.write locations/customFields.readonly locations/customFields.write contacts.readonly contacts.write';
 const TOKENS_FILE = path.join(__dirname, 'ghl_tokens.json');
 /* Sub-Account app model: each sub-account authorises the app once and we store ITS
    own Location token, keyed by locationId. Custom values are sub-account data, so a
