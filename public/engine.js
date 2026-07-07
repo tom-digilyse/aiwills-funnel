@@ -16,8 +16,8 @@
   function scrapeLoc(){ try{ var h=document.documentElement.innerHTML; var fid=(location.pathname.match(/([A-Za-z0-9]{20})/)||[])[1]; if(fid){ var m=h.match(new RegExp('"'+fid+'","[^"]*","([A-Za-z0-9]{15,30})"')); if(m) return m[1]; } var m2=h.match(/"locationId":"([A-Za-z0-9]{15,30})"/); if(m2) return m2[1]; return ''; }catch(e){ return ''; } }
   function qp(n){ try{ var v=new URLSearchParams(location.search).get(n)||''; return (v.indexOf('{'+'{')>=0)?'':v; }catch(e){ return ''; } }
   var rootEl=document.getElementById('aiwills-funnel');
-  var loc=(rootEl&&rootEl.getAttribute('data-loc'))||'';
-  if(!loc || loc.indexOf('{'+'{')>=0) loc=qp('aw_loc')||scrapeLoc();
+  var _dl=(rootEl&&rootEl.getAttribute('data-loc'))||''; if(_dl.indexOf('{'+'{')>=0)_dl='';
+  var _sc=''; try{_sc=scrapeLoc();}catch(e){} var loc=_sc||qp('aw_loc')||_dl; try{ if(_sc&&_dl&&_sc!==_dl) console.warn('[aiwills] hard-coded data-loc '+_dl+' overridden by real funnel location '+_sc+'; set the loader to {{location.id}}'); }catch(e){}
   function run(){
 
 var CFG = window.AIWILLS_CONFIG || {}; (function(){ var _m='{'+'{'; for(var _k in CFG){ if(typeof CFG[_k]==='string' && CFG[_k].indexOf(_m)>=0) CFG[_k]=''; } })();
