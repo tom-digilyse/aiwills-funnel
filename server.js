@@ -45,14 +45,47 @@ async function exchangeCode(code){
   const s = loadStore(); if (locId) s.locations[locId] = rec; saveStore(s);
   return rec;
 }
+/* ---------- Agency-level model ----------
+   Install the app ONCE at the agency (/oauth/start-agency). We store a Company
+   (agency) token, then mint a per-location token on demand via GHL's
+   /oauth/locationToken. New sub-accounts need zero per-account authorising. */
+async function exchangeCodeAgency(code){
+  const j = await oauthToken({ client_id: process.env.GHL_CLIENT_ID, client_secret: process.env.GHL_CLIENT_SECRET, grant_type: 'authorization_code', code: code, user_type: 'Company', redirect_uri: REDIRECT_URI });
+  const rec = { access_token: j.access_token, refresh_token: j.refresh_token, companyId: j.companyId || '', expires_at: Date.now() + ((j.expires_in || 86399) * 1000) };
+  const s = loadStore(); s.company = rec; saveStore(s);
+  return rec;
+}
+async function getCompanyToken(){
+  const s = loadStore(); let rec = s.company;
+  if (!rec || !rec.refresh_token) throw new Error('Agency app not installed. Open /oauth/start-agency and approve at the agency level.');
+  if (rec.expires_at && rec.expires_at > Date.now() + 60000) return rec;
+  const j = await oauthToken({ client_id: process.env.GHL_CLIENT_ID, client_secret: process.env.GHL_CLIENT_SECRET, grant_type: 'refresh_token', refresh_token: rec.refresh_token, user_type: 'Company' });
+  rec = { access_token: j.access_token, refresh_token: j.refresh_token || rec.refresh_token, companyId: j.companyId || rec.companyId || '', expires_at: Date.now() + ((j.expires_in || 86399) * 1000) };
+  const s2 = loadStore(); s2.company = rec; saveStore(s2);
+  return rec;
+}
+async function mintLocationToken(locationId){
+  const comp = await getCompanyToken();
+  const companyId = comp.companyId;
+  if (!companyId) throw new Error('No companyId on stored agency token; re-run /oauth/start-agency.');
+  const r = await fetch(GHL_BASE + '/oauth/locationToken', { method: 'POST', headers: { Authorization: 'Bearer ' + comp.access_token, Version: GHL_VERSION, 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' }, body: new URLSearchParams({ companyId: companyId, locationId: locationId }).toString() });
+  const text = await r.text(); let j; try { j = JSON.parse(text); } catch(e){ j = {}; }
+  if (!r.ok || !j.access_token) throw new Error('locationToken -> ' + r.status + ' ' + text.slice(0,300));
+  const rec = { access_token: j.access_token, locationId: locationId, companyId: companyId, viaAgency: true, expires_at: Date.now() + ((j.expires_in || 86399) * 1000) };
+  const s = loadStore(); s.locations[locationId] = rec; saveStore(s);
+  return rec.access_token;
+}
 async function getStoredLocationToken(locationId){
   const s = loadStore(); let rec = s.locations[locationId];
-  if (!rec || !rec.refresh_token) throw new Error('Sub-account ' + locationId + ' has not authorised the app yet. Open /oauth/start, pick this sub-account and approve.');
-  if (rec.expires_at && rec.expires_at > Date.now() + 60000) return rec.access_token;
-  const j = await oauthToken({ client_id: process.env.GHL_CLIENT_ID, client_secret: process.env.GHL_CLIENT_SECRET, grant_type: 'refresh_token', refresh_token: rec.refresh_token, user_type: 'Location' });
-  rec = { access_token: j.access_token, refresh_token: j.refresh_token || rec.refresh_token, locationId: locationId, companyId: j.companyId || rec.companyId, expires_at: Date.now() + ((j.expires_in || 86399) * 1000) };
-  s.locations[locationId] = rec; saveStore(s);
-  return rec.access_token;
+  if (rec && rec.access_token && rec.expires_at && rec.expires_at > Date.now() + 60000) return rec.access_token;
+  if (rec && rec.refresh_token){
+    const j = await oauthToken({ client_id: process.env.GHL_CLIENT_ID, client_secret: process.env.GHL_CLIENT_SECRET, grant_type: 'refresh_token', refresh_token: rec.refresh_token, user_type: 'Location' });
+    rec = { access_token: j.access_token, refresh_token: j.refresh_token || rec.refresh_token, locationId: locationId, companyId: j.companyId || rec.companyId, expires_at: Date.now() + ((j.expires_in || 86399) * 1000) };
+    s.locations[locationId] = rec; saveStore(s);
+    return rec.access_token;
+  }
+  if (s.company && s.company.refresh_token) return await mintLocationToken(locationId);
+  throw new Error('Sub-account ' + locationId + ' not authorised. Install the app at agency level (/oauth/start-agency) so location tokens mint automatically, or authorise this sub-account via /oauth/start.');
 }
 async function getWriteToken(locationId){
   if (process.env.GHL_CLIENT_ID && process.env.GHL_CLIENT_SECRET) return await getStoredLocationToken(locationId);
@@ -566,10 +599,30 @@ const server = http.createServer(async (req, res) => {
       const u = 'https://marketplace.gohighlevel.com/oauth/chooselocation?response_type=code&redirect_uri=' + encodeURIComponent(REDIRECT_URI) + '&client_id=' + encodeURIComponent(process.env.GHL_CLIENT_ID) + '&scope=' + encodeURIComponent(GHL_SCOPES);
       res.writeHead(302, { Location: u }); return res.end();
     }
+    if (req.method === 'GET' && pathOnly === '/oauth/start-agency'){
+      if (!process.env.GHL_CLIENT_ID) return send(res, 400, { error: 'GHL_CLIENT_ID not set' });
+      const u = 'https://marketplace.gohighlevel.com/oauth/chooselocation?response_type=code&redirect_uri=' + encodeURIComponent(REDIRECT_URI) + '&client_id=' + encodeURIComponent(process.env.GHL_CLIENT_ID) + '&scope=' + encodeURIComponent(GHL_SCOPES) + '&state=agency';
+      res.writeHead(302, { Location: u }); return res.end();
+    }
+    if (req.method === 'GET' && pathOnly === '/oauth/agency-status'){
+      const s = loadStore(); const c = s.company || null;
+      return send(res, 200, { agencyInstalled: !!(c && c.refresh_token), companyId: (c && c.companyId) || '', agencyExpiresAt: (c && c.expires_at) || 0, mintedLocations: Object.keys(s.locations || {}) });
+    }
+    if (req.method === 'GET' && pathOnly === '/oauth/mint-test'){
+      const locId = (new URL(req.url, 'http://x')).searchParams.get('locationId') || '';
+      if (!locId) return send(res, 400, { error: 'pass ?locationId=' });
+      try { await mintLocationToken(locId); const s = loadStore(); const rec = s.locations[locId] || {}; return send(res, 200, { ok: true, locationId: locId, viaAgency: !!rec.viaAgency, expiresAt: rec.expires_at || 0 }); }
+      catch(e){ return send(res, 500, { ok: false, locationId: locId, error: e.message }); }
+    }
     if (req.method === 'GET' && pathOnly === '/oauth/callback'){
-      const code = (new URL(req.url, 'http://x')).searchParams.get('code');
+      const _cbu = new URL(req.url, 'http://x');
+      const code = _cbu.searchParams.get('code');
+      const _state = _cbu.searchParams.get('state') || '';
       if (!code){ res.writeHead(400, { 'Content-Type': 'text/html' }); return res.end('Missing code'); }
-      try { const t = await exchangeCode(code); res.writeHead(200, { 'Content-Type': 'text/html' }); return res.end('<h2>Sub-account connected.</h2><p>locationId ' + (t.locationId || '') + '. You can close this tab. Repeat /oauth/start for each sub-account you want to brand.</p>'); }
+      try {
+        if (_state === 'agency'){ const c = await exchangeCodeAgency(code); res.writeHead(200, { 'Content-Type': 'text/html' }); return res.end('<h2>Agency connected.</h2><p>companyId ' + (c.companyId || '') + '. Location tokens now mint automatically for every sub-account, no per-account authorising. You can close this tab.</p>'); }
+        const t = await exchangeCode(code); res.writeHead(200, { 'Content-Type': 'text/html' }); return res.end('<h2>Sub-account connected.</h2><p>locationId ' + (t.locationId || '') + '. You can close this tab.</p>');
+      }
       catch(e){ res.writeHead(500, { 'Content-Type': 'text/html' }); return res.end('OAuth failed: ' + e.message); }
     }
     if (req.method === 'GET' && (pathOnly === '/engine.js' || pathOnly === '/api/engine')){
