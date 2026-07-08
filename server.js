@@ -1018,6 +1018,20 @@ const server = http.createServer(async (req, res) => {
         return send(res, 200, { ok:true, message:'If that email is on file, a secure edit link is on its way.' });
       } catch(e){ return send(res, 200, { error: e.message }); }
     }
+    // Public client-facing pages (login, hub, funnels): served BEFORE the tool's auth gate.
+    // Safe because all personal data behind them is token-gated server-side (aw_t / state-load).
+    {
+      const _pf = req.url.split('?')[0];
+      const PUBLIC_PAGES = ['/login.html','/hub.html','/wills-test.html','/lpa-test.html','/etb-test.html','/qa.html'];
+      if (req.method === 'GET' && PUBLIC_PAGES.indexOf(_pf) >= 0){
+        const _fp = path.join(__dirname, 'public', _pf);
+        if (_fp.indexOf(path.join(__dirname, 'public')) === 0 && fs.existsSync(_fp) && fs.statSync(_fp).isFile()){
+          const _d = fs.readFileSync(_fp);
+          res.writeHead(200, { 'Content-Type': MIME[path.extname(_fp)] || 'text/plain' });
+          return res.end(_d);
+        }
+      }
+    }
     if (!authed(req)){
       res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="AI Wills onboarding"', 'Content-Type':'text/plain; charset=utf-8' });
       return res.end('Authentication required.');
