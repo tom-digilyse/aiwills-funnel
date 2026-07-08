@@ -27,6 +27,7 @@ const GHL_VERSION = process.env.GHL_API_VERSION || '2021-07-28';
 const REDIRECT_URI = process.env.GHL_REDIRECT_URI || 'https://aiwills.digilyse.co/oauth/callback';
 const GHL_SCOPES = 'locations/customValues.readonly locations/customValues.write locations/customFields.readonly locations/customFields.write contacts.readonly contacts.write';
 const TOKENS_FILE = path.join(__dirname, 'ghl_tokens.json');
+const authRl = {}; // in-memory magic-link rate limit: key -> [timestamps]
 /* Sub-Account app model: each sub-account authorises the app once and we store ITS
    own Location token, keyed by locationId. Custom values are sub-account data, so a
    sub-account-scoped token is required per location (GHL has no agency token for this). */
@@ -901,6 +902,35 @@ const server = http.createServer(async (req, res) => {
       } catch(e){ return send(res, 200, { error: e.message }); }
     }
     // Mint a per-contact hub magic-link (for a GHL workflow to store on the contact + email). key-gated in production.
+    if (req.method === 'POST' && pathOnly === '/api/auth-request'){
+      res.setHeader('Access-Control-Allow-Origin','*');
+      try {
+        const body = JSON.parse((await readBody(req)) || '{}');
+        const loc = String(body.locationId||'').replace(/[^A-Za-z0-9]/g,'');
+        const email = String(body.email||'').trim().toLowerCase();
+        if(!loc || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return send(res,400,{ error:'valid locationId and email required' });
+        // rate limit: max 5 requests / hour / (location+email)
+        const now=Date.now(); const rlKey=loc+'|'+email;
+        authRl[rlKey]=(authRl[rlKey]||[]).filter(function(t){return now-t<3600000;});
+        if(authRl[rlKey].length>=5) return send(res,200,{ ok:true });
+        authRl[rlKey].push(now);
+        const token = await getWriteToken(loc);
+        let contact = await findContactByEmail(loc, email);
+        if(!contact){ try { const up = await ghl('POST','/contacts/upsert', token, { locationId:loc, email:email }); contact = up.contact || up; } catch(e){} }
+        const cid = contact && (contact.id || contact.contactId || contact._id);
+        if(!cid) return send(res,200,{ ok:true });
+        const tok = signEdit({ loc:loc, cid:cid, purpose:'login', exp:Date.now()+1000*60*30 });
+        if(!tok) return send(res,500,{ error:'signing unavailable' });
+        const base = (process.env.PUBLIC_BASE||'https://aiwills.digilyse.co');
+        const link = base+'/hub.html?aw_loc='+encodeURIComponent(loc)+'&aw_c='+encodeURIComponent(cid)+'&aw_t='+encodeURIComponent(tok);
+        // deliver via GHL: store link on the contact + tag so a Client-Portal workflow can email it (one-time snapshot setup, carries to every client)
+        try { await ghl('POST','/contacts/upsert', token, { locationId:loc, email:email, customFields:[{ key:'aw_login_url', field_value:link }], tags:['aw-login-link'] }); } catch(e){}
+        // key-gated debug return for verification ONLY (HUBLINK_SECRET is server-side)
+        const dbg=(new URL(req.url,'http://x')).searchParams.get('debug')||'';
+        if(process.env.HUBLINK_SECRET && dbg===process.env.HUBLINK_SECRET) return send(res,200,{ ok:true, cid:cid, link:link });
+        return send(res,200,{ ok:true });
+      } catch(e){ return send(res,200,{ ok:true }); }
+    }
     if (req.method === 'GET' && pathOnly === '/api/hub-link'){
       res.setHeader('Access-Control-Allow-Origin','*');
       try {
