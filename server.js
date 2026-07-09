@@ -10,7 +10,6 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const tls = require('tls');
 
 // Safety net: never let a stray error crash the process (which makes the host return 503).
 process.on('uncaughtException', function(e){ try { console.error('uncaughtException:', e && e.stack || e); } catch(_){} });
@@ -28,7 +27,6 @@ const GHL_VERSION = process.env.GHL_API_VERSION || '2021-07-28';
 const REDIRECT_URI = process.env.GHL_REDIRECT_URI || 'https://aiwills.digilyse.co/oauth/callback';
 const GHL_SCOPES = 'locations/customValues.readonly locations/customValues.write locations/customFields.readonly locations/customFields.write contacts.readonly contacts.write';
 const TOKENS_FILE = path.join(__dirname, 'ghl_tokens.json');
-const authRl = {}; // in-memory magic-link rate limit: key -> [timestamps]
 /* Sub-Account app model: each sub-account authorises the app once and we store ITS
    own Location token, keyed by locationId. Custom values are sub-account data, so a
    sub-account-scoped token is required per location (GHL has no agency token for this). */
@@ -593,50 +591,6 @@ function readBody(req){ return new Promise(resolve => { let d = ''; req.on('data
 
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css' };
 
-/* Zero-dependency SMTP sender (implicit TLS, e.g. Namecheap Private Email :465, AUTH LOGIN).
-   Creds from env: SMTP_USER, SMTP_PASS (Tom sets these). SMTP_HOST/PORT/FROM optional. */
-function smtpSend(opts){
-  return new Promise(function(resolve,reject){
-    var host=process.env.SMTP_HOST||'mail.privateemail.com';
-    var port=parseInt(process.env.SMTP_PORT||'465',10);
-    var user=process.env.SMTP_USER, pass=process.env.SMTP_PASS;
-    var from=process.env.SMTP_FROM||'noreply@aiwills.co.uk';
-    if(!user||!pass) return reject(new Error('SMTP not configured'));
-    var fn=String(opts.fromName||'').replace(/[\r\n"]/g,'');
-    var msg=[
-      'From: '+(fn?('"'+fn+'" '):'')+'<'+from+'>',
-      'To: '+opts.to,
-      'Subject: '+String(opts.subject||'').replace(/[\r\n]/g,' '),
-      'MIME-Version: 1.0',
-      'Content-Type: text/html; charset=utf-8',
-      '',
-      String(opts.html||''),
-      '.'
-    ].join('\r\n');
-    var b64=function(x){return Buffer.from(x,'utf8').toString('base64');};
-    var seq=[null,'EHLO aiwills.co.uk\r\n','AUTH LOGIN\r\n',b64(user)+'\r\n',b64(pass)+'\r\n','MAIL FROM:<'+from+'>\r\n','RCPT TO:<'+opts.to+'>\r\n','DATA\r\n',msg+'\r\n','QUIT\r\n'];
-    var i=0, buf='';
-    var sock=tls.connect({host:host,port:port,servername:host});
-    sock.setEncoding('utf8');
-    var timer=setTimeout(function(){ try{sock.destroy();}catch(e){} reject(new Error('SMTP timeout')); },20000);
-    function fail(e){ clearTimeout(timer); try{sock.destroy();}catch(_){} reject(e); }
-    sock.on('data',function(d){
-      buf+=d;
-      if(!/\r\n$/.test(buf)) return;
-      var lines=buf.replace(/\r\n$/,'').split('\r\n');
-      var last=lines[lines.length-1];
-      if(/^\d{3}-/.test(last)) return;
-      var code=parseInt(last.slice(0,3),10);
-      buf='';
-      if(!code || code>=400) return fail(new Error('SMTP '+last));
-      i++;
-      if(i>=seq.length){ clearTimeout(timer); try{sock.end();}catch(e){} return resolve(true); }
-      if(seq[i]!=null) sock.write(seq[i]);
-    });
-    sock.on('error',function(e){ fail(e); });
-  });
-}
-
 const server = http.createServer(async (req, res) => {
   try {
     const pathOnly = req.url.split('?')[0];
@@ -947,50 +901,6 @@ const server = http.createServer(async (req, res) => {
       } catch(e){ return send(res, 200, { error: e.message }); }
     }
     // Mint a per-contact hub magic-link (for a GHL workflow to store on the contact + email). key-gated in production.
-    if (req.method === 'POST' && pathOnly === '/api/auth-request'){
-      res.setHeader('Access-Control-Allow-Origin','*');
-      try {
-        const body = JSON.parse((await readBody(req)) || '{}');
-        const loc = String(body.locationId||'').replace(/[^A-Za-z0-9]/g,'');
-        const email = String(body.email||'').trim().toLowerCase();
-        if(!loc || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return send(res,400,{ error:'valid locationId and email required' });
-        // rate limit: max 5 requests / hour / (location+email)
-        const now=Date.now(); const rlKey=loc+'|'+email;
-        authRl[rlKey]=(authRl[rlKey]||[]).filter(function(t){return now-t<3600000;});
-        if(authRl[rlKey].length>=5) return send(res,200,{ ok:true });
-        authRl[rlKey].push(now);
-        const token = await getWriteToken(loc);
-        let contact = await findContactByEmail(loc, email);
-        if(!contact){ try { const up = await ghl('POST','/contacts/upsert', token, { locationId:loc, email:email }); contact = up.contact || up; } catch(e){} }
-        const cid = contact && (contact.id || contact.contactId || contact._id);
-        if(!cid) return send(res,200,{ ok:true });
-        const tok = signEdit({ loc:loc, cid:cid, purpose:'login', exp:Date.now()+1000*60*30 });
-        if(!tok) return send(res,500,{ error:'signing unavailable' });
-        const base = (process.env.PUBLIC_BASE||'https://aiwills.digilyse.co');
-        const link = base+'/hub.html?aw_loc='+encodeURIComponent(loc)+'&aw_c='+encodeURIComponent(cid)+'&aw_t='+encodeURIComponent(tok);
-        // Send the sign-in link ourselves via SMTP (works for every client, no GHL workflow). No-op if SMTP env unset.
-        try {
-          if(process.env.SMTP_USER && process.env.SMTP_PASS){
-            var fromName='AI Wills';
-            try { var _cv=await getCustomValuesMap(loc, token); if(_cv && _cv['company_name']) fromName=_cv['company_name']; } catch(e){}
-            var esch=function(x){return String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');};
-            var _html='<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;color:#1B1D1F;line-height:1.6">'
-              +'<p>Hello,</p>'
-              +'<p>Here is your secure sign-in link for '+esch(fromName)+'. It expires in 30 minutes.</p>'
-              +'<p><a href="'+esch(link)+'" style="display:inline-block;background:#004f70;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:8px;font-weight:bold">Sign in</a></p>'
-              +'<p style="font-size:12px;color:#6b7280">Or paste this link into your browser:<br>'+esch(link)+'</p>'
-              +'<p style="font-size:12px;color:#9aa0a6">If you did not request this, you can safely ignore this email.</p></div>';
-            smtpSend({ to: email, subject: 'Your secure sign-in link', html: _html, fromName: fromName }).catch(function(e){ console.error('smtpSend:', e && e.message); });
-          }
-        } catch(e){ console.error('mail:', e && e.message); }
-        // deliver via GHL: store link on the contact + tag so a Client-Portal workflow can email it (one-time snapshot setup, carries to every client)
-        try { await ghl('POST','/contacts/upsert', token, { locationId:loc, email:email, customFields:[{ key:'aw_login_url', field_value:link }], tags:['aw-login-link'] }); } catch(e){}
-        // key-gated debug return for verification ONLY (HUBLINK_SECRET is server-side)
-        const dbg=(new URL(req.url,'http://x')).searchParams.get('debug')||'';
-        if(process.env.HUBLINK_SECRET && dbg===process.env.HUBLINK_SECRET) return send(res,200,{ ok:true, cid:cid, link:link });
-        return send(res,200,{ ok:true });
-      } catch(e){ return send(res,200,{ ok:true }); }
-    }
     if (req.method === 'GET' && pathOnly === '/api/hub-link'){
       res.setHeader('Access-Control-Allow-Origin','*');
       try {
@@ -1082,7 +992,7 @@ const server = http.createServer(async (req, res) => {
     // Safe because all personal data behind them is token-gated server-side (aw_t / state-load).
     {
       const _pf = req.url.split('?')[0];
-      const PUBLIC_PAGES = ['/login.html','/hub.html','/wills-test.html','/lpa-test.html','/etb-test.html','/qa.html'];
+      const PUBLIC_PAGES = ['/hub.html','/wills-test.html','/lpa-test.html','/etb-test.html','/qa.html'];
       if (req.method === 'GET' && PUBLIC_PAGES.indexOf(_pf) >= 0){
         const _fp = path.join(__dirname, 'public', _pf);
         if (_fp.indexOf(path.join(__dirname, 'public')) === 0 && fs.existsSync(_fp) && fs.statSync(_fp).isFile()){
