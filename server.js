@@ -897,7 +897,9 @@ const server = http.createServer(async (req, res) => {
       try {
         const b = JSON.parse((await readBody(req)) || '{}');
         const loc = (b.locationId||'').replace(/[^A-Za-z0-9]/g,'');
-        return send(res, 200, await lpaSave(loc, b.state||{}, b.contactId||'', { pdf: !!b.pdf }));
+        const _lr = await lpaSave(loc, b.state||{}, b.contactId||'', { pdf: !!b.pdf });
+        if(_lr && _lr.contactId){ try{ _lr.token = signEdit({ loc:loc, cid:_lr.contactId, exp:Date.now()+1000*60*60*24*30 }); }catch(e){} }
+        return send(res, 200, _lr);
       } catch(e){ return send(res, 200, { error: e.message }); }
     }
     // Mint a per-contact hub magic-link (for a GHL workflow to store on the contact + email). key-gated in production.
