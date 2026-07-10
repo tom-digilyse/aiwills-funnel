@@ -25,10 +25,13 @@ const GHL_VERSION = process.env.GHL_API_VERSION || '2021-07-28';
    write to ANY client sub-account with no per-client token. See
    AiWills_ghl-agency-oauth-spec_v1.md. */
 const REDIRECT_URI = process.env.GHL_REDIRECT_URI || 'https://aiwills.digilyse.co/oauth/callback';
-const GHL_SCOPES = 'locations/customValues.readonly locations/customValues.write contacts.readonly contacts.write';
+const GHL_SCOPES = 'locations/customValues.readonly locations/customValues.write locations/customFields.readonly locations/customFields.write contacts.readonly contacts.write';
 const TOKENS_FILE = path.join(__dirname, 'ghl_tokens.json');
-function loadTokens(){ try { return JSON.parse(fs.readFileSync(TOKENS_FILE, 'utf8')); } catch(e){ return null; } }
-function saveTokens(t){ try { fs.writeFileSync(TOKENS_FILE, JSON.stringify(t)); } catch(e){ console.error('saveTokens:', e.message); } }
+/* Sub-Account app model: each sub-account authorises the app once and we store ITS
+   own Location token, keyed by locationId. Custom values are sub-account data, so a
+   sub-account-scoped token is required per location (GHL has no agency token for this). */
+function loadStore(){ try { const s = JSON.parse(fs.readFileSync(TOKENS_FILE, 'utf8')); if (!s.locations) s.locations = {}; return s; } catch(e){ return { locations: {} }; } }
+function saveStore(s){ try { fs.writeFileSync(TOKENS_FILE, JSON.stringify(s)); } catch(e){ console.error('saveStore:', e.message); } }
 async function oauthToken(params){
   const r = await fetch(GHL_BASE + '/oauth/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' }, body: new URLSearchParams(params).toString() });
   const text = await r.text(); let j; try { j = JSON.parse(text); } catch(e){ j = { raw: text }; }
@@ -36,33 +39,58 @@ async function oauthToken(params){
   return j;
 }
 async function exchangeCode(code){
+  const j = await oauthToken({ client_id: process.env.GHL_CLIENT_ID, client_secret: process.env.GHL_CLIENT_SECRET, grant_type: 'authorization_code', code: code, user_type: 'Location', redirect_uri: REDIRECT_URI });
+  const locId = j.locationId || '';
+  const rec = { access_token: j.access_token, refresh_token: j.refresh_token, locationId: locId, companyId: j.companyId || '', expires_at: Date.now() + ((j.expires_in || 86399) * 1000) };
+  const s = loadStore(); if (locId) s.locations[locId] = rec; saveStore(s);
+  return rec;
+}
+/* ---------- Agency-level model ----------
+   Install the app ONCE at the agency (/oauth/start-agency). We store a Company
+   (agency) token, then mint a per-location token on demand via GHL's
+   /oauth/locationToken. New sub-accounts need zero per-account authorising. */
+async function exchangeCodeAgency(code){
   const j = await oauthToken({ client_id: process.env.GHL_CLIENT_ID, client_secret: process.env.GHL_CLIENT_SECRET, grant_type: 'authorization_code', code: code, user_type: 'Company', redirect_uri: REDIRECT_URI });
-  const t = { access_token: j.access_token, refresh_token: j.refresh_token, companyId: j.companyId || '', expires_at: Date.now() + ((j.expires_in || 86399) * 1000) };
-  saveTokens(t); return t;
+  const rec = { access_token: j.access_token, refresh_token: j.refresh_token, companyId: j.companyId || '', expires_at: Date.now() + ((j.expires_in || 86399) * 1000) };
+  const s = loadStore(); s.company = rec; saveStore(s);
+  return rec;
 }
-async function getAgencyToken(){
-  let t = loadTokens();
-  if (!t || !t.refresh_token) throw new Error('Agency app not connected. Open /oauth/start to install it.');
-  if (t.expires_at && t.expires_at > Date.now() + 60000) return t;
-  const j = await oauthToken({ client_id: process.env.GHL_CLIENT_ID, client_secret: process.env.GHL_CLIENT_SECRET, grant_type: 'refresh_token', refresh_token: t.refresh_token, user_type: 'Company' });
-  t = { access_token: j.access_token, refresh_token: j.refresh_token || t.refresh_token, companyId: j.companyId || t.companyId, expires_at: Date.now() + ((j.expires_in || 86399) * 1000) };
-  saveTokens(t); return t;
+async function getCompanyToken(){
+  const s = loadStore(); let rec = s.company;
+  if (!rec || !rec.refresh_token) throw new Error('Agency app not installed. Open /oauth/start-agency and approve at the agency level.');
+  if (rec.expires_at && rec.expires_at > Date.now() + 60000) return rec;
+  const j = await oauthToken({ client_id: process.env.GHL_CLIENT_ID, client_secret: process.env.GHL_CLIENT_SECRET, grant_type: 'refresh_token', refresh_token: rec.refresh_token, user_type: 'Company' });
+  rec = { access_token: j.access_token, refresh_token: j.refresh_token || rec.refresh_token, companyId: j.companyId || rec.companyId || '', expires_at: Date.now() + ((j.expires_in || 86399) * 1000) };
+  const s2 = loadStore(); s2.company = rec; saveStore(s2);
+  return rec;
 }
-const _locTokens = {};
-async function getLocationToken(locationId){
-  const c = _locTokens[locationId];
-  if (c && c.exp > Date.now() + 60000) return c.token;
-  const a = await getAgencyToken();
-  const r = await fetch(GHL_BASE + '/oauth/locationToken', { method: 'POST', headers: { Authorization: 'Bearer ' + a.access_token, Version: GHL_VERSION, 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' }, body: new URLSearchParams({ companyId: a.companyId, locationId: locationId }).toString() });
-  const text = await r.text(); let j; try { j = JSON.parse(text); } catch(e){ j = { raw: text }; }
-  if (!r.ok) throw new Error('locationToken -> ' + r.status + ' ' + text.slice(0,300));
-  _locTokens[locationId] = { token: j.access_token, exp: Date.now() + ((j.expires_in || 3600) * 1000) };
-  return j.access_token;
+async function mintLocationToken(locationId){
+  const comp = await getCompanyToken();
+  const companyId = comp.companyId;
+  if (!companyId) throw new Error('No companyId on stored agency token; re-run /oauth/start-agency.');
+  const r = await fetch(GHL_BASE + '/oauth/locationToken', { method: 'POST', headers: { Authorization: 'Bearer ' + comp.access_token, Version: GHL_VERSION, 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' }, body: new URLSearchParams({ companyId: companyId, locationId: locationId }).toString() });
+  const text = await r.text(); let j; try { j = JSON.parse(text); } catch(e){ j = {}; }
+  if (!r.ok || !j.access_token) throw new Error('locationToken -> ' + r.status + ' ' + text.slice(0,300));
+  const rec = { access_token: j.access_token, locationId: locationId, companyId: companyId, viaAgency: true, expires_at: Date.now() + ((j.expires_in || 86399) * 1000) };
+  const s = loadStore(); s.locations[locationId] = rec; saveStore(s);
+  return rec.access_token;
+}
+async function getStoredLocationToken(locationId){
+  const s = loadStore(); let rec = s.locations[locationId];
+  if (rec && rec.access_token && rec.expires_at && rec.expires_at > Date.now() + 60000) return rec.access_token;
+  if (rec && rec.refresh_token){
+    const j = await oauthToken({ client_id: process.env.GHL_CLIENT_ID, client_secret: process.env.GHL_CLIENT_SECRET, grant_type: 'refresh_token', refresh_token: rec.refresh_token, user_type: 'Location' });
+    rec = { access_token: j.access_token, refresh_token: j.refresh_token || rec.refresh_token, locationId: locationId, companyId: j.companyId || rec.companyId, expires_at: Date.now() + ((j.expires_in || 86399) * 1000) };
+    s.locations[locationId] = rec; saveStore(s);
+    return rec.access_token;
+  }
+  if (s.company && s.company.refresh_token) return await mintLocationToken(locationId);
+  throw new Error('Sub-account ' + locationId + ' not authorised. Install the app at agency level (/oauth/start-agency) so location tokens mint automatically, or authorise this sub-account via /oauth/start.');
 }
 async function getWriteToken(locationId){
-  if (process.env.GHL_CLIENT_ID && process.env.GHL_CLIENT_SECRET) return await getLocationToken(locationId);
+  if (process.env.GHL_CLIENT_ID && process.env.GHL_CLIENT_SECRET) return await getStoredLocationToken(locationId);
   if (process.env.GHL_PIT) return process.env.GHL_PIT;
-  throw new Error('No GHL credentials. Set GHL_CLIENT_ID and GHL_CLIENT_SECRET and install via /oauth/start, or set GHL_PIT.');
+  throw new Error('No GHL credentials. Set GHL_CLIENT_ID and GHL_CLIENT_SECRET and authorise each sub-account via /oauth/start, or set GHL_PIT.');
 }
 
 /* ---------- access control ----------
@@ -164,6 +192,16 @@ function scrapeBrand(html, css, baseUrl){
   const logoImg = /<img[^>]+(?:src|class|alt)=["'][^"']*logo[^"']*["'][^>]*>/i.exec(html);
   if (logoImg){ logo = firstMatch(/src=["']([^"']+)["']/i, logoImg[0]); }
   logo = abs(logo || ogImage || apple || icon, origin);
+  // Best-effort logo height from the logo <img> (height attr or inline style), clamped to a header-sane range.
+  // Prevents the "way too big" logo and gives the tool a value to write instead of leaving a stale one in GHL.
+  let logoHeight = '';
+  if (logoImg){
+    const hStyle = firstMatch(/height\s*:\s*(\d{2,3})px/i, logoImg[0]);
+    const hAttr = firstMatch(/\bheight=["']?(\d{2,3})/i, logoImg[0]);
+    const raw = parseInt(hStyle || hAttr || '', 10);
+    if (raw){ logoHeight = Math.max(28, Math.min(60, raw)) + 'px'; }
+  }
+  if (!logoHeight) logoHeight = '44px';
 
   const title = firstMatch(/<title[^>]*>([^<]+)<\/title>/i, html);
   const ogSite = firstMatch(/<meta[^>]+property=["']og:site_name["'][^>]+content=["']([^"']+)["']/i, html);
@@ -187,6 +225,7 @@ function scrapeBrand(html, css, baseUrl){
   return {
     company_name: company,
     client_logo_url: logo,
+    logo_height: logoHeight,
     client_primary_color: colors.primary,
     client_heading_color: colors.headingColor,
     client_body_color: colors.bodyColor,
@@ -205,20 +244,29 @@ function scrapeBrand(html, css, baseUrl){
   };
 }
 
-async function fetchText(url){
-  const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 AiWillsOnboarding' }, redirect: 'follow' });
-  if (!r.ok) throw new Error('Fetch ' + url + ' returned ' + r.status);
-  return await r.text();
+async function fetchText(url, ms){
+  // Abort slow/blocking sites so the scrape can't hang the tool on "Scraping..." forever.
+  const ctrl = new AbortController();
+  const t = setTimeout(function(){ ctrl.abort(); }, ms || 10000);
+  try {
+    const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 AiWillsOnboarding' }, redirect: 'follow', signal: ctrl.signal });
+    if (!r.ok) throw new Error('Fetch ' + url + ' returned ' + r.status);
+    return await r.text();
+  } catch(e){
+    var ab = e && (e.name === 'AbortError' || (e.cause && (e.cause.name === 'AbortError' || /abort/i.test(e.cause.message||''))) || /abort|timed?\s*out/i.test(e.message||''));
+    if (ab) throw new Error('Timed out fetching ' + url + ' - the site is slow or blocking automated requests. Use the Measure bookmarklet or enter the brand manually.');
+    throw e;
+  } finally { clearTimeout(t); }
 }
 
 async function handleScrape(url){
-  const html = await fetchText(url);
+  const html = await fetchText(url, 12000); // main page: hard 12s cap
   const origin = new URL(url).origin;
   const hrefs = [];
   const linkRe = /<link[^>]+rel=["']stylesheet["'][^>]+href=["']([^"']+)["']/gi; let m;
   while ((m = linkRe.exec(html)) && hrefs.length < 3){ if (!/googleapis|gstatic/.test(m[1])) hrefs.push(abs(m[1], origin)); }
   let css = '';
-  for (const h of hrefs){ try { css += '\n' + await fetchText(h); } catch(e){} }
+  for (const h of hrefs){ try { css += '\n' + await fetchText(h, 6000); } catch(e){} } // stylesheets: 6s each, failures ignored
   return scrapeBrand(html, css, url);
 }
 
@@ -245,7 +293,14 @@ async function handleWrite(locationId, values){
   const results = [];
   for (const name of Object.keys(values)){
     const value = values[name];
-    if (value === '' || value == null){ results.push({ name: name, skipped: true }); continue; }
+    if (value === '' || value == null){
+      // Re-brand must fully replace, not merge: if this value already exists in GHL, CLEAR it so a
+      // previous client's data (e.g. legal footer) can't survive. Don't create empty values.
+      const eid = byName[name.toLowerCase()];
+      if (eid){ try { await ghl('PUT', '/locations/' + locationId + '/customValues/' + eid, token, { name: name, value: '' }); results.push({ name: name, action: 'cleared' }); } catch(e){ results.push({ name: name, error: e.message }); } }
+      else { results.push({ name: name, skipped: true }); }
+      continue;
+    }
     try {
       const id = byName[name.toLowerCase()];
       if (id){ await ghl('PUT', '/locations/' + locationId + '/customValues/' + id, token, { name: name, value: value }); results.push({ name: name, action: 'updated' }); }
@@ -253,6 +308,132 @@ async function handleWrite(locationId, values){
     } catch(e){ results.push({ name: name, error: e.message }); }
   }
   return results;
+}
+
+/* ---------- Executor Toolbox (ETB): write the vault into the client's GHL ----------
+   GHL is the system of record. We hold nothing. Structured answers -> the contact's
+   custom fields. Field mapping lives here (one place), derived from a compact spec. */
+function gp(state, p){ var a=p.split('.'), o=state, i; for (i=0;i<a.length;i++){ if (o==null) return ''; o=o[a[i]]; } return (o==null)?'':o; }
+// [GHL field name, dataType, state path]
+var ETB_SINGLE = [
+  ['ETB Will Has','TEXT','will.has'], ['ETB Will Location Type','TEXT','will.locationType'], ['ETB Will Location','TEXT','will.locationText'],
+  ['ETB Codicil Has','TEXT','codicil.has'], ['ETB Codicil Location Type','TEXT','codicil.locationType'], ['ETB Codicil Location','TEXT','codicil.locationText'],
+  ['ETB LPA Has','TEXT','lpa.has'], ['ETB LPA Type','TEXT','lpa.type'], ['ETB LPA Location','TEXT','lpa.locationText'],
+  ['ETB Property Deeds Location','TEXT','property.deedsLocation'], ['ETB Property Deeds Notes','LARGE_TEXT','property.deedsNotes'], ['ETB Property Has','TEXT','property.has'],
+  ['ETB Insurance Has','TEXT','insurance.has'],
+  ['ETB Pension Docs Location','TEXT','pensions.docsLocation'], ['ETB Pension Docs Notes','LARGE_TEXT','pensions.docsNotes'], ['ETB Pension Has','TEXT','pensions.has'],
+  ['ETB Bank Has','TEXT','bank_accounts.has'], ['ETB Investment Has','TEXT','investments.has'], ['ETB Business Has','TEXT','business.has'],
+  ['ETB Debt Has','TEXT','debts.has'], ['ETB Digital Has','TEXT','digital_assets.has'],
+  ['ETB Wishes Record','TEXT','wishes.record'], ['ETB Wishes Arrangements','TEXT','wishes.arrangements'], ['ETB Wishes Preferences','LARGE_TEXT','wishes.preferences'], ['ETB Wishes Plan Provider','TEXT','wishes.planProvider'], ['ETB Wishes Docs Location','TEXT','wishes.docsLocation']
+];
+// Atomic repeater: only executors (they drive the future notify-on-death step).
+// [GHL name prefix, state list path, cap, [[name suffix, dataType, item key]...]]
+var ETB_REPEAT = [
+  ['ETB Executor','executors.list',4,[['First Name','TEXT','firstName'],['Last Name','TEXT','lastName'],['Phone','TEXT','phone'],['Email','TEXT','email'],['Relationship','TEXT','relationship']]]
+];
+// Consolidated: one readable LARGE_TEXT field per asset category, listing all entries.
+// [GHL field name, state list path, [[label, item key]...]]
+var ETB_CONSOLIDATED = [
+  ['ETB Properties','property.list',[['Address','address'],['Ownership','ownership'],['Mortgage','hasMortgage'],['Mortgage Provider','mortgageProvider']]],
+  ['ETB Insurance Policies','insurance.list',[['Type','type'],['Provider','provider'],['Policy Number','policyNumber'],['Docs Location','location']]],
+  ['ETB Pensions','pensions.list',[['Type','type'],['Provider','provider'],['Policy Number','policyNumber'],['Value','value'],['Access','access']]],
+  ['ETB Bank Accounts','bank_accounts.list',[['Type','type'],['Bank','bankName'],['Account Number','accountNumber'],['Holder','holder'],['Details Stored','stored']]],
+  ['ETB Investments','investments.list',[['Type','type'],['Provider','provider'],['Value','value'],['Reference','reference'],['Location','location']]],
+  ['ETB Businesses','business.list',[['Name','name'],['Role','role'],['Key Contact','keyContact']]],
+  ['ETB Debts','debts.list',[['Creditor','creditor'],['Type','creditorType'],['Balance','balance'],['Details','location']]],
+  ['ETB Digital Assets','digital_assets.list',[['Platform','platform'],['Access','access'],['Location','location']]]
+];
+var ETB_COUNTS = [ ['ETB Executor Count','executors.list'], ['ETB Property Count','property.list'], ['ETB Insurance Count','insurance.list'], ['ETB Pension Count','pensions.list'], ['ETB Bank Count','bank_accounts.list'], ['ETB Investment Count','investments.list'], ['ETB Business Count','business.list'], ['ETB Debt Count','debts.list'], ['ETB Digital Count','digital_assets.list'] ];
+var ETB_FILES = ['ETB Will Document','ETB Codicil Document','ETB LPA Document','ETB Pension Documents']; // created now, written in iteration 3
+function etbFieldDefs(){
+  var defs = [ { name:'ETB Status', dataType:'TEXT' }, { name:'ETB Completed At', dataType:'TEXT' }, { name:'ETB State Json', dataType:'LARGE_TEXT' } ];
+  ETB_SINGLE.forEach(function(s){ defs.push({ name:s[0], dataType:s[1] }); });
+  ETB_COUNTS.forEach(function(c){ defs.push({ name:c[0], dataType:'NUMERICAL' }); });
+  ETB_REPEAT.forEach(function(r){ for (var n=1;n<=r[2];n++){ r[3].forEach(function(sub){ defs.push({ name:r[0]+' '+n+' '+sub[0], dataType:sub[1] }); }); } });
+  ETB_CONSOLIDATED.forEach(function(c){ defs.push({ name:c[0], dataType:'LARGE_TEXT' }); });
+  ETB_FILES.forEach(function(f){ defs.push({ name:f, dataType:'FILE_UPLOAD' }); });
+  return defs;
+}
+function etbExtract(state, status){
+  var out = {};
+  if (status) out['ETB Status'] = status;
+  try { out['ETB State Json'] = JSON.stringify(state||{}); } catch(e){}
+  ETB_SINGLE.forEach(function(s){ var v=gp(state,s[2]); if (v!=='' && v!=null) out[s[0]]=v; });
+  ETB_COUNTS.forEach(function(c){ var l=gp(state,c[1]); if (Array.isArray(l) && l.length) out[c[0]]=l.length; });
+  ETB_REPEAT.forEach(function(r){ var list=gp(state,r[1]); if (!Array.isArray(list)) return; for (var i=0;i<list.length && i<r[2];i++){ var it=list[i]||{}; r[3].forEach(function(sub){ var v=it[sub[2]]; if (v!=='' && v!=null) out[r[0]+' '+(i+1)+' '+sub[0]]=v; }); } });
+  ETB_CONSOLIDATED.forEach(function(c){ var list=gp(state,c[1]); if (!Array.isArray(list)||!list.length) return; var lines=[]; for (var i=0;i<list.length;i++){ var it=list[i]||{}; var parts=[]; c[2].forEach(function(p){ var v=it[p[1]]; if (v!=='' && v!=null) parts.push(p[0]+': '+v); }); if (parts.length) lines.push((i+1)+'. '+parts.join(', ')); } if (lines.length) out[c[0]]=lines.join('\n'); });
+  return out;
+}
+async function ghlContactFields(token, loc){ var r = await ghl('GET', '/locations/' + loc + '/customFields?model=contact', token); return r.customFields || r.customField || []; }
+async function etbFieldMap(token, loc){ var list = await ghlContactFields(token, loc); var m = {}; list.forEach(function(f){ m[(f.name||'').toLowerCase()] = f.id; }); return m; }
+async function ensureEtbFields(token, loc){
+  var map = await etbFieldMap(token, loc); var defs = etbFieldDefs(); var created = 0;
+  for (var i=0;i<defs.length;i++){ var d=defs[i]; var k=d.name.toLowerCase(); if (map[k]) continue;
+    try { var c = await ghl('POST', '/locations/' + loc + '/customFields', token, { name:d.name, dataType:d.dataType, model:'contact' }); var nf=c.customField||c; if (nf && nf.id){ map[k]=nf.id; created++; } }
+    catch(e){ console.error('etb field create', d.name, e.message); }
+  }
+  return { map: map, created: created, total: defs.length };
+}
+async function etbStatus(loc){
+  var token = await getWriteToken(loc); // throws if not authorised
+  var map = await etbFieldMap(token, loc); var defs = etbFieldDefs();
+  var present = [], missing = [];
+  defs.forEach(function(d){ (map[d.name.toLowerCase()] ? present : missing).push(d.name); });
+  return { authorised: true, totalDefined: defs.length, present: present.length, missing: missing.length, missingNames: missing.slice(0,20) };
+}
+async function etbSave(loc, state, contactId, status, opts){
+  if (!loc) throw new Error('locationId required');
+  var token = await getWriteToken(loc);
+  var map = await etbFieldMap(token, loc);
+  var pd = (state && state.your_details) || {};
+  var values = etbExtract(state, status || 'started');
+  var cf = []; var written = [], noField = [];
+  Object.keys(values).forEach(function(name){ var id = map[name.toLowerCase()]; if (id){ cf.push({ id: id, value: String(values[name]) }); written.push(name); } else { noField.push(name); } });
+  var base = { customFields: cf }; // GHL PUT rejects empty email, so only send personal fields that actually have a value
+  var pmap = { firstName: pd.firstName, lastName: pd.lastName, email: pd.email, phone: pd.phone, address1: pd.address, city: pd.city, postalCode: pd.postcode };
+  Object.keys(pmap).forEach(function(k){ if (pmap[k]!=null && String(pmap[k]).trim()!=='') base[k]=pmap[k]; });
+  var up = await upsertOrUpdateContact(token, loc, contactId, base);
+  var cid = (up.contact && up.contact.id) || up.id || contactId || '';
+  var readback = null;
+  if (cid){ try { var got = await ghl('GET', '/contacts/' + cid, token); var c = got.contact || got; var byId={}; (c.customFields||c.customField||[]).forEach(function(f){ byId[f.id]=(f.value!=null?f.value:f.fieldValue); }); readback = { id: cid, fieldCount: Object.keys(byId).length }; } catch(e){ readback = { id: cid, err: e.message }; } }
+  var pdfRes; if (opts && opts.pdf && cid) pdfRes = await storeGeneratedPdf(loc, cid, 'etb'); // keep the summary PDF on the contact
+  return { contactId: cid, writtenCount: written.length, noFieldCount: noField.length, noFieldSample: noField.slice(0,10), readback: readback, pdf: pdfRes };
+}
+// Stream an uploaded document straight into a GHL FILE_UPLOAD custom field on the contact.
+// Browser sends base64 (JSON) -> we build multipart to GHL -> we keep nothing.
+async function etbUpload(loc, contactId, fieldName, filename, mimeType, dataBase64){
+  if (!loc) throw new Error('locationId required');
+  if (!contactId) throw new Error('contactId required (save the contact first)');
+  if (!dataBase64) throw new Error('file data required');
+  const token = await getWriteToken(loc);
+  const map = await etbFieldMap(token, loc);
+  const fid = map[(fieldName||'').toLowerCase()];
+  if (!fid) throw new Error('Custom field not found: ' + fieldName);
+  const buf = Buffer.from(dataBase64, 'base64');
+  if (buf.length > 50*1024*1024) throw new Error('file too large (max 50MB)');
+  const fileId = crypto.randomBytes(8).toString('hex');
+  const form = new FormData();
+  form.append('id', contactId);
+  form.append('maxFiles', '1');
+  form.append(fid + '_' + fileId, new Blob([buf], { type: mimeType || 'application/octet-stream' }), filename || 'document');
+  const r = await fetch(GHL_BASE + '/locations/' + loc + '/customFields/upload', {
+    method: 'POST', headers: { Authorization: 'Bearer ' + token, Version: GHL_VERSION, Accept: 'application/json' }, body: form
+  });
+  const text = await r.text(); let json; try { json = JSON.parse(text); } catch(e){ json = { raw: text.slice(0,300) }; }
+  if (!r.ok) throw new Error('GHL upload -> ' + r.status + ' ' + text.slice(0,400));
+  var fileUrl=''; try { if (json && json.uploadedFiles){ fileUrl = json.uploadedFiles[filename] || (Object.keys(json.uploadedFiles).map(function(k){return json.uploadedFiles[k];})[0]) || ''; } if (!fileUrl && json && Array.isArray(json.meta) && json.meta[0]) fileUrl = json.meta[0].url || ''; } catch(e){}
+  // GHL's contact UI doesn't render FILE_UPLOAD values, so mirror the storage URL into a TEXT link field the advisor can see + open.
+  await mirrorFileLink(token, loc, map, contactId, fieldName, fileUrl);
+  return { ok: true, field: fieldName, contactId: contactId, bytes: buf.length, url: fileUrl };
+}
+// GHL's contact UI + GET API don't surface FILE_UPLOAD values. Write the storage URL into a companion "<field> Link" TEXT field so it's visible + clickable on the contact.
+async function mirrorFileLink(token, loc, map, contactId, fieldName, fileUrl){
+  if (!fileUrl || !contactId) return false;
+  var linkName = fieldName + ' Link';
+  var lfid = map && map[linkName.toLowerCase()];
+  if (!lfid){ try { var lcf = await ghl('POST','/locations/'+loc+'/customFields',token,{ name:linkName, dataType:'TEXT', model:'contact' }); var lnf=lcf.customField||lcf; if(lnf&&lnf.id){ lfid=lnf.id; if(map) map[linkName.toLowerCase()]=lfid; } } catch(e){} }
+  if (lfid){ try { await ghl('PUT','/contacts/'+contactId, token, { customFields:[{ id:lfid, value:fileUrl }] }); return true; } catch(e){} }
+  return false;
 }
 
 /* ---------- payment (Stripe), will store, PDF helpers ---------- */
@@ -279,6 +460,124 @@ function verifyStripeSig(raw, sigHeader, secret){
     return a.length === b.length && crypto.timingSafeEqual(a, b);
   } catch(e){ return false; }
 }
+/* ---- edit-link tokens: gate the load-by-contact endpoints so a contactId alone can't read someone's data ---- */
+function editSecret(){ return process.env.EDIT_SECRET || (String(process.env.STRIPE_SECRET_KEY||'').indexOf('sk_test')===0 ? 'aiwills-dev-edit-secret' : ''); }
+function b64u(s){ return Buffer.from(s).toString('base64').replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); }
+function b64ud(s){ s=String(s).replace(/-/g,'+').replace(/_/g,'/'); while(s.length%4)s+='='; return Buffer.from(s,'base64').toString('utf8'); }
+function signEdit(payload){ var sec=editSecret(); if(!sec) return ''; var p=b64u(JSON.stringify(payload)); var h=crypto.createHmac('sha256',sec).update(p).digest('hex').slice(0,32); return p+'.'+h; }
+function verifyEdit(token){ try{ var sec=editSecret(); if(!sec||!token) return null; var parts=String(token).split('.'); if(parts.length!==2) return null; var exp=crypto.createHmac('sha256',sec).update(parts[0]).digest('hex').slice(0,32); var a=Buffer.from(exp),b=Buffer.from(parts[1]); if(a.length!==b.length||!crypto.timingSafeEqual(a,b)) return null; var obj=JSON.parse(b64ud(parts[0])); if(obj.exp && Date.now()>obj.exp) return null; return obj; }catch(e){ return null; } }
+/* Read a saved funnel state JSON off a contact. funnel = 'etb' | 'wills'. */
+async function loadState(loc, contactId, funnel){
+  var token = await getWriteToken(loc);
+  var fieldName = (funnel==='wills') ? 'Will State Json' : (funnel==='lpa' ? 'LPA State Json' : 'ETB State Json');
+  var map = await etbFieldMap(token, loc); // generic contact-field name -> id
+  var fid = map[fieldName.toLowerCase()];
+  var got = await ghl('GET', '/contacts/' + contactId, token); var c = got.contact || got;
+  var state=null, contact={ firstName:c.firstName||'', lastName:c.lastName||'', email:c.email||'', phone:c.phone||'' };
+  var byId={}; (c.customFields||c.customField||[]).forEach(function(f){ byId[f.id]=(f.value!=null?f.value:f.fieldValue); });
+  if (fid && byId[fid]!=null){ try{ state=JSON.parse(byId[fid]); }catch(e){} }
+  // Uploaded documents: read the FILE_UPLOAD fields' URLs so the client can view/download them.
+  var files=[], filesRaw=[]; ETB_FILES.forEach(function(name){ var id=map[name.toLowerCase()]; if(!id) return; var raw=byId[id]; if(raw!=null&&raw!=='') filesRaw.push({ field:name, t:(typeof raw), sample:(typeof raw==='object'?JSON.stringify(raw):String(raw)).slice(0,240) }); var u=extractFileUrl(raw); if(u.url) files.push({ field:name, url:u.url, name:u.name||'' }); });
+  return { state: state, contact: contact, found: !!state, files: files, filesRaw: filesRaw };
+}
+// GHL FILE_UPLOAD values vary (plain URL, object/array {url}, JSON string, or a documents wrapper). Pull a usable URL out.
+function extractFileUrl(v){
+  if (v==null || v==='') return { url:'' };
+  if (typeof v==='object'){ try{ v=JSON.stringify(v); }catch(e){ v=String(v); } }
+  var s=String(v).trim();
+  if (/^https?:\/\//i.test(s)) return { url:s };
+  try { var j=JSON.parse(s); var o=Array.isArray(j)?j[0]:j; if(o&&typeof o==='object'){ var url=o.url||o.fileUrl||o.link||o.documentUrl||o.publicUrl||''; if(url) return { url:url, name:o.name||o.fileName||'' }; } } catch(e){}
+  var m=s.match(/https?:\/\/[^\s"'\\\]]+/i); return { url: m?m[0]:'' };
+}
+/* Persist the Wills funnel state JSON onto the contact (so it can be loaded back for editing). */
+async function willSave(loc, state, contactId, opts){
+  if(!loc) throw new Error('locationId required');
+  var token = await getWriteToken(loc);
+  var map = await etbFieldMap(token, loc);
+  var fieldName='Will State Json'; var fid=map[fieldName.toLowerCase()];
+  if(!fid){ try{ var c=await ghl('POST','/locations/'+loc+'/customFields',token,{name:fieldName,dataType:'LARGE_TEXT',model:'contact'}); var nf=c.customField||c; if(nf&&nf.id) fid=nf.id; }catch(e){ console.error('will field create', e.message); } }
+  var p=(state&&state.personal)||{};
+  var base={}; var pmap={ firstName:p.firstName, lastName:p.lastName, email:p.email, phone:p.phone }; // GHL PUT rejects empty email
+  Object.keys(pmap).forEach(function(k){ if(pmap[k]!=null && String(pmap[k]).trim()!=='') base[k]=pmap[k]; });
+  if(fid){ try{ base.customFields=[{ id:fid, value: JSON.stringify(state||{}) }]; }catch(e){} }
+  var up=await upsertOrUpdateContact(token, loc, contactId, base);
+  var cid=(up.contact&&up.contact.id)||up.id||contactId||'';
+  var pdfRes; if (opts && opts.pdf && cid) pdfRes = await storeGeneratedPdf(loc, cid, 'wills');
+  return { contactId: cid, saved: !!fid, pdf: pdfRes };
+}
+/* Persist the LPA funnel state JSON onto the contact (capture flow; PDF fill added later). */
+async function lpaSave(loc, state, contactId, opts){
+  if(!loc) throw new Error('locationId required');
+  var token = await getWriteToken(loc);
+  var map = await etbFieldMap(token, loc);
+  var fieldName='LPA State Json'; var fid=map[fieldName.toLowerCase()];
+  if(!fid){ try{ var c=await ghl('POST','/locations/'+loc+'/customFields',token,{name:fieldName,dataType:'LARGE_TEXT',model:'contact'}); var nf=c.customField||c; if(nf&&nf.id) fid=nf.id; }catch(e){ console.error('lpa field create', e.message); } }
+  var p=(state&&state.your_details)||{};
+  var base={}; var pmap={ firstName:p.firstName, lastName:p.lastName, email:p.email, phone:p.phone };
+  Object.keys(pmap).forEach(function(k){ if(pmap[k]!=null && String(pmap[k]).trim()!=='') base[k]=pmap[k]; });
+  if(fid){ try{ base.customFields=[{ id:fid, value: JSON.stringify(state||{}) }]; }catch(e){} }
+  var up=await upsertOrUpdateContact(token, loc, contactId, base);
+  var cid=(up.contact&&up.contact.id)||up.id||contactId||'';
+  var pdfRes; if (opts && opts.pdf && cid) pdfRes = await storeGeneratedPdf(loc, cid, 'lpa');
+  return { contactId: cid, saved: !!fid, pdf: pdfRes };
+}
+// Generate the funnel's PDF (will or toolbox summary) from the contact's saved state and store it onto a FILE_UPLOAD field so the advisor sees it in GHL.
+async function uploadPdfToContact(token, loc, map, contactId, fieldName, fname, buf){
+  var fid = map[fieldName.toLowerCase()];
+  if (!fid){ var cf = await ghl('POST','/locations/'+loc+'/customFields',token,{ name:fieldName, dataType:'FILE_UPLOAD', model:'contact' }); var nf=cf.customField||cf; if(nf&&nf.id){ fid=nf.id; map[fieldName.toLowerCase()]=fid; } }
+  if (!fid) return { ok:false, err:'no field id for '+fieldName };
+  var fileId = crypto.randomBytes(8).toString('hex');
+  var form = new FormData();
+  form.append('id', contactId); form.append('maxFiles','1');
+  form.append(fid + '_' + fileId, new Blob([buf], { type:'application/pdf' }), fname);
+  var r = await fetch(GHL_BASE + '/locations/' + loc + '/customFields/upload', { method:'POST', headers:{ Authorization:'Bearer '+token, Version:GHL_VERSION, Accept:'application/json' }, body:form });
+  var t = await r.text();
+  if (!r.ok) return { ok:false, err:'upload '+r.status+' '+t.slice(0,200) };
+  var json; try { json = JSON.parse(t); } catch(e){ json = null; }
+  var fileUrl=''; try { if (json && json.uploadedFiles){ fileUrl = json.uploadedFiles[fname] || (Object.keys(json.uploadedFiles).map(function(k){return json.uploadedFiles[k];})[0]) || ''; } if (!fileUrl && json && Array.isArray(json.meta) && json.meta[0]) fileUrl = json.meta[0].url || ''; } catch(e){}
+  var linked = await mirrorFileLink(token, loc, map, contactId, fieldName, fileUrl);
+  return { ok:true, field:fieldName, bytes:buf.length, url:fileUrl, link:!!linked };
+}
+async function storeGeneratedPdf(loc, contactId, funnel){
+  try {
+    if (!loc || !contactId) return { skip:'no id' };
+    var token = await getWriteToken(loc);
+    var out = await loadState(loc, contactId, funnel);
+    if (!out.state) return { skip:'no state' };
+    var company=''; try { var cv = await getCustomValuesMap(loc, token); company = cv['company_name'] || ''; } catch(e){}
+    var wp = require('./will-pdf');
+    var brand = { company_name: company };
+    var map = await etbFieldMap(token, loc);
+    if (funnel==='lpa'){
+      try {
+        var outs = await wp.buildLpaOfficial(out.state, brand); // guide + LP1F/LP1H (throws if pdf-lib/blank forms missing)
+        var res=[]; for (var i=0;i<outs.length;i++){ res.push(await uploadPdfToContact(token, loc, map, contactId, outs[i].field, outs[i].fname, outs[i].bytes)); }
+        return { ok:true, official:true, docs:res };
+      } catch(e){
+        var gbuf = await wp.buildLpaPdf(out.state, brand); // fallback summary pack until pdf-lib + blanks are live
+        var one = await uploadPdfToContact(token, loc, map, contactId, 'LPA Application PDF', 'lpa-application.pdf', gbuf);
+        one.fallback = String(e&&e.message||e).slice(0,90);
+        return one;
+      }
+    }
+    var buf, fieldName, fname;
+    if (funnel==='wills'){ buf = await wp.buildWillPdf(wp.normalizeWill(out.state), brand); fieldName='Will PDF'; fname='will.pdf'; }
+    else { buf = await wp.buildEtbPdf(out.state, brand); fieldName='ETB Summary PDF'; fname='toolbox-summary.pdf'; }
+    return await uploadPdfToContact(token, loc, map, contactId, fieldName, fname, buf);
+  } catch(e){ return { ok:false, err:String(e&&e.message||e) }; }
+}
+// GHL /contacts/upsert rejects an `id` (422 "property id should not exist"). Update a KNOWN contact with PUT /contacts/{id}; only upsert (match by email) when creating.
+async function upsertOrUpdateContact(token, loc, contactId, base){
+  if (contactId){ return await ghl('PUT', '/contacts/' + contactId, token, base); }
+  return await ghl('POST', '/contacts/upsert', token, Object.assign({ locationId: loc }, base));
+}
+async function findContactByEmail(loc, email){
+  try {
+    const token = await getWriteToken(loc);
+    const r = await ghl('GET', '/contacts/search/duplicate?locationId='+loc+'&email='+encodeURIComponent(email), token);
+    return r.contact || (r.contacts && r.contacts[0]) || null;
+  } catch(e){ return null; }
+}
 async function getCustomValuesMap(locationId, token){
   const ex = await ghl('GET', '/locations/' + locationId + '/customValues', token);
   const list = ex.customValues || ex.customValue || []; const byName = {};
@@ -300,10 +599,30 @@ const server = http.createServer(async (req, res) => {
       const u = 'https://marketplace.gohighlevel.com/oauth/chooselocation?response_type=code&redirect_uri=' + encodeURIComponent(REDIRECT_URI) + '&client_id=' + encodeURIComponent(process.env.GHL_CLIENT_ID) + '&scope=' + encodeURIComponent(GHL_SCOPES);
       res.writeHead(302, { Location: u }); return res.end();
     }
+    if (req.method === 'GET' && pathOnly === '/oauth/start-agency'){
+      if (!process.env.GHL_CLIENT_ID) return send(res, 400, { error: 'GHL_CLIENT_ID not set' });
+      const u = 'https://marketplace.gohighlevel.com/oauth/chooselocation?response_type=code&redirect_uri=' + encodeURIComponent(REDIRECT_URI) + '&client_id=' + encodeURIComponent(process.env.GHL_CLIENT_ID) + '&scope=' + encodeURIComponent(GHL_SCOPES) + '&state=agency';
+      res.writeHead(302, { Location: u }); return res.end();
+    }
+    if (req.method === 'GET' && pathOnly === '/oauth/agency-status'){
+      const s = loadStore(); const c = s.company || null;
+      return send(res, 200, { agencyInstalled: !!(c && c.refresh_token), companyId: (c && c.companyId) || '', agencyExpiresAt: (c && c.expires_at) || 0, mintedLocations: Object.keys(s.locations || {}) });
+    }
+    if (req.method === 'GET' && pathOnly === '/oauth/mint-test'){
+      const locId = (new URL(req.url, 'http://x')).searchParams.get('locationId') || '';
+      if (!locId) return send(res, 400, { error: 'pass ?locationId=' });
+      try { await mintLocationToken(locId); const s = loadStore(); const rec = s.locations[locId] || {}; return send(res, 200, { ok: true, locationId: locId, viaAgency: !!rec.viaAgency, expiresAt: rec.expires_at || 0 }); }
+      catch(e){ return send(res, 500, { ok: false, locationId: locId, error: e.message }); }
+    }
     if (req.method === 'GET' && pathOnly === '/oauth/callback'){
-      const code = (new URL(req.url, 'http://x')).searchParams.get('code');
+      const _cbu = new URL(req.url, 'http://x');
+      const code = _cbu.searchParams.get('code');
+      const _state = _cbu.searchParams.get('state') || '';
       if (!code){ res.writeHead(400, { 'Content-Type': 'text/html' }); return res.end('Missing code'); }
-      try { const t = await exchangeCode(code); res.writeHead(200, { 'Content-Type': 'text/html' }); return res.end('<h2>Connected to the GHL agency.</h2><p>companyId ' + (t.companyId || '') + '. You can close this tab and use the tool.</p>'); }
+      try {
+        if (_state === 'agency'){ const c = await exchangeCodeAgency(code); res.writeHead(200, { 'Content-Type': 'text/html' }); return res.end('<h2>Agency connected.</h2><p>companyId ' + (c.companyId || '') + '. Location tokens now mint automatically for every sub-account, no per-account authorising. You can close this tab.</p>'); }
+        const t = await exchangeCode(code); res.writeHead(200, { 'Content-Type': 'text/html' }); return res.end('<h2>Sub-account connected.</h2><p>locationId ' + (t.locationId || '') + '. You can close this tab.</p>');
+      }
       catch(e){ res.writeHead(500, { 'Content-Type': 'text/html' }); return res.end('OAuth failed: ' + e.message); }
     }
     if (req.method === 'GET' && (pathOnly === '/engine.js' || pathOnly === '/api/engine')){
@@ -322,12 +641,27 @@ const server = http.createServer(async (req, res) => {
         const ex = await ghl('GET','/locations/'+locId+'/customValues', btoken);
         const cvs = ex.customValues || ex.customValue || [];
         const byName = {}; cvs.forEach(function(cv){ byName[(cv.name||'').toLowerCase()] = cv.value; });
-        const MAP = {company_name:'company_name',logo_url:'client_logo_url',primary_color:'client_primary_color',heading_color:'client_heading_color',body_color:'client_body_color',header_bg_color:'header_bg_color',page_bg_color:'page_bg_color',heading_font:'client_heading_font',body_font:'client_body_font',site_max_width:'site_max_width',footer_max_width:'footer_max_width',nav_font_size:'nav_font_size',body_font_size:'body_font_size',logo_height:'logo_height',phone:'footer_phone',email:'company_email',address:'company_address',facebook_url:'facebook_link',instagram_url:'instagram_link',privacy_url:'privacy_url',will_price:'will_price',legal_footer:'legal_footer',nav_menu_json:'nav_menu_json'};
+        const MAP = {company_name:'company_name',logo_url:'client_logo_url',primary_color:'client_primary_color',heading_color:'client_heading_color',body_color:'client_body_color',header_bg_color:'header_bg_color',page_bg_color:'page_bg_color',heading_font:'client_heading_font',body_font:'client_body_font',site_max_width:'site_max_width',footer_max_width:'footer_max_width',nav_font_size:'nav_font_size',body_font_size:'body_font_size',logo_height:'logo_height',phone:'footer_phone',email:'company_email',address:'company_address',facebook_url:'facebook_link',instagram_url:'instagram_link',privacy_url:'privacy_url',will_price:'will_price',legal_footer:'legal_footer',nav_menu_json:'nav_menu_json',footer_menu_json:'footer_menu_json',nav_text_color:'nav_text_color',heading_font_size:'heading_font_size',heading_weight:'heading_weight',nav_weight:'nav_weight',button_weight:'button_weight',button_color:'button_color',button_hover_color:'button_hover_color',button_text_color:'button_text_color',button_secondary_color:'button_secondary_color',button_secondary_text_color:'button_secondary_text_color',button_font:'button_font',button_radius:'button_radius',footer_bg_color:'footer_bg_color',footer_text_color:'footer_text_color',linkedin_url:'linkedin_link',twitter_url:'twitter_link',youtube_url:'youtube_link',tiktok_url:'tiktok_link',font_css_links:'font_css_links',wills_url:'wills_url',lpa_url:'lpa_url',etb_url:'etb_url',wills_title:'wills_title',wills_blurb:'wills_blurb',lpa_title:'lpa_title',lpa_blurb:'lpa_blurb',etb_title:'etb_title',etb_blurb:'etb_blurb'};
         const brand = {}; Object.keys(MAP).forEach(function(k){ const v = byName[MAP[k].toLowerCase()]; if (v != null) brand[k] = v; });
         res.writeHead(200, { 'Content-Type':'application/json', 'Cache-Control':'public, max-age=60' }); return res.end(JSON.stringify(brand));
       } catch(e){ res.writeHead(200, { 'Content-Type':'application/json' }); const dbg=(new URL(req.url,'http://x')).searchParams.get('debug'); return res.end(dbg ? JSON.stringify({_err:String((e&&e.message)||e)}) : '{}'); }
     }
     // ----- payment: create a Stripe Checkout session (central AI Wills Stripe) -----
+    if (req.method === 'GET' && pathOnly === '/api/hub-status'){
+      res.setHeader('Access-Control-Allow-Origin','*');
+      const hu=new URL(req.url,'http://x'); const hloc=(hu.searchParams.get('locationId')||'').replace(/[^A-Za-z0-9]/g,''); const hcid=(hu.searchParams.get('contactId')||'').replace(/[^A-Za-z0-9]/g,'');
+      if(!hloc||!hcid) return send(res,400,{error:'locationId and contactId required'});
+      try{
+        const ht=await getWriteToken(hloc);
+        const got=await ghl('GET','/contacts/'+hcid, ht); const c=got.contact||got;
+        const byId={}; (c.customFields||c.customField||[]).forEach(function(f){ byId[f.id]=(f.value!=null?f.value:f.fieldValue); });
+        const defs=await ghlContactFields(ht, hloc); const byName={}; defs.forEach(function(d){ byName[(d.name||'').toLowerCase()]=d.id; });
+        const has=function(n){ var id=byName[n.toLowerCase()]; var v=id?byId[id]:''; return !!(v&&String(v).trim()); };
+        const tags=(c.tags||[]).map(function(t){return String(t).toLowerCase();});
+        const services={ wills:{ started:has('Will State Json'), paid: tags.indexOf('ai-will-paid')>=0 }, lpa:{ started:has('LPA State Json'), paid:false }, etb:{ started:has('ETB State Json'), paid: tags.indexOf('etb-active')>=0 } };
+        return send(res,200,{ ok:true, services });
+      }catch(e){ return send(res,500,{error:e.message}); }
+    }
     if (req.method === 'POST' && pathOnly === '/api/checkout'){
       res.setHeader('Access-Control-Allow-Origin','*');
       try {
@@ -366,6 +700,46 @@ const server = http.createServer(async (req, res) => {
         return send(res, 200, { url: sess.url, id: id });
       } catch(e){ return send(res, 200, { error: e.message }); }
     }
+    // ----- payment: ETB subscription checkout (central AI Wills Stripe, subscription mode) -----
+    if (req.method === 'POST' && pathOnly === '/api/etb-checkout'){
+      res.setHeader('Access-Control-Allow-Origin','*');
+      try {
+        if (!process.env.STRIPE_SECRET_KEY) return send(res, 500, { error: 'Stripe is not configured on the server.' });
+        const cbody = JSON.parse((await readBody(req)) || '{}');
+        const loc = (cbody.locationId || '').replace(/[^A-Za-z0-9]/g,'');
+        if (!loc) return send(res, 400, { error: 'locationId is required' });
+        const token = await getWriteToken(loc);
+        const cv = await getCustomValuesMap(loc, token);
+        // price resolution is config-not-code: per-location custom value, then server env, then a test-only default.
+        // GO-LIVE: set the custom value `etb_price_id` (or ETB_PRICE_ID env) to the LIVE Stripe price before switching to a live key.
+        const isTestKey = String(process.env.STRIPE_SECRET_KEY||'').indexOf('sk_test')===0;
+        const price = cv['etb_price_id'] || process.env.ETB_PRICE_ID || (isTestKey ? 'price_1Thoi4BixkcdGFjdX5gxYQZC' : '');
+        if (!price) return send(res, 400, { error: 'etb_price_id is not set for this location' });
+        const person = cbody.contact || {};
+        let contactId = cbody.contactId || '';
+        try {
+          const up = await ghl('POST', '/contacts/upsert', token, { locationId: loc, firstName: person.firstName || '', lastName: person.lastName || '', email: person.email || '', phone: person.phone || '' });
+          contactId = (up.contact && up.contact.id) || up.id || contactId;
+        } catch(e){ console.error('etb lead upsert', e.message); }
+        const ret = cbody.returnUrl || ('https://' + (req.headers.host || 'aiwills.digilyse.co'));
+        const sep = ret.indexOf('?') >= 0 ? '&' : '?';
+        const sess = await stripeReq('POST', '/v1/checkout/sessions', {
+          'mode': 'subscription',
+          'success_url': ret + sep + 'aw_etb_paid=1',
+          'cancel_url': ret + sep + 'aw_etb_paid=0',
+          'line_items[0][price]': price,
+          'line_items[0][quantity]': 1,
+          'metadata[kind]': 'etb',
+          'metadata[locationId]': loc,
+          'metadata[contactId]': contactId,
+          'subscription_data[metadata][kind]': 'etb',
+          'subscription_data[metadata][locationId]': loc,
+          'subscription_data[metadata][contactId]': contactId,
+          'customer_email': person.email || ''
+        }, process.env.STRIPE_SECRET_KEY);
+        return send(res, 200, { url: sess.url, contactId: contactId });
+      } catch(e){ return send(res, 200, { error: e.message }); }
+    }
     // ----- payment: Stripe webhook (marks the will paid, tags the GHL contact) -----
     if (req.method === 'POST' && pathOnly === '/api/stripe-webhook'){
       const raw = await readBody(req);
@@ -377,13 +751,53 @@ const server = http.createServer(async (req, res) => {
         const md = (evt.data && evt.data.object && evt.data.object.metadata) || {};
         if (md.aw_id){ const rec = willStoreGet(md.aw_id); if (rec){ rec.paid = true; rec.paidAt = Date.now(); willStorePut(md.aw_id, rec); } }
         if (md.locationId && md.contactId){
+          const tagName = (md.kind === 'etb') ? 'etb-active' : 'ai-will-paid';
           (async function(){
-            try { const t = await getWriteToken(md.locationId); await ghl('POST', '/contacts/' + md.contactId + '/tags', t, { tags: ['ai-will-paid'] }); }
+            try { const t = await getWriteToken(md.locationId); await ghl('POST', '/contacts/' + md.contactId + '/tags', t, { tags: [tagName] }); }
             catch(e){ console.error('paid tag', e.message); }
           })();
         }
       }
       res.writeHead(200, { 'Content-Type':'application/json' }); return res.end('{"received":true}');
+    }
+    // ----- auto-deploy: GitHub push webhook -> pull the repo + redeploy this app -----
+    if (req.method === 'POST' && pathOnly === '/api/git-deploy'){
+      const raw = await readBody(req);
+      const secret = process.env.GIT_DEPLOY_SECRET || '';
+      const sig = String(req.headers['x-hub-signature-256'] || '');
+      let good = false;
+      if (secret && sig){
+        try {
+          const want = 'sha256=' + crypto.createHmac('sha256', secret).update(raw).digest('hex');
+          const a = Buffer.from(want), b = Buffer.from(sig);
+          good = (a.length === b.length) && crypto.timingSafeEqual(a, b);
+        } catch(_){ good = false; }
+      }
+      if (!good){ res.writeHead(401, { 'Content-Type':'text/plain' }); return res.end('bad signature'); }
+      let ref = ''; try { ref = (JSON.parse(raw) || {}).ref || ''; } catch(_){}
+      if (ref && ref !== 'refs/heads/main'){ res.writeHead(200, { 'Content-Type':'application/json' }); return res.end('{"skipped":"non-main"}'); }
+      const repo = process.env.GIT_REPO_DIR || '/home/digiiics/repositories/aiwills-funnel';
+      const key = process.env.GIT_SSH_KEY || '/home/digiiics/.ssh/id_rsa';
+      const dest = __dirname;
+      // Hard-sync the clone (ff-only silently aborts the whole chain if the clone ever diverges),
+      // copy static + server files, then restart. Write a status file we can read to confirm.
+      const cmd = "cd " + repo
+        + " && GIT_SSH_COMMAND='ssh -i " + key + " -o StrictHostKeyChecking=no' git fetch --all --prune"
+        + " && git reset --hard origin/main"
+        + " && /bin/cp -R public/. " + dest + "/public/"
+        + " && /bin/cp -f server.js will-pdf.js package.json " + dest + "/"
+        + " && /bin/mkdir -p " + dest + "/tmp && /bin/touch " + dest + "/tmp/restart.txt"
+        + " && git rev-parse --short HEAD";
+      const statusFile = dest + '/public/_deploy_status.txt';
+      require('child_process').exec(cmd, { timeout: 90000 }, function(err, stdout, stderr){
+        var when = new Date().toISOString();
+        var line = err ? ('FAIL ' + when + ' ' + String(err.message||'').slice(0,140) + ' | ' + String(stderr||'').slice(-200))
+                       : ('OK ' + when + ' head=' + String(stdout||'').trim().split('\n').pop());
+        try { require('fs').writeFileSync(statusFile, line + '\n'); } catch(_){}
+        if (err) console.error('git-deploy FAILED:', err.message, String(stderr||'').slice(-300));
+        else console.log('git-deploy ok:', String(stdout||'').slice(-200));
+      });
+      res.writeHead(202, { 'Content-Type':'application/json' }); return res.end('{"deploying":true}');
     }
     // ----- PDF: render the will from the stored data (paid only) -----
     if (req.method === 'GET' && pathOnly === '/api/pdf'){
@@ -401,8 +815,197 @@ const server = http.createServer(async (req, res) => {
         return res.end(buf);
       } catch(e){ return send(res, 200, { error: e.message }); }
     }
+    // ----- edit-mode downloads: real documents, token-gated (load state from GHL, generate) -----
+    if (req.method === 'GET' && (pathOnly === '/api/will-pdf' || pathOnly === '/api/etb-pdf' || pathOnly === '/api/lpa-pdf')){
+      res.setHeader('Access-Control-Allow-Origin','*');
+      try {
+        const tok=(new URL(req.url,'http://x')).searchParams.get('t')||'';
+        const cl=verifyEdit(tok);
+        if(!cl||!cl.loc||!cl.cid) return send(res, 403, { error: 'invalid or expired link' });
+        const fn = (pathOnly === '/api/will-pdf') ? 'wills' : (pathOnly === '/api/lpa-pdf' ? 'lpa' : 'etb');
+        const out = await loadState(cl.loc, cl.cid, fn);
+        if(!out.state) return send(res, 404, { error: 'nothing saved yet' });
+        let company=''; try { const cv=await getCustomValuesMap(cl.loc, await getWriteToken(cl.loc)); company=cv['company_name']||''; } catch(e){}
+        const wp = require('./will-pdf');
+        let buf, fname;
+        if (fn==='wills'){ const wd = wp.normalizeWill(out.state); buf = await wp.buildWillPdf(wd, { company_name: company }); fname='your-will.pdf'; }
+        else if (fn==='lpa'){ try { const lo=await wp.buildLpaOfficial(out.state,{ company_name: company }); const pick=lo.filter(function(o){return o.field!=='LPA Guide PDF';})[0]||lo[0]; buf=pick.bytes; fname=pick.fname; } catch(e){ buf = await wp.buildLpaPdf(out.state, { company_name: company }); fname='lpa-application.pdf'; } }
+        else { buf = await wp.buildEtbPdf(out.state, { company_name: company }); fname='executor-toolbox-summary.pdf'; }
+        res.writeHead(200, { 'Content-Type':'application/pdf', 'Content-Disposition':'inline; filename="'+fname+'"', 'Cache-Control':'no-store', 'Access-Control-Allow-Origin':'*' });
+        return res.end(buf);
+      } catch(e){ return send(res, 200, { error: e.message }); }
+    }
+    // ----- edit-mode: remove an uploaded document from a contact's file field, token-gated -----
+    if (req.method === 'POST' && pathOnly === '/api/etb-file-remove'){
+      res.setHeader('Access-Control-Allow-Origin','*');
+      try {
+        const b = JSON.parse((await readBody(req)) || '{}');
+        const cl=verifyEdit(b.t||'');
+        if(!cl||!cl.loc||!cl.cid) return send(res, 403, { error: 'invalid or expired link' });
+        const fieldName=(b.field||'');
+        const token=await getWriteToken(cl.loc);
+        const map=await etbFieldMap(token, cl.loc);
+        const fid=map[fieldName.toLowerCase()];
+        if(!fid) return send(res, 400, { error: 'unknown field' });
+        await ghl('PUT','/contacts/'+cl.cid,token,{ customFields:[{ id:fid, value:'' }] });
+        return send(res, 200, { ok:true });
+      } catch(e){ return send(res, 200, { error: e.message }); }
+    }
+    // ----- Executor Toolbox: status / field-creation / save (public, called by the funnel) -----
+    if (req.method === 'GET' && pathOnly === '/api/etb-status'){
+      res.setHeader('Access-Control-Allow-Origin','*');
+      const locId = ((new URL(req.url,'http://x')).searchParams.get('locationId')||'').replace(/[^A-Za-z0-9]/g,'');
+      try { return send(res, 200, await etbStatus(locId)); }
+      catch(e){ return send(res, 200, { authorised:false, error: e.message }); }
+    }
+    if (req.method === 'POST' && pathOnly === '/api/etb-ensure-fields'){
+      res.setHeader('Access-Control-Allow-Origin','*');
+      try {
+        const b = JSON.parse((await readBody(req)) || '{}');
+        const loc = (b.locationId||'').replace(/[^A-Za-z0-9]/g,'');
+        const token = await getWriteToken(loc); // throws if not authorised
+        (async function(){ try { const r = await ensureEtbFields(token, loc); console.log('etb ensure', loc, 'created', r.created, 'of', r.total); } catch(e){ console.error('etb ensure', e.message); } })();
+        return send(res, 202, { ensuring: true, locationId: loc });
+      } catch(e){ return send(res, 200, { error: e.message }); }
+    }
+    if (req.method === 'POST' && pathOnly === '/api/etb-save'){
+      res.setHeader('Access-Control-Allow-Origin','*');
+      try {
+        const b = JSON.parse((await readBody(req)) || '{}');
+        const loc = (b.locationId||'').replace(/[^A-Za-z0-9]/g,'');
+        return send(res, 200, await etbSave(loc, b.state||{}, b.contactId||'', b.status||'started', { pdf: !!b.pdf }));
+      } catch(e){ return send(res, 200, { error: e.message }); }
+    }
+    if (req.method === 'POST' && pathOnly === '/api/etb-upload'){
+      res.setHeader('Access-Control-Allow-Origin','*');
+      try {
+        const b = JSON.parse((await readBody(req)) || '{}');
+        const loc = (b.locationId||'').replace(/[^A-Za-z0-9]/g,'');
+        return send(res, 200, await etbUpload(loc, b.contactId||'', b.fieldName||'', b.filename||'', b.mimeType||'', b.dataBase64||''));
+      } catch(e){ return send(res, 200, { error: e.message }); }
+    }
+    if (req.method === 'POST' && pathOnly === '/api/will-save'){
+      res.setHeader('Access-Control-Allow-Origin','*');
+      try {
+        const b = JSON.parse((await readBody(req)) || '{}');
+        const loc = (b.locationId||'').replace(/[^A-Za-z0-9]/g,'');
+        return send(res, 200, await willSave(loc, b.state||{}, b.contactId||'', { pdf: !!b.pdf }));
+      } catch(e){ return send(res, 200, { error: e.message }); }
+    }
+    if (req.method === 'POST' && pathOnly === '/api/lpa-save'){
+      res.setHeader('Access-Control-Allow-Origin','*');
+      try {
+        const b = JSON.parse((await readBody(req)) || '{}');
+        const loc = (b.locationId||'').replace(/[^A-Za-z0-9]/g,'');
+        const _lr = await lpaSave(loc, b.state||{}, b.contactId||'', { pdf: !!b.pdf });
+        if(_lr && _lr.contactId){ try{ _lr.token = signEdit({ loc:loc, cid:_lr.contactId, exp:Date.now()+1000*60*60*24*30 }); }catch(e){} }
+        return send(res, 200, _lr);
+      } catch(e){ return send(res, 200, { error: e.message }); }
+    }
+    // Mint a per-contact hub magic-link (for a GHL workflow to store on the contact + email). key-gated in production.
+    if (req.method === 'GET' && pathOnly === '/api/hub-link'){
+      res.setHeader('Access-Control-Allow-Origin','*');
+      try {
+        const u=new URL(req.url,'http://x');
+        const loc=u.searchParams.get('locationId')||''; const cid=u.searchParams.get('contactId')||''; const key=u.searchParams.get('key')||'';
+        const need=process.env.HUBLINK_SECRET||'';
+        if(need && key!==need) return send(res,403,{error:'bad key'});
+        if(!loc||!cid) return send(res,400,{error:'locationId and contactId required'});
+        const tok=signEdit({loc:loc,cid:cid,exp:Date.now()+1000*60*60*24*90});
+        if(!tok) return send(res,500,{error:'signing unavailable'});
+        const base=(process.env.PUBLIC_BASE||'https://aiwills.digilyse.co');
+        const link=base+'/hub.html?aw_loc='+encodeURIComponent(loc)+'&aw_c='+encodeURIComponent(cid)+'&aw_t='+encodeURIComponent(tok);
+        return send(res,200,{ ok:true, link:link, token:tok });
+      } catch(e){ return send(res, 200, { error: e.message }); }
+    }
+    // Load a saved funnel state for editing. Token-gated so a bare contactId can't read someone's data.
+    if (req.method === 'GET' && pathOnly === '/api/state-load'){
+      res.setHeader('Access-Control-Allow-Origin','*');
+      try {
+        const tok=(new URL(req.url,'http://x')).searchParams.get('t')||'';
+        const claims=verifyEdit(tok);
+        if(!claims||!claims.loc||!claims.cid) return send(res,403,{error:'invalid or expired link'});
+        const _qf=(new URL(req.url,'http://x')).searchParams.get('funnel'); const _uf=_qf||claims.funnel||'etb'; const out=await loadState(claims.loc, claims.cid, _uf);
+        return send(res,200,{ ok:true, funnel:_uf, contactId:claims.cid, state:out.state, contact:out.contact, found:out.found, files:out.files||[], filesRaw:out.filesRaw||[] });
+      } catch(e){ return send(res, 200, { error: e.message }); }
+    }
+    // DEV ONLY: mint an edit token to test the edit flow. Disabled the moment EDIT_SECRET is set (production).
+    if (req.method === 'GET' && pathOnly === '/api/_edit-token'){
+      res.setHeader('Access-Control-Allow-Origin','*');
+      try {
+        if(process.env.EDIT_SECRET) return send(res,403,{error:'disabled in production'});
+        const u=new URL(req.url,'http://x');
+        const loc=(u.searchParams.get('locationId')||'').replace(/[^A-Za-z0-9]/g,'');
+        const cid=(u.searchParams.get('contactId')||'').replace(/[^A-Za-z0-9]/g,'');
+        const funnel=(u.searchParams.get('funnel')||'etb');
+        if(!loc||!cid) return send(res,400,{error:'locationId and contactId required'});
+        return send(res,200,{ token: signEdit({ loc:loc, cid:cid, funnel:funnel, exp: Date.now()+1000*60*60 }) });
+      } catch(e){ return send(res, 200, { error: e.message }); }
+    }
+    // Production mint: secret-gated (only Chris's login / a GHL workflow can call it). Returns a per-contact edit link.
+    if (req.method === 'POST' && pathOnly === '/api/edit-link'){
+      res.setHeader('Access-Control-Allow-Origin','*');
+      try {
+        const b = JSON.parse((await readBody(req)) || '{}');
+        const secret = b.secret || req.headers['x-edit-secret'] || '';
+        const need = process.env.EDIT_LINK_SECRET || (String(process.env.STRIPE_SECRET_KEY||'').indexOf('sk_test')===0 ? 'aiwills-dev-link-secret' : '');
+        if (!need || secret !== need) return send(res, 403, { error: 'forbidden' });
+        const loc = (b.locationId||'').replace(/[^A-Za-z0-9]/g,'');
+        const cid = (b.contactId||'').replace(/[^A-Za-z0-9]/g,'');
+        const funnel = (['wills','lpa','etb'].indexOf(b.funnel)>=0)?b.funnel:'etb';
+        if (!loc || !cid) return send(res, 400, { error: 'locationId and contactId required' });
+        const ttl = Math.min(parseInt(b.ttlDays||30,10)||30, 90);
+        const token = signEdit({ loc:loc, cid:cid, funnel:funnel, exp: Date.now()+ttl*24*3600*1000 });
+        if (!token) return send(res, 500, { error: 'EDIT_SECRET not set on server' });
+        const base = b.returnBase || '';
+        const url = base ? (base + (base.indexOf('?')>=0?'&':'?') + 'aw_t=' + encodeURIComponent(token)) : '';
+        return send(res, 200, { ok:true, token: token, url: url });
+      } catch(e){ return send(res, 200, { error: e.message }); }
+    }
+    // Self-serve: a client enters their email; if it matches a contact we stamp their edit link + a tag, and a GHL workflow emails it. Always returns a generic message.
+    if (req.method === 'POST' && pathOnly === '/api/edit-request'){
+      res.setHeader('Access-Control-Allow-Origin','*');
+      try {
+        const b = JSON.parse((await readBody(req)) || '{}');
+        const loc = (b.locationId||'').replace(/[^A-Za-z0-9]/g,'');
+        const email = (b.email||'').trim();
+        const funnel = (['wills','lpa','etb'].indexOf(b.funnel)>=0)?b.funnel:'etb';
+        const base = b.returnBase || '';
+        if (!loc || !email) return send(res, 400, { error: 'locationId and email required' });
+        (async function(){
+          try {
+            const c = await findContactByEmail(loc, email);
+            if (!c || !c.id) return;
+            const token = signEdit({ loc:loc, cid:c.id, funnel:funnel, exp: Date.now()+30*24*3600*1000 });
+            if (!token) return;
+            const url = base ? (base + (base.indexOf('?')>=0?'&':'?') + 'aw_t=' + encodeURIComponent(token)) : '';
+            const wtoken = await getWriteToken(loc);
+            const map = await etbFieldMap(wtoken, loc);
+            let fid = map['edit link'];
+            if (!fid){ try { const cf = await ghl('POST','/locations/'+loc+'/customFields',wtoken,{name:'Edit Link',dataType:'TEXT',model:'contact'}); const nf=cf.customField||cf; if(nf&&nf.id) fid=nf.id; }catch(e){} }
+            if (fid) await ghl('PUT','/contacts/'+c.id, wtoken, { customFields: [{ id: fid, value: url }] });
+            try { await ghl('POST','/contacts/'+c.id+'/tags', wtoken, { tags: ['send-edit-link'] }); }catch(e){}
+          } catch(e){ console.error('edit-request', e.message); }
+        })();
+        return send(res, 200, { ok:true, message:'If that email is on file, a secure edit link is on its way.' });
+      } catch(e){ return send(res, 200, { error: e.message }); }
+    }
+    // Public client-facing pages (login, hub, funnels): served BEFORE the tool's auth gate.
+    // Safe because all personal data behind them is token-gated server-side (aw_t / state-load).
+    {
+      const _pf = req.url.split('?')[0];
+      const PUBLIC_PAGES = ['/hub.html','/wills-test.html','/lpa-test.html','/etb-test.html','/qa.html'];
+      if (req.method === 'GET' && PUBLIC_PAGES.indexOf(_pf) >= 0){
+        const _fp = path.join(__dirname, 'public', _pf);
+        if (_fp.indexOf(path.join(__dirname, 'public')) === 0 && fs.existsSync(_fp) && fs.statSync(_fp).isFile()){
+          const _d = fs.readFileSync(_fp);
+          res.writeHead(200, { 'Content-Type': MIME[path.extname(_fp)] || 'text/plain' });
+          return res.end(_d);
+        }
+      }
+    }
     if (!authed(req)){
-      res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="AI Wills onboarding"' });
+      res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="AI Wills onboarding"', 'Content-Type':'text/plain; charset=utf-8' });
       return res.end('Authentication required.');
     }
     if (req.method === 'POST' && req.url === '/api/scrape'){

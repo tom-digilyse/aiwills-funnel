@@ -381,4 +381,246 @@ function normalizeWill(s){
   };
 }
 
-module.exports = { buildWillPdf: buildWillPdf, normalizeWill: normalizeWill };
+/* ---------- Executor Toolbox summary PDF ---------- */
+function etbH(doc, t){ doc.moveDown(0.6); doc.font('Helvetica-Bold').fontSize(13).fillColor('#0B3D2E').text(t); doc.moveDown(0.15); }
+function etbLine(doc, label, val){ if(val==null||String(val).trim()==='') return; doc.font('Helvetica-Bold').fontSize(10).fillColor('#555').text(label+': ', {continued:true}); doc.font('Helvetica').fillColor('#111').text(String(val)); }
+function buildEtbPdf(state, brand){
+  state = state || {}; brand = brand || {};
+  return new Promise(function(resolve, reject){
+    try {
+      var doc = new PDFDocument({ size:'A4', margins:{ top:60, bottom:64, left:60, right:60 }, bufferPages:true });
+      var chunks=[]; doc.on('data', function(c){ chunks.push(c); }); doc.on('end', function(){ resolve(Buffer.concat(chunks)); }); doc.on('error', reject);
+      var company = brand.company_name || 'Executor Toolbox';
+      doc.font('Helvetica-Bold').fontSize(20).fillColor('#0B3D2E').text(company);
+      doc.font('Helvetica').fontSize(12).fillColor('#555').text('Executor Toolbox summary');
+      doc.moveDown(0.2); doc.font('Helvetica').fontSize(9).fillColor('#888').text('Generated ' + new Date().toLocaleDateString('en-GB') + '. Keep this with your important papers so your executors can find everything.');
+      var yd = state.your_details || {};
+      etbH(doc,'Your details');
+      etbLine(doc,'Name',[yd.firstName,yd.lastName].filter(Boolean).join(' '));
+      etbLine(doc,'Email',yd.email); etbLine(doc,'Phone',yd.phone);
+      etbLine(doc,'Address',[yd.address,yd.city,yd.postcode].filter(Boolean).join(', '));
+      var ex = (state.executors && state.executors.list) || [];
+      if (arr(ex).length){ etbH(doc,'Executors'); arr(ex).forEach(function(e,i){ etbLine(doc,'Executor '+(i+1), [ [e.firstName,e.lastName].filter(Boolean).join(' '), (e.relationship||''), (e.phone||''), (e.email||'') ].filter(Boolean).join(' · ')); }); }
+      function docSec(key,label){ var s=state[key]||{}; if(!s.has) return; etbH(doc,label); etbLine(doc,'Have one?',s.has); etbLine(doc,'Kept',s.locationType); etbLine(doc,'Location',s.locationText); etbLine(doc,'Type',s.type); etbLine(doc,'Uploaded file',s.document); }
+      docSec('will','Will'); docSec('codicil','Codicil'); docSec('lpa','Lasting Power of Attorney');
+      var pr = state.property || {};
+      if (pr.has){ etbH(doc,'Property'); etbLine(doc,'Deeds kept',pr.deedsLocation); etbLine(doc,'Deeds notes',pr.deedsNotes); arr(pr.list).forEach(function(p,i){ etbLine(doc,'Property '+(i+1), [p.address,p.ownership,(String(p.hasMortgage).toLowerCase()==='yes'?('Mortgage: '+(p.mortgageProvider||'yes')):'')].filter(Boolean).join(' · ')); }); }
+      var pn = state.pensions || {};
+      if (pn.has){ etbH(doc,'Pensions'); etbLine(doc,'Documents kept',pn.docsLocation); etbLine(doc,'Notes',pn.docsNotes); arr(pn.list).forEach(function(p,i){ etbLine(doc,'Pension '+(i+1), [p.type,p.provider,p.policyNumber,(p.value?('£'+p.value):''),p.access].filter(Boolean).join(' · ')); }); }
+      function assetSec(key,label,fields){ var s=state[key]||{}; var list=arr(s.list); if(!list.length) return; etbH(doc,label); list.forEach(function(it,i){ var parts=fields.map(function(f){ return it[f[1]]?(f[0]+': '+it[f[1]]):''; }).filter(Boolean); etbLine(doc,label.replace(/s$/,'')+' '+(i+1), parts.join(' · ')); }); }
+      assetSec('insurance','Insurance policies',[['Type','type'],['Provider','provider'],['Policy','policyNumber'],['Docs','location']]);
+      assetSec('bank_accounts','Bank accounts',[['Type','type'],['Bank','bankName'],['Number','accountNumber'],['Holder','holder'],['Stored','stored']]);
+      assetSec('investments','Investments',[['Type','type'],['Provider','provider'],['Value','value'],['Ref','reference'],['Location','location']]);
+      assetSec('business','Business interests',[['Name','name'],['Role','role'],['Contact','keyContact']]);
+      assetSec('debts','Debts',[['Creditor','creditor'],['Type','creditorType'],['Balance','balance'],['Details','location']]);
+      assetSec('digital_assets','Digital assets',[['Platform','platform'],['Access','access'],['Location','location']]);
+      var w = state.wishes || {};
+      if (String(w.record).toLowerCase()==='yes'){ etbH(doc,'Funeral wishes'); etbLine(doc,'Arrangements',w.arrangements); etbLine(doc,'Preferences',w.preferences); etbLine(doc,'Plan provider',w.planProvider); etbLine(doc,'Documents kept',w.docsLocation); }
+      doc.end();
+    } catch(e){ reject(e); }
+  });
+}
+
+function buildLpaPdf(state, brand){
+  state=state||{}; brand=brand||{};
+  return new Promise(function(resolve,reject){
+    try{
+      var doc=new PDFDocument({size:'A4',margins:{top:60,bottom:64,left:60,right:60},bufferPages:true});
+      var chunks=[]; doc.on('data',function(c){chunks.push(c);}); doc.on('end',function(){resolve(Buffer.concat(chunks));}); doc.on('error',reject);
+      var company=brand.company_name||'AI Wills';
+      var yd=state.your_details||{}, type=(state.lpa_type&&state.lpa_type.type)||'';
+      doc.font('Helvetica-Bold').fontSize(20).fillColor('#0B3D2E').text(company);
+      doc.font('Helvetica').fontSize(12).fillColor('#555').text('Lasting Power of Attorney - application details');
+      doc.moveDown(0.2); doc.font('Helvetica').fontSize(9).fillColor('#888').text('Generated '+new Date().toLocaleDateString('en-GB'));
+      doc.moveDown(0.5); doc.font('Helvetica-Bold').fontSize(10).fillColor('#8a1f11').text('Important: this is a draft summary of your answers to help complete the official forms. It is not a registered LPA.');
+      doc.font('Helvetica').fontSize(9).fillColor('#555').text('An LPA is only valid on the official Office of the Public Guardian forms LP1F (Property & Financial Affairs) and/or LP1H (Health & Welfare), signed by each person in the correct order, witnessed in person, then registered with the OPG (currently 92 pounds per LPA). Digital signatures and video witnessing are not accepted.');
+      etbH(doc,'Donor (you)');
+      etbLine(doc,'Name',[yd.firstName,yd.lastName].filter(Boolean).join(' '));
+      etbLine(doc,'Date of birth',yd.dob); etbLine(doc,'Email',yd.email); etbLine(doc,'Phone',yd.phone);
+      etbLine(doc,'Address',[yd.address,yd.city,yd.postcode].filter(Boolean).join(', '));
+      etbH(doc,'LPA type'); etbLine(doc,'Type',type||'Not chosen');
+      var at=arr(state.attorneys&&state.attorneys.list);
+      if(at.length){ etbH(doc,'Attorneys'); at.forEach(function(a,i){ etbLine(doc,'Attorney '+(i+1),[[a.firstName,a.lastName].filter(Boolean).join(' '),a.relationship,a.address,a.phone,a.email].filter(Boolean).join(' - ')); if(String(a.hasReplacement).toLowerCase()==='yes'){ etbLine(doc,'  Replacement',[[a.repFirstName,a.repLastName].filter(Boolean).join(' '),a.repAddress].filter(Boolean).join(' - ')); } }); }
+      var dec=state.decisions||{}; etbH(doc,'How attorneys decide'); etbLine(doc,'Mode',dec.mode); etbLine(doc,'Joint decisions',dec.mixedDetail);
+      var tr=state.treatment||{}; if(tr.lifeSustaining){ etbH(doc,'Life-sustaining treatment'); etbLine(doc,'Attorneys can decide',tr.lifeSustaining); }
+      var pf=state.preferences||{}; if(String(pf.hasPreferences).toLowerCase()==='yes'||String(pf.hasInstructions).toLowerCase()==='yes'){ etbH(doc,'Preferences & instructions'); etbLine(doc,'Preferences',pf.preferences); etbLine(doc,'Instructions',pf.instructions); }
+      var us=state.usage||{}; if(us.when){ etbH(doc,'When usable (Property & Financial)'); etbLine(doc,'When',us.when); }
+      var nt=state.notify||{}; if(String(nt.has).toLowerCase()==='yes'){ etbH(doc,'People to notify'); arr(nt.list).forEach(function(p,i){ etbLine(doc,'Person '+(i+1),[[p.firstName,p.lastName].filter(Boolean).join(' '),p.contact].filter(Boolean).join(' - ')); }); }
+      var pv=state.provider||{}; etbH(doc,'Certificate provider'); etbLine(doc,'Type',pv.kind); etbLine(doc,'Name',[pv.firstName,pv.lastName].filter(Boolean).join(' ')); etbLine(doc,'Address',pv.address); etbLine(doc,'Phone',pv.phone); etbLine(doc,'Occupation',pv.occupation);
+      var rg=state.registration||{}; etbH(doc,'Registration'); etbLine(doc,'Registered by',rg.who);
+      var ex=state.exemption||{}; etbLine(doc,'Fee reduction/exemption',ex.status);
+      doc.addPage();
+      doc.font('Helvetica-Bold').fontSize(15).fillColor('#0B3D2E').text('Signing & witnessing guide');
+      doc.moveDown(0.3);
+      var stps=['Print the official LP1F and/or LP1H form(s) from GOV.UK, completed with the details above.',
+        'Sign in the correct order: (1) the donor signs the statement, (2) the certificate provider signs, (3) each attorney and any replacement signs. Each signature must be witnessed in person by someone aged 18 or over who is not an attorney.',
+        'Signing out of order is the most common reason the OPG rejects an LPA - follow the order exactly.',
+        'Send the completed, signed forms to the OPG to register, with the fee per LPA (or the LP120 reduced-fee form if eligible).',
+        'The LPA can only be used once the OPG has registered it.'];
+      stps.forEach(function(t,i){ doc.font('Helvetica-Bold').fontSize(10).fillColor('#111').text((i+1)+'. ',{continued:true}).font('Helvetica').text(t); doc.moveDown(0.2); });
+      doc.moveDown(0.4); doc.font('Helvetica').fontSize(9).fillColor('#888').text('Declaration confirmed by: '+((state.declaration&&state.declaration.signature)||'-'));
+      doc.end();
+    }catch(e){ reject(e); }
+  });
+}
+
+function dparts(iso){var m=/(\d{4})-(\d{2})-(\d{2})/.exec(iso||"");return m?{d:m[3],mo:m[2],y:m[1]}:{d:"",mo:"",y:""};}
+function ukPost(s){if(!s)return"";var m=/([A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\s*$/i.exec(String(s).trim());return m?m[1].toUpperCase().replace(/\s+/," "):"";}
+function stripPost(s,pc){if(!s)return s;s=String(s);if(pc){s=s.replace(new RegExp(pc.replace(/\s/g,"\\s*")+"\\s*$","i"),"");}return s.replace(/[,\s]+$/,"");}
+function ukPost(s){if(!s)return"";var m=/([A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\s*$/i.exec(String(s).trim());return m?m[1].toUpperCase().replace(/\s+/," "):"";}
+function stripPost(s,pc){if(!s)return s;s=String(s);if(pc){s=s.replace(new RegExp(pc.replace(/\s/g,"\\s*")+"\\s*$","i"),"");}return s.replace(/[,\s]+$/,"");}
+function addrParts(p){p=p||{};var pc=String(p.postcode||"").trim();var l1=String(p.address||"");var l2=String(p.city||"");if(!pc){pc=ukPost(l1);if(pc)l1=stripPost(l1,pc);}return {l1:l1,l2:l2,pc:pc};}
+function fullName(p){p=p||{};return [p.title,p.firstName,p.lastName].filter(function(x){return x&&String(x).trim();}).join(" ");}
+function dparts(iso){var m=/(\d{4})-(\d{2})-(\d{2})/.exec(iso||"");return m?{d:m[3],mo:m[2],y:m[1]}:{d:"",mo:"",y:""};}
+function ukPost(s){if(!s)return"";var m=/([A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\s*$/i.exec(String(s).trim());return m?m[1].toUpperCase().replace(/\s+/," "):"";}
+function stripPost(s,pc){if(!s)return s;s=String(s);if(pc){s=s.replace(new RegExp(pc.replace(/\s/g,"\\s*")+"\\s*$","i"),"");}return s.replace(/[,\s]+$/,"");}
+function addrParts(p){p=p||{};var pc=String(p.postcode||"").trim();var l1=String(p.address||"");var l2=String(p.city||"");if(!pc){pc=ukPost(l1);if(pc)l1=stripPost(l1,pc);}return {l1:l1,l2:l2,pc:pc};}
+function fullName(p){p=p||{};return [p.title,p.firstName,p.lastName].filter(function(x){return x&&String(x).trim();}).join(" ");}
+function dparts(iso){var m=/(\d{4})-(\d{2})-(\d{2})/.exec(iso||"");return m?{d:m[3],mo:m[2],y:m[1]}:{d:"",mo:"",y:""};}
+async function fillLpaForm(PL, bytes, state, ftype){
+  var pdf=await PL.PDFDocument.load(bytes); var ctx=pdf.context; var form=pdf.getForm();
+  var set=function(n,v){try{if(v!=null&&String(v).trim()!=='')form.getTextField(n).setText(String(v));}catch(e){}};
+  var check=function(n){try{form.getCheckBox(n).check();}catch(e){}};
+  var setAddr=function(la,lb,pcf,p){var ap=addrParts(p);set(la,ap.l1);set(lb,ap.l2);set(pcf,ap.pc);};
+  var atts=(state.attorneys&&state.attorneys.list)||[];
+  // ---- Donor (p03) ----
+  var yd=state.your_details||{}, db=dparts(yd.dob);
+  set('Title',yd.title);set('First names',yd.firstName);set('Last name',yd.lastName);
+  set('Day',db.d);set('Month',db.mo);set('Year',db.y);
+  set('Address 1a',addrParts(yd).l1);set('Address 1b',addrParts(yd).l2);set('Postcode',addrParts(yd).pc);
+  set('Email address optional',yd.email);
+  // ---- Attorneys (p04-05) ----
+  var A=[
+    {t:'_2',d:'_3',a:'Address 1_2',b:'Address 1_2b',pc:'undefined_2'},
+    {t:'_3',d:'_4',a:'Address 1_3',b:'Address 1_3b',pc:'undefined_3'},
+    {t:'_4',d:'_5',a:'Address 1_4a',b:'Address 1_4b',pc:'undefined_4'},
+    {t:'_5',d:'_6',a:'Address 1_5a',b:'Address 1_5b',pc:'undefined_5'}
+  ];
+  atts.slice(0,4).forEach(function(a,i){var s=A[i];var d=dparts(a.dob);
+    set('Title'+s.t,a.title);set('First names'+s.t,a.firstName);set('Last name'+s.t,a.lastName);
+    set('Day'+s.d,d.d);set('Month'+s.d,d.mo);set('Year'+s.d,d.y);
+    setAddr(s.a,s.b,s.pc,a);set('Email address optional'+s.t,a.email);
+  });
+  if(atts[0]&&String(atts[0].isTrustCorp).toLowerCase()==='yes') check('This attorney is a trust corporation');
+  // ---- Replacement attorneys (p07) ----
+  var reps=[];atts.forEach(function(a){if(String(a.hasReplacement).toLowerCase()==='yes'&&(a.repFirstName||a.repLastName))reps.push({title:a.repTitle,firstName:a.repFirstName,lastName:a.repLastName,address:a.repAddress,city:a.repCity,postcode:a.repPostcode,dob:a.repDob});});
+  var R=[{t:'_6',d:'_7',a:'Address 1_6a',b:'Address 1_6b',pc:'undefined_6'},{t:'_7',d:'_8',a:'Address 1_7a',b:'Address 1_7b',pc:'undefined_7'}];
+  reps.slice(0,2).forEach(function(r,i){var s=R[i];var d=dparts(r.dob);
+    set('Title'+s.t,r.title);set('First names'+s.t,r.firstName);set('Last name'+s.t,r.lastName);
+    set('Day'+s.d,d.d);set('Month'+s.d,d.mo);set('Year'+s.d,d.y);
+    setAddr(s.a,s.b,s.pc,r);
+  });
+  // ---- Preferences / Instructions (p10) + continuation ----
+  var pf=state.preferences||{};
+  var prefTxt=(String(pf.hasPreferences).toLowerCase()==='yes')?String(pf.preferences||''):'';
+  var instrTxt=(String(pf.hasInstructions).toLowerCase()==='yes')?String(pf.instructions||''):'';
+  var LIM=210;
+  if(prefTxt){ set('Preferences  use words like prefer and would like', prefTxt.length>LIM?(prefTxt.slice(0,LIM-24).replace(/\s+\S*$/,'')+'  (continued on sheet 2)'):prefTxt); if(prefTxt.length>LIM) check('I need more space  use Continuation sheet 2'); }
+  if(instrTxt){ set('Instructions  use words like must and have to', instrTxt.length>LIM?(instrTxt.slice(0,LIM-24).replace(/\s+\S*$/,'')+'  (continued on sheet 2)'):instrTxt); if(instrTxt.length>LIM) check('I need more space  use Continuation sheet 2_2'); }
+  // ---- People to notify (p09) ----
+  var N=[{t:'_8',a:'Address 1_8a',b:'Address 1_8b',pc:'undefined_8'},{t:'_9',a:'Address 1_9a',b:'Address 1_9b',pc:'undefined_9'},{t:'_10',a:'Address 1_10a',b:'Address 1_10b',pc:'undefined_10'},{t:'_11',a:'Address 1_11a',b:'Address 1_11b',pc:'undefined_11'}];
+  var nl=(state.notify&&String(state.notify.has).toLowerCase()==='yes')?(state.notify.list||[]):[];
+  nl.slice(0,4).forEach(function(p,i){var s=N[i];set('Title'+s.t,p.title);set('First names'+s.t,p.firstName);set('Last name'+s.t,p.lastName);
+    // back-compat: old data stored a single 'contact' (address or email); use only if it is not an email
+    var pp=p; if(!p.address && p.contact && String(p.contact).indexOf('@')<0) pp={address:p.contact,city:p.city,postcode:p.postcode};
+    setAddr(s.a,s.b,s.pc,pp);
+  });
+  // ---- Certificate provider (p13) ----
+  var pv=state.provider||{};set('Title_12',pv.title);set('First names_12',pv.firstName);set('Last name_12',pv.lastName);
+  setAddr('Address 1_13a','Address 1_13b','undefined_15',pv);
+  // ---- Reduced fee (p21) ----
+  if(/^Yes/i.test((state.exemption&&state.exemption.status)||'')) check('I want to apply to pay a reduced fee');
+  // ---- Page 2 overview (names to refer back) ----
+  var pn=function(names,list,mk){ names.forEach(function(fld,i){ if(list[i]) set(fld, mk(list[i])); }); };
+  pn(['Text4','Text4a','Text4b','Text4c'], atts.slice(0,4), fullName);
+  pn(['Text6','Text6b','Text6c','Text6d'], reps.slice(0,4), fullName);
+  pn(['Text7','Text7b','Text7c','Text7d'], nl.slice(0,4), fullName);
+  // ---- generate text appearances for filled text fields ----
+  try{form.updateFieldAppearances();}catch(e){}
+  // ---- grouped tick controls via raw page-annotation walk (widget /AS), preserved by updateFieldAppearances:false on save ----
+  var mode=(state.decisions&&state.decisions.mode)||'';
+  var decV=atts.length<=1?'section 4':(/^Jointly and severally/i.test(mode)?'1':(/^Jointly \(all/i.test(mode)?'2':(/some/i.test(mode)?'3':null)));
+  var targets={};
+  if(decV)targets['Jointly and severally']=decV;
+  if(ftype==='F'){var when=(state.usage&&state.usage.when)||'';if(/registered/i.test(when))targets['As soon as my LPA has been registered']='On';else if(/capacity/i.test(when))targets['As soon as my LPA has been registered']='off';}
+  targets['receive the lpa']='1';targets['receive lpa']='1';
+  var T=PL.PDFName.of('T'),AS=PL.PDFName.of('AS'),AP=PL.PDFName.of('AP'),Nn=PL.PDFName.of('N'),P=PL.PDFName.of('Parent');
+  var txt=function(o){if(!o)return null;o=o.decodeText?o:ctx.lookup(o);return o&&o.decodeText?o.decodeText():null;};
+  var fname=function(w){var cur=w,parts=[],g=0;while(cur&&g++<6){var t=txt(cur.get(T));if(t)parts.unshift(t);var pr=cur.get(P);cur=pr?ctx.lookup(pr,PL.PDFDict):null;}return parts.join('.');};
+  var onKey=function(w){try{var n=ctx.lookup(w.get(AP),PL.PDFDict);var nn=ctx.lookup(n.get(Nn),PL.PDFDict);return nn.keys().map(function(x){return x.asString();}).find(function(x){return x!=='/Off';});}catch(e){return null;}};
+  pdf.getPages().forEach(function(pg){var an=pg.node.Annots&&pg.node.Annots();if(!an)return;for(var i=0;i<an.size();i++){var w=ctx.lookup(an.get(i),PL.PDFDict);if(!w||!w.get)continue;var nm=fname(w);if(!(nm in targets))continue;var want=PL.PDFName.of(targets[nm]).asString();if(onKey(w)===want)w.set(AS,PL.PDFName.of(targets[nm]));else w.set(AS,PL.PDFName.of('Off'));}});
+  // (Long preferences/instructions overflow is carried on the official LPC Continuation sheet 2,
+  //  generated separately by buildLpaContinuation and appended as its own document.)
+  try{form.acroForm.dict.set(PL.PDFName.of('NeedAppearances'),PL.PDFBool.True);}catch(e){}
+  return Buffer.from(await pdf.save({updateFieldAppearances:false}));
+}
+// Fill the official OPG forms from the captured LPA state. Returns [{field,fname,bytes}] (signing guide + LP1F/LP1H).
+// Throws if pdf-lib or the blank forms are missing so the caller can fall back to the pdfkit summary pack.
+async function buildLpaContinuation(PL, lpcBytes, state){
+  var pf=state.preferences||{};
+  var prefTxt=(String(pf.hasPreferences).toLowerCase()==='yes')?String(pf.preferences||''):'';
+  var instrTxt=(String(pf.hasInstructions).toLowerCase()==='yes')?String(pf.instructions||''):'';
+  var LIM=210; var needP=prefTxt.length>LIM, needI=instrTxt.length>LIM;
+  var atts=(state.attorneys&&state.attorneys.list)||[];
+  var reps=[]; atts.forEach(function(a){ if(String(a.hasReplacement).toLowerCase()==='yes'&&(a.repFirstName||a.repLastName)) reps.push({type:'2',title:a.repTitle,firstName:a.repFirstName,lastName:a.repLastName,address:a.repAddress,city:a.repCity,postcode:a.repPostcode,dob:a.repDob}); });
+  var nl=(state.notify&&String(state.notify.has).toLowerCase()==='yes')?(state.notify.list||[]):[];
+  var overflow=[];
+  reps.slice(2).forEach(function(r){overflow.push(r);});
+  nl.slice(4).forEach(function(p){overflow.push({type:'3',title:p.title,firstName:p.firstName,lastName:p.lastName,address:p.address,city:p.city,postcode:p.postcode});});
+  var canSign = String((state.declaration&&state.declaration.canSign)||'').toLowerCase()!=='no';
+  var signerName=(state.declaration&&state.declaration.signerName)||'';
+  var trust=atts.filter(function(a){return String(a.isTrustCorp).toLowerCase()==='yes';});
+  var trustReg=trust.length?(trust[0].companyRegNumber||''):'';
+  if(!needP&&!needI&&!overflow.length&&canSign&&!trust.length) return null;
+  var lpc=await PL.PDFDocument.load(lpcBytes); var form=lpc.getForm(); var ctx=lpc.context;
+  var donor=fullName(state.your_details||{});
+  var set=function(n,v){try{if(v!=null&&String(v).trim()!=='')form.getTextField(n).setText(String(v));}catch(e){}};
+  var cbTargets={}; var pages=[];
+  if(overflow.length){
+    var S=[
+      {cb:'Attorney LPA section 2_1',ti:'Title',fn:'First names',ln:'Last name',dd:'Date of birth not required for person to notify',mm:'Month',yy:'Year',a1:'Address 1',a2:'Address 2',pc:'undefined',pg:2,full:'Full name'},
+      {cb:'Attorney LPA section 2_2',ti:'Title_2',fn:'First names_2',ln:'Last name_2',dd:'Date of birth not required for person to notify_2',mm:'Month_2',yy:'Year_2',a1:'Address 1_2',a2:'Address 2_2',pc:'undefined_2',pg:2,full:'Full name'},
+      {cb:'Attorney LPA section 2_3',ti:'Title_3',fn:'First names_3',ln:'Last name_3',dd:'Date of birth not required for person to notify_3',mm:'Month_3',yy:'Year_3',a1:'Address 1_3',a2:'Address 2_3',pc:'undefined_5',pg:3,full:'Full name_2'},
+      {cb:'Attorney LPA section 2_4',ti:'Title_4',fn:'First names_4',ln:'Last name_4',dd:'Date of birth not required for person to notify_4',mm:'Month_4',yy:'Year_4',a1:'Address 1_4',a2:'Address 2_4',pc:'undefined_6',pg:3,full:'Full name_2'}
+    ];
+    overflow.slice(0,4).forEach(function(p,i){var s=S[i];var d=dparts(p.dob);var ap=addrParts(p);
+      set(s.ti,p.title);set(s.fn,p.firstName);set(s.ln,p.lastName);
+      if(d.d){set(s.dd,d.d);set(s.mm,d.mo);set(s.yy,d.y);}
+      set(s.a1,ap.l1);set(s.a2,ap.l2);set(s.pc,ap.pc);
+      cbTargets[s.cb]=p.type;
+      if(pages.indexOf(s.pg)<0){pages.push(s.pg); set(s.full,donor);}
+    });
+  }
+  if(needP){ set('Instructions LPA section 7', prefTxt); set('Full name_3', donor); cbTargets['Decisions attorneys should make jointly LPA section 3']='3'; if(pages.indexOf(4)<0)pages.push(4); }
+  if(needI){
+    if(needP){ set('Instructions LPA section 7_2', instrTxt); set('Full name_4', donor); cbTargets['Decisions attorneys should make jointly LPA section 3_2']='4'; if(pages.indexOf(5)<0)pages.push(5); }
+    else { set('Instructions LPA section 7', instrTxt); set('Full name_3', donor); cbTargets['Decisions attorneys should make jointly LPA section 3']='4'; if(pages.indexOf(4)<0)pages.push(4); }
+  }
+  if(!canSign){ set('Full name_5', signerName||donor); if(pages.indexOf(6)<0)pages.push(6); }
+  if(trust.length){ set('Company registration number', trustReg); if(pages.indexOf(8)<0)pages.push(8); }
+  pages.sort(function(a,b){return a-b;});
+  try{form.updateFieldAppearances();}catch(e){}
+  var T=PL.PDFName.of('T'),AS=PL.PDFName.of('AS'),AP=PL.PDFName.of('AP'),Nn=PL.PDFName.of('N'),P=PL.PDFName.of('Parent');
+  var txt=function(o){if(!o)return null;o=o.decodeText?o:ctx.lookup(o);return o&&o.decodeText?o.decodeText():null;};
+  var fnm=function(w){var cur=w,parts=[],g=0;while(cur&&g++<6){var t=txt(cur.get(T));if(t)parts.unshift(t);var pr=cur.get(P);cur=pr?ctx.lookup(pr,PL.PDFDict):null;}return parts.join('.');};
+  var onKey=function(w){try{var n=ctx.lookup(w.get(AP),PL.PDFDict);var nn=ctx.lookup(n.get(Nn),PL.PDFDict);return nn.keys().map(function(x){return x.asString();}).find(function(x){return x!=='/Off';});}catch(e){return null;}};
+  lpc.getPages().forEach(function(pg){var an=pg.node.Annots&&pg.node.Annots();if(!an)return;for(var i=0;i<an.size();i++){var w=ctx.lookup(an.get(i),PL.PDFDict);if(!w||!w.get)continue;var nm=fnm(w);if(!(nm in cbTargets))continue;var want=PL.PDFName.of(cbTargets[nm]).asString();if(onKey(w)===want)w.set(AS,PL.PDFName.of(cbTargets[nm]));else w.set(AS,PL.PDFName.of('Off'));}});
+  var out=await PL.PDFDocument.create();
+  var copied=await out.copyPages(lpc, pages);
+  copied.forEach(function(pg){ out.addPage(pg); });
+  return Buffer.from(await out.save());
+}
+async function buildLpaOfficial(state, brand){
+  var PL=require('pdf-lib'); var fsx=require('fs'), pathx=require('path');
+  var dir=pathx.join(__dirname,'public','forms');
+  var readBlank=function(names){ for(var i=0;i<names.length;i++){ var p=pathx.join(dir,names[i]); try{ if(fsx.existsSync(p)) return fsx.readFileSync(p); }catch(e){} } throw new Error('blank form not found: '+names.join(' / ')); };
+  var out=[];
+  try { var g=await buildLpaPdf(state, brand); out.push({field:'LPA Guide PDF', fname:'lpa-signing-guide.pdf', bytes:g}); } catch(e){}
+  var type=(state.lpa_type&&state.lpa_type.type)||'';
+  if(/Property|Both/i.test(type)) out.push({field:'LPA LP1F PDF', fname:'LP1F-property-financial.pdf', bytes: await fillLpaForm(PL, readBlank(['LP1F.pdf','LP1F-Create-and-register-your-lasting-power-of-attorney.pdf']), state, 'F')});
+  if(/Health|Both/i.test(type)) out.push({field:'LPA LP1H PDF', fname:'LP1H-health-welfare.pdf', bytes: await fillLpaForm(PL, readBlank(['LP1H.pdf','LP1H-Create-and-register-your-lasting-power-of-attorney.pdf']), state, 'H')});
+  try{ var _cont=await buildLpaContinuation(PL, readBlank(['LPC.pdf','LPC-Continuation-sheets.pdf']), state); if(_cont) out.push({field:'LPA Continuation PDF', fname:'lpa-continuation-sheet2.pdf', bytes:_cont}); }catch(e){}
+  if(out.length<2) throw new Error('LPA official forms not generated (type='+type+')');
+  return out;
+}
+module.exports = { buildWillPdf: buildWillPdf, normalizeWill: normalizeWill, buildEtbPdf: buildEtbPdf, buildLpaPdf: buildLpaPdf, buildLpaOfficial: buildLpaOfficial };

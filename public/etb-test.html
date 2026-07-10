@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Executor Toolbox - test harness</title>
+</head>
+<body>
+<div id="aiwills-funnel" data-loc="P9op1DA48g0xLBWLdvhV"></div>
+<script>
+/* Test harness for the Executor Toolbox funnel.
+   Only sets funnel:'etb' so the hosted engine pulls the real brand from GHL via /api/brand
+   (same as the Wills harness). Add ?aw_t=<token> to test edit mode. */
+window.AIWILLS_CONFIG = { funnel: 'etb' };
+</script>
+<script src="https://aiwills.digilyse.co/api/engine"></script>
+</body>
+</html>
