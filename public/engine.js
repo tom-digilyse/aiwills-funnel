@@ -380,7 +380,7 @@ var LPA_FUNNEL = [
     { key:'capacity', type:'radio', label:'I confirm I have mental capacity to make this LPA', required:true, options:['Yes'] },
     { key:'understand', type:'radio', label:'I understand the LPA must be signed and witnessed in person to be valid', required:true, options:['Yes'] },
       { key:'canSign', type:'radio', label:'Will you (the donor) sign the LPA form yourself?', required:true, reflow:true, options:['Yes','No'] },
-      { key:'signerName', type:'text', label:'Name of the person who will sign on your behalf', showIf:function(s){return s.declaration.canSign==='No';} },
+      { key:'signerName', type:'text', label:'Name of the person who will sign on your behalf', required:true, showIf:function(s){return s.declaration.canSign==='No';} },
     { key:'signature', type:'text', label:'Type your full name to confirm', required:true }
   ]},
   { id:'review', name:'Review', title:'Review your LPA details', lead:'Check everything below. You can jump back to any section to edit, then continue to payment.', kind:'review' },
@@ -479,14 +479,15 @@ function applyBrand(){
   el('ftr').innerHTML='<div class="fwrap"><div class="fgrid"><div><div class="fh">Explore</div><ul class="flinks">'+links+'</ul></div><div><div class="fcta">Ready to protect your family’s future?</div><button class="btn" style="background:var(--btn2-bg);color:var(--btn2-ink);border:2px solid var(--btn2-ink)" onclick="window.scrollTo({top:0,behavior:\'smooth\'})">'+((FUNNEL===ETB_FUNNEL)?'Get started':'Start your will')+'</button></div></div><hr class="frule">'+(soc?'<div class="fsoc">'+soc+'</div>':'')+'<p class="fleg">'+esc(CFG.legal_footer||'')+'</p>'+(CFG.address?'<p class="fleg">Registered office: '+esc(CFG.address)+'</p>':'')+'</div>';
 }
 
+function fmtDate(v){ var m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(String(v||'')); return m?(m[3]+'/'+m[2]+'/'+m[1]):v; } function fmtVal(f,v){ return (f&&f.type==='date')?fmtDate(v):v; }
 function sumRow(k,v){ return v?('<div class="srow"><span class="k">'+esc(k)+'</span><span class="v">'+esc(v)+'</span></div>'):''; }
 function summary(base,fields){
   var out='';
   (fields||[]).forEach(function(f){
     if(f.showIf && !f.showIf(state)) return;
     if(f.type==='row'){ out+=summary(base,f.fields); return; }
-    if(f.type==='repeater'){ (getP(base+'.'+f.key)||[]).forEach(function(it,i){ var parts=flat(f.fields).map(function(sf){ return it[sf.key]?esc(it[sf.key]):''; }).filter(Boolean); out+=sumRow((f.itemLabel||'Item')+' '+(i+1), parts.join(', ')); }); return; }
-    var v=getP(base+'.'+f.key); if(v) out+=sumRow(f.label||f.key, v);
+    if(f.type==='repeater'){ (getP(base+'.'+f.key)||[]).forEach(function(it,i){ out+='<div class="srow"><span class="k" style="font-weight:700">'+esc((f.itemLabel||'Item')+' '+(i+1))+'</span><span class="v"></span></div>'; flat(f.fields).forEach(function(sf){ var vv=it[sf.key]; if(vv) out+=sumRow(' '+(sf.label||sf.key), fmtVal(sf,vv)); }); }); return; }
+    var v=getP(base+'.'+f.key); if(v) out+=sumRow(f.label||f.key, fmtVal(f,v));
   });
   return out;
 }
@@ -509,7 +510,7 @@ function render(){
       var _ep=esc(CFG.etb_price||'£19.99 / year');
       html += '<div class="mock"><p>Executor Toolbox</p><div class="price">'+_ep+'</div><button class="btn wide" id="pay" type="button">Subscribe</button><p class="note">Secure card payment. Your subscription keeps your Toolbox stored and available to your executors. You can cancel any time.</p></div>';
     } else {
-      html += '<div class="mock"><p>Your will document</p><div class="price">'+esc(CFG.will_price||'')+'</div><button class="btn wide" id="pay" type="button">Pay '+esc(CFG.will_price||'')+'</button><p class="note">Secure card payment. You will be returned here to download your will.</p></div>';
+      html += '<div class="mock"><p>'+esc(FUNNEL===LPA_FUNNEL?'Your LPA document':(FUNNEL===ETB_FUNNEL?'Your Executor Toolbox':'Your will document'))+'</p><div class="price">'+esc(CFG.will_price||'')+'</div><button class="btn wide" id="pay" type="button">Pay '+esc(CFG.will_price||'')+'</button><p class="note">Secure card payment. You will be returned here to download your will.</p></div>';
     }
   } else if(s.kind==='done'){
     html += '<div class="mock"><div class="tick">✓</div><h3>Your Executor Toolbox is active</h3><p class="note">Your details and any documents you uploaded are securely stored. Your executors will be able to access what they need, when the time comes.</p><div style="text-align:left;margin-top:22px;padding-top:18px;border-top:1px solid #e7e7e7"><p style="font-weight:600;margin:0 0 8px">What happens next</p><ol style="margin:0;padding-left:20px;line-height:1.7"><li>Tell your executors that your Toolbox exists.</li><li>You can come back any time to add or update documents.</li><li>Keep your contact details current so we can reach you.</li></ol></div></div>';
