@@ -25,7 +25,7 @@ const GHL_VERSION = process.env.GHL_API_VERSION || '2021-07-28';
    write to ANY client sub-account with no per-client token. See
    AiWills_ghl-agency-oauth-spec_v1.md. */
 const REDIRECT_URI = process.env.GHL_REDIRECT_URI || 'https://aiwills.digilyse.co/oauth/callback';
-const GHL_SCOPES = 'locations/customValues.readonly locations/customValues.write locations/customFields.readonly locations/customFields.write contacts.readonly contacts.write';
+const GHL_SCOPES = 'locations/customValues.readonly locations/customValues.write locations/customFields.readonly locations/customFields.write contacts.readonly contacts.write funnels/funnel.readonly funnels/page.readonly';
 const TOKENS_FILE = path.join(__dirname, 'ghl_tokens.json');
 /* Sub-Account app model: each sub-account authorises the app once and we store ITS
    own Location token, keyed by locationId. Custom values are sub-account data, so a
@@ -1016,6 +1016,19 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && req.url === '/api/write'){
       const parsed = JSON.parse((await readBody(req)) || '{}');
       return send(res, 200, { results: await handleWrite(parsed.locationId, parsed.values) });
+    }
+    if (req.method === 'GET' && pathOnly === '/api/funnels-debug'){
+      try {
+        const du = new URL(req.url,'http://x');
+        const dloc = (du.searchParams.get('locationId')||'').replace(/[^A-Za-z0-9]/g,'');
+        if(!dloc) return send(res,400,{error:'locationId required'});
+        const dtok = await getWriteToken(dloc);
+        const fl = await ghl('GET','/funnels/funnel/list?locationId='+dloc+'&limit=100', dtok);
+        const funnels = fl.funnels || fl.data || [];
+        const out = { count: funnels.length, funnels: funnels };
+        if(funnels[0] && funnels[0]._id){ try { out.firstFunnelPages = await ghl('GET','/funnels/page?locationId='+dloc+'&funnelId='+funnels[0]._id+'&limit=100', dtok); } catch(e){ out.firstFunnelPagesError = e.message; } }
+        return send(res,200,out);
+      } catch(e){ return send(res,500,{error:e.message}); }
     }
     let f = req.url.split('?')[0];
     if (f === '/' || f === '') f = '/index.html';
