@@ -636,6 +636,18 @@ const server = http.createServer(async (req, res) => {
       try { const ejs = fs.readFileSync(path.join(__dirname,'public','engine-dev.js')); res.writeHead(200, { 'Content-Type':'text/javascript', 'Cache-Control':'no-store' }); return res.end(ejs); }
       catch(e){ res.writeHead(404, { 'Content-Type':'text/plain' }); return res.end('engine-dev not found'); }
     }
+    if (req.method === 'GET' && pathOnly === '/api/locations'){
+      res.setHeader('Access-Control-Allow-Origin','*');
+      try {
+        const q=(new URL(req.url,'http://x')).searchParams.get('q')||'';
+        const comp=await getCompanyToken();
+        const r=await fetch(GHL_BASE+'/locations/search?companyId='+encodeURIComponent(comp.companyId)+'&limit=200'+(q?('&query='+encodeURIComponent(q)):''), { headers:{ Authorization:'Bearer '+comp.access_token, Version:GHL_VERSION, Accept:'application/json' } });
+        const t=await r.text(); let j; try{ j=JSON.parse(t); }catch(e){ j={}; }
+        if(!r.ok) return send(res,200,{error:'GHL '+r.status,body:t.slice(0,200)});
+        const locs=(j.locations||[]).map(function(l){ return { id:l.id||l._id, name:l.name }; });
+        return send(res,200,{ count:locs.length, locations:locs });
+      } catch(e){ return send(res,500,{error:e.message}); }
+    }
     if (req.method === 'GET' && pathOnly === '/api/brand'){
       res.setHeader('Access-Control-Allow-Origin','*');
       const locId = ((new URL(req.url,'http://x')).searchParams.get('locationId')||'').replace(/[^A-Za-z0-9]/g,'');
