@@ -632,6 +632,10 @@ const server = http.createServer(async (req, res) => {
       try { const ejs = fs.readFileSync(path.join(__dirname,'public','engine.js')); res.writeHead(200, { 'Content-Type':'text/javascript', 'Cache-Control':'public, max-age=300' }); return res.end(ejs); }
       catch(e){ res.writeHead(404, { 'Content-Type':'text/plain' }); return res.end('engine not found'); }
     }
+    if (req.method === 'GET' && pathOnly === '/api/engine-dev'){
+      try { const ejs = fs.readFileSync(path.join(__dirname,'public','engine-dev.js')); res.writeHead(200, { 'Content-Type':'text/javascript', 'Cache-Control':'no-store' }); return res.end(ejs); }
+      catch(e){ res.writeHead(404, { 'Content-Type':'text/plain' }); return res.end('engine-dev not found'); }
+    }
     if (req.method === 'GET' && pathOnly === '/api/brand'){
       res.setHeader('Access-Control-Allow-Origin','*');
       const locId = ((new URL(req.url,'http://x')).searchParams.get('locationId')||'').replace(/[^A-Za-z0-9]/g,'');
@@ -1008,7 +1012,7 @@ const server = http.createServer(async (req, res) => {
     // Safe because all personal data behind them is token-gated server-side (aw_t / state-load).
     {
       const _pf = req.url.split('?')[0];
-      const PUBLIC_PAGES = ['/hub.html','/wills-test.html','/lpa-test.html','/etb-test.html','/qa.html'];
+      const PUBLIC_PAGES = ['/hub.html','/wills-test.html','/lpa-test.html','/etb-test.html','/qa.html','/engine-dev.html'];
       if (req.method === 'GET' && PUBLIC_PAGES.indexOf(_pf) >= 0){
         const _fp = path.join(__dirname, 'public', _pf);
         if (_fp.indexOf(path.join(__dirname, 'public')) === 0 && fs.existsSync(_fp) && fs.statSync(_fp).isFile()){
