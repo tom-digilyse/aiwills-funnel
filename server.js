@@ -884,6 +884,18 @@ const server = http.createServer(async (req, res) => {
         return send(res, 200, await etbUpload(loc, b.contactId||'', b.fieldName||'', b.filename||'', b.mimeType||'', b.dataBase64||''));
       } catch(e){ return send(res, 200, { error: e.message }); }
     }
+    if (req.method === 'POST' && pathOnly === '/api/will-preview'){
+      res.setHeader('Access-Control-Allow-Origin','*');
+      try {
+        const b = JSON.parse((await readBody(req)) || '{}');
+        const loc = (b.locationId||'').replace(/[^A-Za-z0-9]/g,'');
+        let company=''; try { if(loc){ const cv=await getCustomValuesMap(loc, await getWriteToken(loc)); company=cv['company_name']||''; } } catch(e){}
+        const wp = require('./will-pdf');
+        const buf = await wp.buildWillPdf(wp.normalizeWill(b.state||{}), { company_name: company });
+        res.writeHead(200, { 'Content-Type':'application/pdf', 'Content-Disposition':'inline; filename="your-will.pdf"', 'Cache-Control':'no-store', 'Access-Control-Allow-Origin':'*' });
+        return res.end(buf);
+      } catch(e){ return send(res, 200, { error: e.message }); }
+    }
     if (req.method === 'POST' && pathOnly === '/api/will-save'){
       res.setHeader('Access-Control-Allow-Origin','*');
       try {
