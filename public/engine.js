@@ -623,8 +623,7 @@ setTimeout(closeGaps,400); setTimeout(closeGaps,1200);
     var _pcfg = window.AIWILLS_CONFIG || {};
     var _brandKeys = Object.keys(_pcfg).filter(function(k){ return k!=='funnel'; });
     function _runBranded(){
-      if(_brandKeys.length){ run(); }                 // page already carries brand (data-* injected): use it, no fetch
-      else if(loc){ fetch(API+'/api/brand?locationId='+encodeURIComponent(loc)).then(function(r){return r.json();}).then(function(c){ window.AIWILLS_CONFIG=Object.assign({},c||{},_pcfg); run(); }).catch(function(){ run(); }); } // only funnel/empty: pull brand from GHL
+      if(loc){ fetch(API+'/api/brand?locationId='+encodeURIComponent(loc)).then(function(r){return r.json();}).then(function(c){ window.AIWILLS_CONFIG=Object.assign({}, (c&&!c._err)?c:{}, _pcfg); run(); }).catch(function(){ run(); }); } // always fill brand from GHL so a blank/partial page loader never falls back to default; loader data-* still overrides
       else { run(); }
     }
     var _tok=null; try{ _tok=new URLSearchParams(location.search).get('aw_t'); }catch(e){}
