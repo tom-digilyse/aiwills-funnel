@@ -466,8 +466,9 @@ function applyBrand(){
   if(CFG.button_weight) r.setProperty('--btn-weight',wt(CFG.button_weight)||'600');
   if(CFG.footer_bg_color){ r.setProperty('--ftr-bg',CFG.footer_bg_color); var _fl=lum(CFG.footer_bg_color); if(_fl!=null) r.setProperty('--ftr-ink', _fl<0.5?'#ffffff':'#1B1D1F'); }
   if(CFG.footer_text_color) r.setProperty('--ftr-ink',CFG.footer_text_color);
-  var nav=[]; try{ nav=JSON.parse(CFG.nav_menu_json||'[]'); }catch(e){ nav=[]; }
-  var fmenu=[]; try{ fmenu=JSON.parse(CFG.footer_menu_json||'[]'); }catch(e){ fmenu=[]; } if(!fmenu.length) fmenu=nav;
+  function _okLbl(m){ return m && m.label && String(m.label).indexOf('{')<0 && String(m.label).indexOf('}')<0 && !/^\s*\.[a-z0-9_-]/i.test(String(m.label)); }
+  var nav=[]; try{ nav=JSON.parse(CFG.nav_menu_json||'[]').filter(_okLbl); }catch(e){ nav=[]; }
+  var fmenu=[]; try{ fmenu=JSON.parse(CFG.footer_menu_json||'[]').filter(_okLbl); }catch(e){ fmenu=[]; } if(!fmenu.length) fmenu=nav;
   function lnk(u,t){ var real=u&&/^https?:/i.test(u); return '<a href="'+(real?esc(u):'#')+'"'+(real?' target="_blank" rel="noopener"':' onclick="return false"')+'>'+esc(t)+'</a>'; }
   var navHtml=nav.map(function(n){ return lnk(n.url,n.label); }).join('');
   var logo = CFG.logo_url ? '<img src="'+esc(CFG.logo_url)+'" alt="'+esc(CFG.company_name)+'" onerror="this.style.display=\'none\';this.nextSibling.style.display=\'inline\'"><span class="wordmark" style="display:none">'+esc(CFG.company_name)+'</span>' : '<span class="wordmark">'+esc(CFG.company_name||'Company')+'</span>';
@@ -519,12 +520,17 @@ function render(){
     setTimeout(function(){ try{ fetch(API+'/api/lpa-save',{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({locationId:loc,contactId:_lcid,state:state,pdf:true})}).then(function(r){return r.json();}).then(function(j){ var w=el('lpapdfwrap'); if(!w) return; if(j&&j.token){ var u=API+'/api/lpa-pdf?t='+encodeURIComponent(j.token); w.innerHTML='<iframe src="'+u+'" style="width:100%;height:560px;border:1px solid #e0e0e0;border-radius:10px;margin-top:16px;background:#fff" title="Your LPA"></iframe><div style="margin-top:12px"><a class="btn wide" href="'+u+'" target="_blank" rel="noopener">Download your LPA (PDF)</a></div>'; } else { w.innerHTML='<p class="note">Could not generate the LPA document'+((j&&j.error)?(': '+esc(j.error)):'')+'.</p>'; } }).catch(function(){ var w=el('lpapdfwrap'); if(w) w.innerHTML='<p class="note">Could not generate the LPA document.</p>'; }); }catch(e){} },60);
     html += '<div class="mock"><div class="tick">\u2713</div><h3>Your LPA is ready</h3><p class="note">Payment received. Your LPA is shown below.</p><div id="lpapdfwrap"><p class="note">Preparing your LPA document\u2026</p></div></div>';
   } else if(s.kind==='generate'){
+    var _p0=(state.personal||{});
+    if(!_p0.firstName || !_p0.lastName){
+      html += '<div class="mock"><h3>Let’s finish your will first</h3><p class="note">It looks like your answers haven’t all come through. Please go back and complete your will so we can produce your document.</p><button class="btn wide" type="button" data-goto="personal">Go back to your will</button></div>';
+    } else {
     var _wcid=(rootEl&&rootEl.getAttribute('data-contact'))||qp('aw_c')||window.AIWILLS_CONTACT_ID||'';
     setTimeout(function(){ try{
       fetch(API+'/api/will-preview',{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({locationId:loc,state:state})}).then(function(r){ if(!r.ok) throw new Error('pdf'); return r.blob(); }).then(function(bl){ if(bl.type&&bl.type.indexOf('pdf')<0) throw new Error('notpdf'); var u=URL.createObjectURL(bl); var w=el('willpdfwrap'); if(w) w.innerHTML='<iframe src="'+u+'" style="width:100%;height:560px;border:1px solid #e0e0e0;border-radius:10px;margin-top:16px;background:#fff" title="Your will"></iframe><div style="margin-top:12px"><a class="btn wide" href="'+u+'" download="your-will.pdf">Download your will (PDF)</a></div>'; }).catch(function(){ var w=el('willpdfwrap'); if(w) w.innerHTML='<p class="note">Could not generate the will document.</p>'; });
       try{ fetch(API+'/api/will-save',{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({locationId:loc,contactId:_wcid,state:state,pdf:false})}).then(function(r){return r.json();}).then(function(j){ if(j&&j.contactId) window.AIWILLS_CONTACT_ID=j.contactId; }).catch(function(){}); }catch(e){}
     }catch(e){} },60);
     html += '<div class="mock"><div class="tick">✓</div><h3>Your will is ready</h3><p class="note">Payment received. Your will is shown below.</p><div id="willpdfwrap"><p class="note">Preparing your will document…</p></div><div style="text-align:left;margin-top:22px;padding-top:18px;border-top:1px solid #e7e7e7"><p style="font-weight:600;margin:0 0 8px">To make your will legally valid</p><ol style="margin:0;padding-left:20px;line-height:1.7"><li>Print the document.</li><li>Sign it in front of two independent adult witnesses (not your beneficiaries, or their husbands or wives).</li><li>Have both witnesses sign while you are watching.</li><li>Store it safely and tell your executors where it is.</li></ol></div></div>';
+    }
   } else if(s.kind==='review'){
     html += review();
   } else {
