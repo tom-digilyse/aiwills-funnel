@@ -25,7 +25,7 @@ const GHL_VERSION = process.env.GHL_API_VERSION || '2021-07-28';
    write to ANY client sub-account with no per-client token. See
    AiWills_ghl-agency-oauth-spec_v1.md. */
 const REDIRECT_URI = process.env.GHL_REDIRECT_URI || 'https://aiwills.digilyse.co/oauth/callback';
-const GHL_SCOPES = 'locations/customValues.readonly locations/customValues.write locations/customFields.readonly locations/customFields.write contacts.readonly contacts.write funnels/funnel.readonly funnels/page.readonly';
+const GHL_SCOPES = 'locations/customValues.readonly locations/customValues.write locations/customFields.readonly locations/customFields.write contacts.readonly contacts.write';
 const TOKENS_FILE = path.join(__dirname, 'ghl_tokens.json');
 /* Sub-Account app model: each sub-account authorises the app once and we store ITS
    own Location token, keyed by locationId. Custom values are sub-account data, so a
@@ -889,7 +889,9 @@ const server = http.createServer(async (req, res) => {
       try {
         const b = JSON.parse((await readBody(req)) || '{}');
         const loc = (b.locationId||'').replace(/[^A-Za-z0-9]/g,'');
-        return send(res, 200, await willSave(loc, b.state||{}, b.contactId||'', { pdf: !!b.pdf }));
+        const _wr = await willSave(loc, b.state||{}, b.contactId||'', { pdf: !!b.pdf });
+        if(_wr && _wr.contactId){ try{ _wr.token = signEdit({ loc:loc, cid:_wr.contactId, exp:Date.now()+1000*60*60*24*30 }); }catch(e){} }
+        return send(res, 200, _wr);
       } catch(e){ return send(res, 200, { error: e.message }); }
     }
     if (req.method === 'POST' && pathOnly === '/api/lpa-save'){
