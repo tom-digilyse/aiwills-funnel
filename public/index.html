@@ -97,6 +97,18 @@ details.measure summary{cursor:pointer;font-weight:600;font-size:13px}
       <div class="status" id="writeStatus"></div>
       <div class="results" id="results"></div>
     </div>
+
+    <div class="card">
+      <h2><span class="step">4</span> Client plan (which services show)</h2>
+      <p class="hint">Uses the location ID above. Tick the services this client has bought - controls which cards show on their services page. Saved push-proof; no GHL editing.</p>
+      <label style="display:block;margin:8px 0"><input type="checkbox" class="svc" value="wills" checked> Wills</label>
+      <label style="display:block;margin:8px 0"><input type="checkbox" class="svc" value="lpa" checked> Lasting Power of Attorney</label>
+      <label style="display:block;margin:8px 0"><input type="checkbox" class="svc" value="etb" checked> Executor Toolbox</label>
+      <label style="display:block;margin:8px 0"><input type="checkbox" class="svc" value="probate" checked> Probate</label>
+      <button class="btn-go" id="planBtn" style="margin-top:12px">Save plan</button>
+      <button type="button" class="btn-ghost" id="planLoadBtn" style="margin-top:12px;margin-left:8px">Load current</button>
+      <div class="status" id="planStatus"></div>
+    </div>
   </div>
 
   <div class="preview">
@@ -530,6 +542,30 @@ function applyMeasured(){
 buildForm();
 el('scrapeBtn').addEventListener('click', scrape);
 el('writeBtn').addEventListener('click', write);
+async function savePlan(){
+  var locationId = el('locationId').value.trim();
+  if(!locationId){ el('planStatus').className='status bad'; el('planStatus').textContent='Enter the GHL location ID above first.'; return; }
+  var svcs=[].slice.call(document.querySelectorAll('.svc:checked')).map(function(c){return c.value;});
+  el('planBtn').disabled=true; el('planStatus').className='status'; el('planStatus').textContent='Saving plan ...';
+  try{
+    var r=await fetch('/api/write',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({locationId:locationId,values:{plan_services:svcs.join(',')}})});
+    var j=await r.json(); if(j.error) throw new Error(j.error);
+    el('planStatus').className='status ok'; el('planStatus').textContent='Plan saved: '+(svcs.join(', ')||'(none)')+'. It applies instantly on their services page.';
+  }catch(e){ el('planStatus').className='status bad'; el('planStatus').textContent='Save failed: '+e.message; }
+  el('planBtn').disabled=false;
+}
+async function loadPlan(){
+  var locationId = el('locationId').value.trim(); if(!locationId){ el('planStatus').className='status bad'; el('planStatus').textContent='Enter the GHL location ID above first.'; return; }
+  el('planStatus').className='status'; el('planStatus').textContent='Loading current plan ...';
+  try{
+    var b=await fetch('/api/brand?locationId='+encodeURIComponent(locationId)+'&cb='+Date.now()).then(function(r){return r.json();});
+    var ps=String(b.plan_services||'').toLowerCase();
+    if(ps){ var set=ps.split(',').map(function(x){return x.trim();}); document.querySelectorAll('.svc').forEach(function(c){ c.checked = set.indexOf(c.value)>=0; }); el('planStatus').className='status ok'; el('planStatus').textContent='Current plan: '+ps+'.'; }
+    else { document.querySelectorAll('.svc').forEach(function(c){ c.checked=true; }); el('planStatus').className='status'; el('planStatus').textContent='No plan set yet (defaults to all services). Tick and Save to restrict.'; }
+  }catch(e){ el('planStatus').className='status bad'; el('planStatus').textContent='Load failed: '+e.message; }
+}
+el('planBtn').addEventListener('click', savePlan);
+el('planLoadBtn').addEventListener('click', loadPlan);
 el('applyMeasureBtn').addEventListener('click', applyMeasured);
 el('previewBtn').addEventListener('click', buildPreview);
 el('bmlink').href = 'javascript:' + encodeURIComponent('(' + awMeasure.toString() + ')();void 0');
