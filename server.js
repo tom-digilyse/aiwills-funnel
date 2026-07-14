@@ -505,6 +505,28 @@ async function willSave(loc, state, contactId, opts){
   var pdfRes; if (opts && opts.pdf && cid) pdfRes = await storeGeneratedPdf(loc, cid, 'wills');
   return { contactId: cid, saved: !!fid, pdf: pdfRes };
 }
+/* Persist a referral-funnel state JSON onto the contact and tag the lead on submit (probate etc). */
+async function referralSave(loc, state, contactId, key, status){
+  if(!loc) throw new Error('locationId required');
+  var k=String(key||'probate').replace(/[^a-z]/gi,'').toLowerCase()||'probate';
+  var label=k.charAt(0).toUpperCase()+k.slice(1);
+  var token = await getWriteToken(loc);
+  var map = await etbFieldMap(token, loc);
+  var fieldName=label+' State Json'; var fid=map[fieldName.toLowerCase()];
+  if(!fid){ try{ var c=await ghl('POST','/locations/'+loc+'/customFields',token,{name:fieldName,dataType:'LARGE_TEXT',model:'contact'}); var nf=c.customField||c; if(nf&&nf.id) fid=nf.id; }catch(e){ console.error('referral field create', e.message); } }
+  var p=(state&&state.contact_details)||{};
+  var base={}; var pmap={ firstName:p.firstName, lastName:p.lastName, email:p.email, phone:p.phone };
+  Object.keys(pmap).forEach(function(x){ if(pmap[x]!=null && String(pmap[x]).trim()!=='') base[x]=pmap[x]; });
+  if(fid){ try{ base.customFields=[{ id:fid, value: JSON.stringify(state||{}) }]; }catch(e){} }
+  var up=await upsertOrUpdateContact(token, loc, contactId, base);
+  var cid=(up.contact&&up.contact.id)||up.id||contactId||'';
+  if(status==='submitted' && cid){
+    var tag=k+'-lead';
+    try{ var cv=await getCustomValuesMap(loc, token); if(cv['referral_lead_tag']) tag=cv['referral_lead_tag']; }catch(e){}
+    try{ await ghl('POST','/contacts/'+cid+'/tags', token, { tags:[tag] }); }catch(e){ console.error('referral tag', e.message); }
+  }
+  return { contactId: cid, saved: !!fid };
+}
 /* Persist the LPA funnel state JSON onto the contact (capture flow; PDF fill added later). */
 async function lpaSave(loc, state, contactId, opts){
   if(!loc) throw new Error('locationId required');
@@ -657,7 +679,7 @@ const server = http.createServer(async (req, res) => {
         const ex = await ghl('GET','/locations/'+locId+'/customValues', btoken);
         const cvs = ex.customValues || ex.customValue || [];
         const byName = {}; cvs.forEach(function(cv){ byName[(cv.name||'').toLowerCase()] = cv.value; });
-        const MAP = {company_name:'company_name',logo_url:'client_logo_url',primary_color:'client_primary_color',heading_color:'client_heading_color',body_color:'client_body_color',header_bg_color:'header_bg_color',page_bg_color:'page_bg_color',heading_font:'client_heading_font',body_font:'client_body_font',site_max_width:'site_max_width',footer_max_width:'footer_max_width',nav_font_size:'nav_font_size',body_font_size:'body_font_size',logo_height:'logo_height',phone:'footer_phone',email:'company_email',address:'company_address',facebook_url:'facebook_link',instagram_url:'instagram_link',privacy_url:'privacy_url',will_price:'will_price',legal_footer:'legal_footer',nav_menu_json:'nav_menu_json',footer_menu_json:'footer_menu_json',nav_text_color:'nav_text_color',heading_font_size:'heading_font_size',heading_weight:'heading_weight',nav_weight:'nav_weight',button_weight:'button_weight',button_color:'button_color',button_hover_color:'button_hover_color',button_text_color:'button_text_color',button_secondary_color:'button_secondary_color',button_secondary_text_color:'button_secondary_text_color',button_font:'button_font',button_radius:'button_radius',footer_bg_color:'footer_bg_color',footer_text_color:'footer_text_color',linkedin_url:'linkedin_link',twitter_url:'twitter_link',youtube_url:'youtube_link',tiktok_url:'tiktok_link',font_css_links:'font_css_links',wills_url:'wills_url',lpa_url:'lpa_url',etb_url:'etb_url',wills_title:'wills_title',wills_blurb:'wills_blurb',lpa_title:'lpa_title',lpa_blurb:'lpa_blurb',etb_title:'etb_title',etb_blurb:'etb_blurb'};
+        const MAP = {company_name:'company_name',logo_url:'client_logo_url',primary_color:'client_primary_color',heading_color:'client_heading_color',body_color:'client_body_color',header_bg_color:'header_bg_color',page_bg_color:'page_bg_color',heading_font:'client_heading_font',body_font:'client_body_font',site_max_width:'site_max_width',footer_max_width:'footer_max_width',nav_font_size:'nav_font_size',body_font_size:'body_font_size',logo_height:'logo_height',phone:'footer_phone',email:'company_email',address:'company_address',facebook_url:'facebook_link',instagram_url:'instagram_link',privacy_url:'privacy_url',will_price:'will_price',legal_footer:'legal_footer',nav_menu_json:'nav_menu_json',footer_menu_json:'footer_menu_json',nav_text_color:'nav_text_color',heading_font_size:'heading_font_size',heading_weight:'heading_weight',nav_weight:'nav_weight',button_weight:'button_weight',button_color:'button_color',button_hover_color:'button_hover_color',button_text_color:'button_text_color',button_secondary_color:'button_secondary_color',button_secondary_text_color:'button_secondary_text_color',button_font:'button_font',button_radius:'button_radius',footer_bg_color:'footer_bg_color',footer_text_color:'footer_text_color',linkedin_url:'linkedin_link',twitter_url:'twitter_link',youtube_url:'youtube_link',tiktok_url:'tiktok_link',font_css_links:'font_css_links',wills_url:'wills_url',lpa_url:'lpa_url',etb_url:'etb_url',wills_title:'wills_title',wills_blurb:'wills_blurb',lpa_title:'lpa_title',lpa_blurb:'lpa_blurb',etb_title:'etb_title',etb_blurb:'etb_blurb',probate_url:'probate_url',probate_title:'probate_title',probate_blurb:'probate_blurb',plan_services:'plan_services',referral_lead_tag:'referral_lead_tag',referral_title:'referral_title',referral_thanks_title:'referral_thanks_title',referral_thanks_text:'referral_thanks_text',referral_submit_label:'referral_submit_label'};
         const brand = {}; Object.keys(MAP).forEach(function(k){ const v = byName[MAP[k].toLowerCase()]; if (v != null) brand[k] = v; });
         res.writeHead(200, { 'Content-Type':'application/json', 'Cache-Control':'public, max-age=60' }); return res.end(JSON.stringify(brand));
       } catch(e){ res.writeHead(200, { 'Content-Type':'application/json' }); const dbg=(new URL(req.url,'http://x')).searchParams.get('debug'); return res.end(dbg ? JSON.stringify({_err:String((e&&e.message)||e)}) : '{}'); }
@@ -674,7 +696,7 @@ const server = http.createServer(async (req, res) => {
         const defs=await ghlContactFields(ht, hloc); const byName={}; defs.forEach(function(d){ byName[(d.name||'').toLowerCase()]=d.id; });
         const has=function(n){ var id=byName[n.toLowerCase()]; var v=id?byId[id]:''; return !!(v&&String(v).trim()); };
         const tags=(c.tags||[]).map(function(t){return String(t).toLowerCase();});
-        const services={ wills:{ started:has('Will State Json'), paid: tags.indexOf('ai-will-paid')>=0 }, lpa:{ started:has('LPA State Json'), paid:false }, etb:{ started:has('ETB State Json'), paid: tags.indexOf('etb-active')>=0 } };
+        const services={ wills:{ started:has('Will State Json'), paid: tags.indexOf('ai-will-paid')>=0 }, lpa:{ started:has('LPA State Json'), paid:false }, etb:{ started:has('ETB State Json'), paid: tags.indexOf('etb-active')>=0 }, probate:{ started:has('Probate State Json'), paid:false } };
         return send(res,200,{ ok:true, services });
       }catch(e){ return send(res,500,{error:e.message}); }
     }
@@ -882,6 +904,14 @@ const server = http.createServer(async (req, res) => {
         const token = await getWriteToken(loc); // throws if not authorised
         (async function(){ try { const r = await ensureEtbFields(token, loc); console.log('etb ensure', loc, 'created', r.created, 'of', r.total); } catch(e){ console.error('etb ensure', e.message); } })();
         return send(res, 202, { ensuring: true, locationId: loc });
+      } catch(e){ return send(res, 200, { error: e.message }); }
+    }
+    if (req.method === 'POST' && pathOnly === '/api/referral-save'){
+      res.setHeader('Access-Control-Allow-Origin','*');
+      try {
+        const b = JSON.parse((await readBody(req)) || '{}');
+        const loc = (b.locationId||'').replace(/[^A-Za-z0-9]/g,'');
+        return send(res, 200, await referralSave(loc, b.state||{}, b.contactId||'', b.key||'probate', b.status||'started'));
       } catch(e){ return send(res, 200, { error: e.message }); }
     }
     if (req.method === 'POST' && pathOnly === '/api/etb-save'){
