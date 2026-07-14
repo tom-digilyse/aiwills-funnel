@@ -285,28 +285,20 @@ async function ghl(method, pathname, token, body){
 
 async function handleWrite(locationId, values){
   if (!locationId) throw new Error('locationId is required.');
-  const token = await getWriteToken(locationId);
-  const existing = await ghl('GET', '/locations/' + locationId + '/customValues', token);
-  const list = existing.customValues || existing.customValue || [];
-  const byName = {};
-  list.forEach(cv => { byName[(cv.name || '').toLowerCase()] = cv.id; });
+  // Brand/config now lives in OUR per-location store, NOT GHL custom values, so a snapshot push
+  // from Demo can never overwrite a paying client's bespoke brand. Features push via the snapshot; brand does not.
+  const cur = brandStoreGet(locationId) || {};
   const results = [];
   for (const name of Object.keys(values)){
     const value = values[name];
     if (value === '' || value == null){
-      // Re-brand must fully replace, not merge: if this value already exists in GHL, CLEAR it so a
-      // previous client's data (e.g. legal footer) can't survive. Don't create empty values.
-      const eid = byName[name.toLowerCase()];
-      if (eid){ try { await ghl('PUT', '/locations/' + locationId + '/customValues/' + eid, token, { name: name, value: '' }); results.push({ name: name, action: 'cleared' }); } catch(e){ results.push({ name: name, error: e.message }); } }
+      if (name in cur){ delete cur[name]; results.push({ name: name, action: 'cleared' }); }
       else { results.push({ name: name, skipped: true }); }
       continue;
     }
-    try {
-      const id = byName[name.toLowerCase()];
-      if (id){ await ghl('PUT', '/locations/' + locationId + '/customValues/' + id, token, { name: name, value: value }); results.push({ name: name, action: 'updated' }); }
-      else { await ghl('POST', '/locations/' + locationId + '/customValues', token, { name: name, value: value }); results.push({ name: name, action: 'created' }); }
-    } catch(e){ results.push({ name: name, error: e.message }); }
+    cur[name] = value; results.push({ name: name, action: 'saved' });
   }
+  brandStorePut(locationId, cur);
   return results;
 }
 
@@ -441,6 +433,9 @@ const crypto = require('crypto');
 const WILL_DIR = path.join(__dirname, 'will_data');
 function willStorePut(id, obj){ try { fs.mkdirSync(WILL_DIR, { recursive: true }); fs.writeFileSync(path.join(WILL_DIR, id.replace(/[^a-f0-9]/gi,'') + '.json'), JSON.stringify(obj)); } catch(e){ console.error('willStorePut', e.message); } }
 function willStoreGet(id){ try { return JSON.parse(fs.readFileSync(path.join(WILL_DIR, id.replace(/[^a-f0-9]/gi,'') + '.json'), 'utf8')); } catch(e){ return null; } }
+const BRAND_DIR = path.join(__dirname, 'brand_data');
+function brandStorePut(loc, obj){ try { fs.mkdirSync(BRAND_DIR, { recursive: true }); fs.writeFileSync(path.join(BRAND_DIR, String(loc).replace(/[^A-Za-z0-9]/g,'') + '.json'), JSON.stringify(obj)); } catch(e){ console.error('brandStorePut', e.message); } }
+function brandStoreGet(loc){ try { return JSON.parse(fs.readFileSync(path.join(BRAND_DIR, String(loc).replace(/[^A-Za-z0-9]/g,'') + '.json'), 'utf8')); } catch(e){ return null; } }
 
 function formEncode(obj){ const out = []; for (const k in obj){ const v = obj[k]; if (v === undefined || v === null || v === '') continue; out.push(encodeURIComponent(k) + '=' + encodeURIComponent(v)); } return out.join('&'); }
 async function stripeReq(method, pathname, params, key){
@@ -709,10 +704,20 @@ const server = http.createServer(async (req, res) => {
       const locId = ((new URL(req.url,'http://x')).searchParams.get('locationId')||'').replace(/[^A-Za-z0-9]/g,'');
       if (!locId){ res.writeHead(400, { 'Content-Type':'application/json' }); return res.end('{}'); }
       try {
-        const btoken = await getWriteToken(locId);
-        const ex = await ghl('GET','/locations/'+locId+'/customValues', btoken);
-        const cvs = ex.customValues || ex.customValue || [];
-        const byName = {}; cvs.forEach(function(cv){ byName[(cv.name||'').toLowerCase()] = cv.value; });
+        const byName = {};
+        const stored = brandStoreGet(locId);
+        if (stored && Object.keys(stored).length){
+          // Brand lives in OUR store, not GHL - snapshot pushes can't touch it.
+          Object.keys(stored).forEach(function(k){ byName[k.toLowerCase()] = stored[k]; });
+        } else {
+          // Not migrated yet: read GHL once and seed the store so future pushes can't overwrite it.
+          const btoken = await getWriteToken(locId);
+          const ex = await ghl('GET','/locations/'+locId+'/customValues', btoken);
+          const cvs = ex.customValues || ex.customValue || [];
+          const seed = {};
+          cvs.forEach(function(cv){ byName[(cv.name||'').toLowerCase()] = cv.value; if(cv.name) seed[cv.name]=cv.value; });
+          try{ if(Object.keys(seed).length) brandStorePut(locId, seed); }catch(e){}
+        }
         const MAP = {company_name:'company_name',logo_url:'client_logo_url',primary_color:'client_primary_color',heading_color:'client_heading_color',body_color:'client_body_color',header_bg_color:'header_bg_color',page_bg_color:'page_bg_color',heading_font:'client_heading_font',body_font:'client_body_font',site_max_width:'site_max_width',footer_max_width:'footer_max_width',nav_font_size:'nav_font_size',body_font_size:'body_font_size',logo_height:'logo_height',phone:'footer_phone',email:'company_email',address:'company_address',facebook_url:'facebook_link',instagram_url:'instagram_link',privacy_url:'privacy_url',will_price:'will_price',legal_footer:'legal_footer',nav_menu_json:'nav_menu_json',footer_menu_json:'footer_menu_json',nav_text_color:'nav_text_color',heading_font_size:'heading_font_size',heading_weight:'heading_weight',nav_weight:'nav_weight',button_weight:'button_weight',button_color:'button_color',button_hover_color:'button_hover_color',button_text_color:'button_text_color',button_secondary_color:'button_secondary_color',button_secondary_text_color:'button_secondary_text_color',button_font:'button_font',button_radius:'button_radius',footer_bg_color:'footer_bg_color',footer_text_color:'footer_text_color',linkedin_url:'linkedin_link',twitter_url:'twitter_link',youtube_url:'youtube_link',tiktok_url:'tiktok_link',font_css_links:'font_css_links',wills_url:'wills_url',lpa_url:'lpa_url',etb_url:'etb_url',wills_title:'wills_title',wills_blurb:'wills_blurb',lpa_title:'lpa_title',lpa_blurb:'lpa_blurb',etb_title:'etb_title',etb_blurb:'etb_blurb',probate_url:'probate_url',probate_title:'probate_title',probate_blurb:'probate_blurb',plan_services:'plan_services',referral_lead_tag:'referral_lead_tag',referral_title:'referral_title',referral_thanks_title:'referral_thanks_title',referral_thanks_text:'referral_thanks_text',referral_submit_label:'referral_submit_label'};
         const brand = {}; Object.keys(MAP).forEach(function(k){ const v = byName[MAP[k].toLowerCase()]; if (v != null) brand[k] = v; });
         res.writeHead(200, { 'Content-Type':'application/json', 'Cache-Control':'public, max-age=60' }); return res.end(JSON.stringify(brand));
