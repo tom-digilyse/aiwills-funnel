@@ -490,20 +490,57 @@ function extractFileUrl(v){
   var m=s.match(/https?:\/\/[^\s"'\\\]]+/i); return { url: m?m[0]:'' };
 }
 /* Persist the Wills funnel state JSON onto the contact (so it can be loaded back for editing). */
+function awHumanise(k){
+  var m={ akaHas:'Also known as', dob:'Date of birth', iht:'Inheritance tax', ownHome:'Owns home', ownBusiness:'Owns business', liveEW:'Lives in England or Wales', assetsEW:'All assets in England & Wales', estateBand:'Estate value', hasPartner:'Has partner', hasChildren:'Has children', mirrorWill:'Mirror will', over18:'Over 18' };
+  if(m[k]) return m[k];
+  return String(k).replace(/([a-z0-9])([A-Z])/g,'$1 $2').replace(/_/g,' ').replace(/\b\w/g,function(c){return c.toUpperCase();});
+}
+var AW_SECTION={ personal:'Personal details', partner:'Spouse / partner', situation:'Circumstances', children:'Children', guardian:'Guardians', executors:'Executors', gifts:'Gifts & legacies', mirrorGifts:'Gifts (their mirror will)', residual:'Residual estate', funeral:'Funeral wishes', about:'About you', estate:'Estate', concerns:'Concerns', contact_details:'Contact details', your_details:'Your details' };
+function awMoney(k,v){ if(/share/i.test(k)) return v+'%'; if(/amount|price/i.test(k)) return '£'+v; return v; }
+function awLines(obj, indent){
+  var pad=''; for(var i=0;i<indent;i++) pad+='  '; var out=[];
+  Object.keys(obj||{}).forEach(function(k){
+    if(k==='payment'||/^_/.test(k)) return;
+    var v=obj[k];
+    if(v==null||v===''||(Array.isArray(v)&&!v.length)) return;
+    var label=(indent===0 && AW_SECTION[k])?AW_SECTION[k]:awHumanise(k);
+    if(Array.isArray(v)){
+      out.push(pad+label+':');
+      v.forEach(function(it,idx){
+        if(it&&typeof it==='object'){ var parts=[]; Object.keys(it).forEach(function(ik){ var iv=it[ik]; if(iv==null||iv==='') return; parts.push(awHumanise(ik)+': '+awMoney(ik,iv)); }); out.push(pad+'  '+(idx+1)+'. '+parts.join(', ')); }
+        else out.push(pad+'  - '+v);
+      });
+    } else if(typeof v==='object'){ var sub=awLines(v,indent+1); if(sub){ out.push(pad+label+':'); out.push(sub); } }
+    else { out.push(pad+label+': '+awMoney(k,v)); }
+  });
+  return out.join('\n');
+}
+function awSummarise(state){ try{ var s=awLines(state,0); return s||'(no details captured yet)'; }catch(e){ return '(summary unavailable)'; } }
+async function awEnsureField(token, loc, map, name){
+  var fid=map[name.toLowerCase()];
+  if(!fid){ try{ var c=await ghl('POST','/locations/'+loc+'/customFields',token,{name:name,dataType:'LARGE_TEXT',model:'contact'}); var nf=c.customField||c; if(nf&&nf.id){ fid=nf.id; map[name.toLowerCase()]=fid; } }catch(e){ console.error('field create '+name, e.message); } }
+  return fid;
+}
+async function awStateAndSummaryCF(token, loc, map, label, state){
+  var out=[];
+  var jid=await awEnsureField(token, loc, map, label+' State Json');
+  if(jid){ try{ out.push({ id:jid, value: JSON.stringify(state||{}) }); }catch(e){} }
+  var sid=await awEnsureField(token, loc, map, label+' Summary');
+  if(sid){ try{ out.push({ id:sid, value: awSummarise(state||{}) }); }catch(e){} }
+  return out;
+}
 async function willSave(loc, state, contactId, opts){
   if(!loc) throw new Error('locationId required');
   var token = await getWriteToken(loc);
   var map = await etbFieldMap(token, loc);
-  var fieldName='Will State Json'; var fid=map[fieldName.toLowerCase()];
-  if(!fid){ try{ var c=await ghl('POST','/locations/'+loc+'/customFields',token,{name:fieldName,dataType:'LARGE_TEXT',model:'contact'}); var nf=c.customField||c; if(nf&&nf.id) fid=nf.id; }catch(e){ console.error('will field create', e.message); } }
   var p=(state&&state.personal)||{};
   var base={}; var pmap={ firstName:p.firstName, lastName:p.lastName, email:p.email, phone:p.phone }; // GHL PUT rejects empty email
   Object.keys(pmap).forEach(function(k){ if(pmap[k]!=null && String(pmap[k]).trim()!=='') base[k]=pmap[k]; });
-  if(fid){ try{ base.customFields=[{ id:fid, value: JSON.stringify(state||{}) }]; }catch(e){} }
+  var _cf=await awStateAndSummaryCF(token, loc, map, 'Will', state); if(_cf.length) base.customFields=_cf;
   var up=await upsertOrUpdateContact(token, loc, contactId, base);
   var cid=(up.contact&&up.contact.id)||up.id||contactId||'';
   var pdfRes; if (opts && opts.pdf && cid) pdfRes = await storeGeneratedPdf(loc, cid, 'wills');
-  return { contactId: cid, saved: !!fid, pdf: pdfRes };
+  return { contactId: cid, saved: _cf.length>0, pdf: pdfRes };
 }
 /* Persist a referral-funnel state JSON onto the contact and tag the lead on submit (probate etc). */
 async function referralSave(loc, state, contactId, key, status){
@@ -512,12 +549,10 @@ async function referralSave(loc, state, contactId, key, status){
   var label=k.charAt(0).toUpperCase()+k.slice(1);
   var token = await getWriteToken(loc);
   var map = await etbFieldMap(token, loc);
-  var fieldName=label+' State Json'; var fid=map[fieldName.toLowerCase()];
-  if(!fid){ try{ var c=await ghl('POST','/locations/'+loc+'/customFields',token,{name:fieldName,dataType:'LARGE_TEXT',model:'contact'}); var nf=c.customField||c; if(nf&&nf.id) fid=nf.id; }catch(e){ console.error('referral field create', e.message); } }
   var p=(state&&state.contact_details)||{};
   var base={}; var pmap={ firstName:p.firstName, lastName:p.lastName, email:p.email, phone:p.phone };
   Object.keys(pmap).forEach(function(x){ if(pmap[x]!=null && String(pmap[x]).trim()!=='') base[x]=pmap[x]; });
-  if(fid){ try{ base.customFields=[{ id:fid, value: JSON.stringify(state||{}) }]; }catch(e){} }
+  var _rcf=await awStateAndSummaryCF(token, loc, map, label, state); if(_rcf.length) base.customFields=_rcf;
   var up=await upsertOrUpdateContact(token, loc, contactId, base);
   var cid=(up.contact&&up.contact.id)||up.id||contactId||'';
   if(status==='submitted' && cid){
@@ -525,19 +560,18 @@ async function referralSave(loc, state, contactId, key, status){
     try{ var cv=await getCustomValuesMap(loc, token); if(cv['referral_lead_tag']) tag=cv['referral_lead_tag']; }catch(e){}
     try{ await ghl('POST','/contacts/'+cid+'/tags', token, { tags:[tag] }); }catch(e){ console.error('referral tag', e.message); }
   }
-  return { contactId: cid, saved: !!fid };
+  return { contactId: cid, saved: _rcf.length>0 };
 }
 /* Persist the LPA funnel state JSON onto the contact (capture flow; PDF fill added later). */
 async function lpaSave(loc, state, contactId, opts){
   if(!loc) throw new Error('locationId required');
   var token = await getWriteToken(loc);
   var map = await etbFieldMap(token, loc);
-  var fieldName='LPA State Json'; var fid=map[fieldName.toLowerCase()];
-  if(!fid){ try{ var c=await ghl('POST','/locations/'+loc+'/customFields',token,{name:fieldName,dataType:'LARGE_TEXT',model:'contact'}); var nf=c.customField||c; if(nf&&nf.id) fid=nf.id; }catch(e){ console.error('lpa field create', e.message); } }
   var p=(state&&state.your_details)||{};
   var base={}; var pmap={ firstName:p.firstName, lastName:p.lastName, email:p.email, phone:p.phone };
   Object.keys(pmap).forEach(function(k){ if(pmap[k]!=null && String(pmap[k]).trim()!=='') base[k]=pmap[k]; });
-  if(fid){ try{ base.customFields=[{ id:fid, value: JSON.stringify(state||{}) }]; }catch(e){} }
+  var _lcf=await awStateAndSummaryCF(token, loc, map, 'LPA', state);
+  if(_lcf.length){ base.customFields=_lcf; }
   var up=await upsertOrUpdateContact(token, loc, contactId, base);
   var cid=(up.contact&&up.contact.id)||up.id||contactId||'';
   var pdfRes; if (opts && opts.pdf && cid) pdfRes = await storeGeneratedPdf(loc, cid, 'lpa');
