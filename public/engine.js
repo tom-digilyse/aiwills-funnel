@@ -421,7 +421,8 @@ var REFERRAL_FUNNEL = [
     { key:'assetsEW', type:'radio', label:'Is everything you own in England & Wales?', required:true, options:['Yes','No'] },
     { key:'ownHome', type:'radio', label:'Do you own your home?', required:true, options:['Yes','No'] },
     { key:'ownBusiness', type:'radio', label:'Do you own a business?', required:true, options:['Yes','No'] },
-    { key:'estateBand', type:'radio', label:function(s){ var married=(s.about&&s.about.hasPartner==='Yes'); return 'Is the estate worth more or less than \u00a3'+(married?'650,000':'325,000')+'? (This just tells us whether inheritance tax is likely, which affects the work involved.)'; }, required:true, options:['Above','Below'] }
+    { key:'estateBand', type:'radio', label:function(s){ var married=(s.about&&s.about.hasPartner==='Yes'); return 'Is the estate worth more or less than \u00a3'+(married?'650,000':'325,000')+'? (This just tells us whether inheritance tax is likely, which affects the work involved.)'; }, required:true, options:['Above','Below'] },
+    { key:'value', type:'number', label:'Roughly what is the estate worth? An estimate is fine (\u00a3).', required:true }
   ]},
   { id:'concerns', name:'Your concerns', title:'What matters most to you?', lead:'Tick everything that applies. This helps us advise you properly.', fields:[
     { key:'mentalCapacity', type:'checkbox', label:'Losing mental capacity' },
@@ -576,7 +577,7 @@ function render(){
     var _q=computeQuote(state);
     if(_q){
       var _cta = (CFG.quote_cta_url) ? ('<a class="btn wide" href="'+esc(CFG.quote_cta_url)+'" target="_blank" rel="noopener" style="display:block;text-align:center;text-decoration:none;margin-top:14px">'+esc(CFG.quote_cta_label||'Book a call to proceed')+'</a>') : '';
-      html += '<div class="mock"><div class="tick">\u2713</div><h3>'+esc(CFG.quote_title||'Your fixed fee probate quote')+'</h3><div class="price">'+esc(_q.display)+'</div><p class="note">'+esc(CFG.quote_note||'This is an indicative fixed fee based on your answers. We will confirm it and the next steps with you.')+'</p>'+_cta+'</div>';
+      html += '<div class="mock"><div class="tick">\u2713</div><h3>'+esc(CFG.quote_title||'Your probate quote estimate')+'</h3><div class="price">'+esc(_q.display)+'</div><p class="note">'+esc(CFG.quote_note||'This is an estimate based on what you have told us. We will confirm the exact figure and the next steps with you before any work begins.')+'</p>'+_cta+'</div>';
     } else {
       html += '<div class="mock"><div class="tick">\u2713</div><h3>'+esc(CFG.referral_thanks_title||'Thank you - your quote is on its way')+'</h3><p class="note">'+esc(CFG.referral_thanks_text||'We have everything we need. One of the team will be in touch shortly with your fixed fee quote and next steps.')+'</p></div>';
     }
@@ -623,14 +624,24 @@ function computeQuote(state){
   var rules; try{ rules=(typeof raw==='string')?JSON.parse(raw):raw; }catch(e){ return null; }
   if(!rules||typeof rules!=='object') return null;
   var cur=rules.currency||'\u00a3';
-  var fee=parseFloat(rules.base)||0;
   var flat={}; try{ Object.keys(state||{}).forEach(function(sec){ var o=state[sec]; if(o&&typeof o==='object'&&!Array.isArray(o)){ Object.keys(o).forEach(function(k){ flat[sec+'.'+k]=o[k]; flat[k]=o[k]; }); } }); }catch(e){}
-  var add=rules.add||{};
-  Object.keys(add).forEach(function(cond){ var p=cond.split(':'); var key=p[0], want=p.slice(1).join(':'); var have=flat[key]; if(have!=null && String(have)===String(want)){ fee+=(parseFloat(add[cond])||0); } });
+  var mode=String(rules.mode||'fixed').toLowerCase();
+  var fee, approx=false;
+  if(mode==='percent'){
+    var val=parseFloat(flat[rules.of||'estate.value']!=null?flat[rules.of||'estate.value']:flat['value']);
+    if(!(val>0)) return null; // a percentage quote needs an estate value
+    fee=val*(parseFloat(rules.percent)||0)/100; approx=true;
+  } else {
+    fee=parseFloat(rules.base)||0;
+    var add=rules.add||{};
+    Object.keys(add).forEach(function(cond){ var p=cond.split(':'); var key=p[0], want=p.slice(1).join(':'); var have=flat[key]; if(have!=null && String(have)===String(want)){ fee+=(parseFloat(add[cond])||0); } });
+  }
   if(rules.min!=null) fee=Math.max(fee, parseFloat(rules.min)||0);
   if(rules.max!=null) fee=Math.min(fee, parseFloat(rules.max)||fee);
-  var disp=cur+ (Math.round(fee)===fee ? String(fee) : fee.toFixed(2));
-  return { fee:fee, display:disp };
+  fee=Math.round(fee*100)/100;
+  var num=(Math.round(fee)===fee)?String(fee):fee.toFixed(2);
+  var disp=(approx?'Approx. ':'')+cur+num;
+  return { fee:fee, display:disp, approx:approx };
 }
 function _retUrl(){ var r=location.href.split('#')[0].split('?')[0]; var q=[]; if(loc) q.push('aw_loc='+encodeURIComponent(loc)); var c=qp('aw_c')||window.AIWILLS_CONTACT_ID||window.AIWILLS_ETB_CID||''; if(c) q.push('aw_c='+encodeURIComponent(c)); return q.length? (r+'?'+q.join('&')) : r; }
 function jumpIdx(i){ var vis=visible(); if(isNaN(i)||i<0||i>vis.length-1||i===cur) return; try{ collectVisible(); stripEmptyRepeaters(); saveLocal(); }catch(e){}
