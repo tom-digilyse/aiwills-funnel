@@ -389,6 +389,7 @@ async function etbSave(loc, state, contactId, status, opts){
   var readback = null;
   if (cid){ try { var got = await ghl('GET', '/contacts/' + cid, token); var c = got.contact || got; var byId={}; (c.customFields||c.customField||[]).forEach(function(f){ byId[f.id]=(f.value!=null?f.value:f.fieldValue); }); readback = { id: cid, fieldCount: Object.keys(byId).length }; } catch(e){ readback = { id: cid, err: e.message }; } }
   var pdfRes; if (opts && opts.pdf && cid) pdfRes = await storeGeneratedPdf(loc, cid, 'etb'); // keep the summary PDF on the contact
+  await applyTags(token, loc, cid, 'etb', state);
   return { contactId: cid, writtenCount: written.length, noFieldCount: noField.length, noFieldSample: noField.slice(0,10), readback: readback, pdf: pdfRes };
 }
 // Stream an uploaded document straight into a GHL FILE_UPLOAD custom field on the contact.
@@ -524,6 +525,48 @@ async function awStateAndSummaryCF(token, loc, map, label, state){
   if(sid){ try{ out.push({ id:sid, value: awSummarise(state||{}) }); }catch(e){} }
   return out;
 }
+function _yes(v){ return String(v).toLowerCase()==='yes'; }
+// Derive the full tag set from a funnel's answers. Lifecycle + segmentation + concerns.
+// Chris builds all automations off these; we just emit them.
+function deriveTags(service, state){
+  var s=state||{}, tags=[];
+  var svc=(service==='referral'||service==='probate')?'probate':service; // wills|lpa|etb|probate
+  tags.push('aiw-'+svc+'-started');
+  // Wills answers
+  var p=s.partner||{}, sit=s.situation||{}, ch=s.children||{};
+  // Probate/referral answers
+  var ab=s.about||{}, est=s.estate||{}, con=s.concerns||{};
+  var hasPartner = (p.hasPartner!=null?p.hasPartner:ab.hasPartner);
+  if(hasPartner!=null && hasPartner!==''){ tags.push(_yes(hasPartner)?'aiw-married':'aiw-single'); }
+  var hasChildren = (ch.hasChildren!=null?ch.hasChildren:ab.hasChildren);
+  if(_yes(hasChildren)) tags.push('aiw-has-children');
+  var mirror = (p.mirrorWill!=null?p.mirrorWill:ab.mirrorWill);
+  if(_yes(mirror)) tags.push('aiw-wants-mirror-will');
+  if(_yes(sit.propertyAbroad)) tags.push('aiw-property-abroad');
+  if(_yes(sit.domicileElsewhere)) tags.push('aiw-domicile-elsewhere');
+  if(_yes(sit.previousWillHas)) tags.push('aiw-has-existing-will');
+  if(_yes(est.ownBusiness)) tags.push('aiw-owns-business');
+  if(_yes(est.ownHome)) tags.push('aiw-owns-property');
+  if(est.assetsEW!=null && est.assetsEW!=='' && !_yes(est.assetsEW)) tags.push('aiw-property-abroad');
+  if(String(est.estateBand||'').toLowerCase()==='above') tags.push('aiw-estate-over-iht');
+  else if(String(est.estateBand||'').toLowerCase()==='below') tags.push('aiw-estate-under-iht');
+  // Probate concern checkboxes (Yes = ticked)
+  if(_yes(con.careFees)) tags.push('aiw-concern-care-fees');
+  if(_yes(con.iht)) tags.push('aiw-concern-iht');
+  if(_yes(con.divorceBankruptcy)) tags.push('aiw-concern-divorce');
+  if(_yes(con.remarriage)) tags.push('aiw-concern-remarriage');
+  if(_yes(con.mentalCapacity)) tags.push('aiw-concern-capacity');
+  // ETB: whether they already have a will (cross-sell)
+  if(s.will && s.will.has!=null && s.will.has!==''){ tags.push(_yes(s.will.has)?'aiw-has-existing-will':'aiw-no-will'); }
+  // de-dupe
+  var seen={}, out=[]; tags.forEach(function(x){ if(x && !seen[x]){ seen[x]=1; out.push(x); } });
+  return out;
+}
+async function applyTags(token, loc, cid, service, state){
+  if(!cid) return;
+  try{ var tags=deriveTags(service, state); if(tags.length) await ghl('POST','/contacts/'+cid+'/tags', token, { tags: tags }); }
+  catch(e){ console.error('applyTags', e.message); }
+}
 async function willSave(loc, state, contactId, opts){
   if(!loc) throw new Error('locationId required');
   var token = await getWriteToken(loc);
@@ -535,6 +578,7 @@ async function willSave(loc, state, contactId, opts){
   var up=await upsertOrUpdateContact(token, loc, contactId, base);
   var cid=(up.contact&&up.contact.id)||up.id||contactId||'';
   var pdfRes; if (opts && opts.pdf && cid) pdfRes = await storeGeneratedPdf(loc, cid, 'wills');
+  await applyTags(token, loc, cid, 'wills', state);
   return { contactId: cid, saved: _cf.length>0, pdf: pdfRes };
 }
 /* Persist a referral-funnel state JSON onto the contact and tag the lead on submit (probate etc). */
@@ -555,6 +599,7 @@ async function referralSave(loc, state, contactId, key, status){
     try{ var cv=await getCustomValuesMap(loc, token); if(cv['referral_lead_tag']) tag=cv['referral_lead_tag']; }catch(e){}
     try{ await ghl('POST','/contacts/'+cid+'/tags', token, { tags:[tag] }); }catch(e){ console.error('referral tag', e.message); }
   }
+  await applyTags(token, loc, cid, k, state);
   return { contactId: cid, saved: _rcf.length>0 };
 }
 /* Persist the LPA funnel state JSON onto the contact (capture flow; PDF fill added later). */
@@ -570,7 +615,8 @@ async function lpaSave(loc, state, contactId, opts){
   var up=await upsertOrUpdateContact(token, loc, contactId, base);
   var cid=(up.contact&&up.contact.id)||up.id||contactId||'';
   var pdfRes; if (opts && opts.pdf && cid) pdfRes = await storeGeneratedPdf(loc, cid, 'lpa');
-  return { contactId: cid, saved: !!fid, pdf: pdfRes };
+  await applyTags(token, loc, cid, 'lpa', state);
+  return { contactId: cid, saved: _lcf.length>0, pdf: pdfRes };
 }
 // Generate the funnel's PDF (will or toolbox summary) from the contact's saved state and store it onto a FILE_UPLOAD field so the advisor sees it in GHL.
 async function uploadPdfToContact(token, loc, map, contactId, fieldName, fname, buf){
