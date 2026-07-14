@@ -93,8 +93,9 @@ details.measure summary{cursor:pointer;font-weight:600;font-size:13px}
       <h2><span class="step">3</span> Write to GHL</h2>
       <label>GHL sub-account location ID</label>
       <input id="locationId" type="text" placeholder="e.g. xDVSV4C3HAjPvUDLnDUY">
-      <p class="hint">Values are written as custom values via the API.</p>
-      <button class="btn-go" id="writeBtn" style="margin-top:12px">Write values to GHL</button>
+      <p class="hint">Setting up an existing client? Load their current details first, edit, then save.</p>
+      <button type="button" class="btn-ghost" id="loadBtn" style="margin-bottom:10px">Load this client's current details</button>
+      <button class="btn-go" id="writeBtn" style="margin-top:2px">Save to client</button>
       <div class="status" id="writeStatus"></div>
       <div class="results" id="results"></div>
     </div>
@@ -134,31 +135,31 @@ var FIELDS = [
   {k:'client_body_color', label:'Main text colour', color:true, g:'brand'},
   {k:'client_icon_color', label:'Icon colour (blank = uses the brand colour)', color:true, g:'brand'},
   {k:'client_heading_font', label:'Title font', g:'brand'},
-  {k:'heading_font_size', label:'Title size (e.g. 40px)', g:'brand'},
+  {k:'heading_font_size', label:'Title size (e.g. 40px)', g:'brand', adv:true},
   {k:'heading_weight', label:'How bold the titles are', select:true, opts:['Light','Normal','Medium','Semibold','Bold','Black'], g:'brand'},
   {k:'client_body_font', label:'Main text font', g:'brand'},
-  {k:'font_css_links', label:'Font files (advanced - filled in automatically)', textarea:true, g:'brand'},
+  {k:'font_css_links', label:'Font files (filled in automatically)', textarea:true, g:'brand', adv:true},
   {k:'header_bg_color', label:'Header background colour', color:true, g:'header'},
   {k:'page_bg_color', label:'Page background colour', color:true, g:'header'},
   {k:'nav_text_color', label:'Menu text colour', color:true, g:'header'},
-  {k:'site_max_width', label:'Content width (100% or e.g. 1200px)', g:'header'},
-  {k:'nav_font_size', label:'Menu text size (e.g. 16px - lower it if the menu wraps)', g:'header'},
+  {k:'site_max_width', label:'Content width (100% or e.g. 1200px)', g:'header', adv:true},
+  {k:'nav_font_size', label:'Menu text size (e.g. 16px - lower it if the menu wraps)', g:'header', adv:true},
   {k:'nav_weight', label:'How bold the menu links are', select:true, opts:['Light','Normal','Medium','Semibold','Bold'], g:'header'},
-  {k:'logo_height', label:'Logo height (e.g. 50px)', g:'header'},
-  {k:'body_font_size', label:'Main text size (e.g. 17px)', g:'header'},
+  {k:'logo_height', label:'Logo height (e.g. 50px)', g:'header', adv:true},
+  {k:'body_font_size', label:'Main text size (e.g. 17px)', g:'header', adv:true},
   {k:'nav_menu_json', label:'Menu links (add or edit)', menu:true, g:'header'},
   {k:'button_style', label:'Button shape (Pill / Rounded / Square)', select:true, opts:['Pill','Rounded','Square'], g:'buttons'},
   {k:'button_color', label:'Button colour (blank = brand colour)', color:true, g:'buttons'},
-  {k:'button_hover_color', label:'Button colour when hovered (blank = automatic)', color:true, g:'buttons'},
+  {k:'button_hover_color', label:'Button colour when hovered (blank = automatic)', color:true, g:'buttons', adv:true},
   {k:'button_text_color', label:'Button text colour', color:true, g:'buttons'},
-  {k:'button_secondary_color', label:'Second button colour (for buttons on a coloured background, blank = white)', color:true, g:'buttons'},
-  {k:'button_secondary_text_color', label:'Second button text colour (blank = automatic)', color:true, g:'buttons'},
-  {k:'button_font', label:'Button font', g:'buttons'},
+  {k:'button_secondary_color', label:'Second button colour (for buttons on a coloured background, blank = white)', color:true, g:'buttons', adv:true},
+  {k:'button_secondary_text_color', label:'Second button text colour (blank = automatic)', color:true, g:'buttons', adv:true},
+  {k:'button_font', label:'Button font', g:'buttons', adv:true},
   {k:'button_weight', label:'How bold the button text is', select:true, opts:['Normal','Medium','Semibold','Bold'], g:'buttons'},
-  {k:'button_radius', label:'Button corner roundness (set automatically by the shape above)', g:'buttons'},
+  {k:'button_radius', label:'Button corner roundness (set automatically by the shape above)', g:'buttons', adv:true},
   {k:'footer_bg_color', label:'Footer background colour', color:true, g:'footer'},
   {k:'footer_text_color', label:'Footer text colour (blank = automatic)', color:true, g:'footer'},
-  {k:'footer_max_width', label:'Footer width (e.g. 1176px)', g:'footer'},
+  {k:'footer_max_width', label:'Footer width (e.g. 1176px)', g:'footer', adv:true},
   {k:'footer_menu_json', label:'Footer links (add or edit)', menu:true, g:'footer'},
   {k:'footer_phone', label:'Phone', g:'contact'},
   {k:'company_email', label:'Email', g:'contact'},
@@ -172,6 +173,8 @@ var FIELDS = [
   {k:'tiktok_link', label:'TikTok link', g:'contact'},
   {k:'privacy_url', label:'Privacy policy link', g:'contact'},
   {k:'will_price', label:'Will price', g:'pricing'},
+  {k:'lpa_price', label:'LPA price', g:'pricing'},
+  {k:'etb_price', label:'Executor Toolbox price (per year)', g:'pricing'},
   {k:'legal_footer', label:'Small print (legal text at the bottom of every page). Paste it from your website - links and formatting are kept.', rich:true, g:'pricing'}
 ];
 var GROUPS = [['brand','Brand'],['header','Header & nav'],['buttons','Buttons'],['footer','Footer'],['contact','Contact & social'],['pricing','Pricing & legal']];
@@ -227,7 +230,10 @@ function buildForm(){
   var tabs='', groups='';
   GROUPS.forEach(function(g,i){
     tabs += '<div class="tab'+(i===0?' active':'')+'" data-g="'+g[0]+'">'+g[1]+'</div>';
-    var inner = FIELDS.filter(function(f){return f.g===g[0];}).map(fieldHtml).join('');
+    var gf = FIELDS.filter(function(f){return f.g===g[0];});
+    var inner = gf.filter(function(f){return !f.adv;}).map(fieldHtml).join('');
+    var advf = gf.filter(function(f){return f.adv;});
+    if(advf.length){ inner += '<details class="advfold" style="margin-top:10px"><summary style="cursor:pointer;font-size:13px;color:#667;font-weight:600;padding:4px 0">Advanced settings (usually leave these)</summary><div style="margin-top:8px">'+advf.map(fieldHtml).join('')+'</div></details>'; }
     groups += '<div class="fgroup'+(i===0?' active':'')+'" data-g="'+g[0]+'">'+inner+'</div>';
   });
   el('tabs').innerHTML = tabs;
@@ -294,7 +300,7 @@ document.addEventListener('input', function(e){
 });
 // Map the tool's field keys to the funnel engine's config keys, so the funnel
 // reads ONE custom value (aiwills_brand_json) instead of 20+ merge fields.
-var BRAND_MAP={company_name:'company_name',client_logo_url:'logo_url',client_primary_color:'primary_color',client_heading_color:'heading_color',client_body_color:'body_color',client_icon_color:'icon_color',header_bg_color:'header_bg_color',page_bg_color:'page_bg_color',nav_text_color:'nav_text_color',client_heading_font:'heading_font',heading_font_size:'heading_font_size',heading_weight:'heading_weight',nav_weight:'nav_weight',button_weight:'button_weight',client_body_font:'body_font',button_color:'button_color',button_hover_color:'button_hover_color',button_text_color:'button_text_color',button_secondary_color:'button_secondary_color',button_secondary_text_color:'button_secondary_text_color',button_font:'button_font',button_radius:'button_radius',footer_bg_color:'footer_bg_color',footer_text_color:'footer_text_color',site_max_width:'site_max_width',footer_max_width:'footer_max_width',nav_font_size:'nav_font_size',body_font_size:'body_font_size',logo_height:'logo_height',footer_phone:'phone',company_email:'email',company_address:'address',facebook_link:'facebook_url',instagram_link:'instagram_url',linkedin_link:'linkedin_url',twitter_link:'twitter_url',youtube_link:'youtube_url',tiktok_link:'tiktok_url',privacy_url:'privacy_url',font_css_links:'font_css_links',will_price:'will_price',legal_footer:'legal_footer',nav_menu_json:'nav_menu_json',footer_menu_json:'footer_menu_json'};
+var BRAND_MAP={company_name:'company_name',client_logo_url:'logo_url',client_primary_color:'primary_color',client_heading_color:'heading_color',client_body_color:'body_color',client_icon_color:'icon_color',header_bg_color:'header_bg_color',page_bg_color:'page_bg_color',nav_text_color:'nav_text_color',client_heading_font:'heading_font',heading_font_size:'heading_font_size',heading_weight:'heading_weight',nav_weight:'nav_weight',button_weight:'button_weight',client_body_font:'body_font',button_color:'button_color',button_hover_color:'button_hover_color',button_text_color:'button_text_color',button_secondary_color:'button_secondary_color',button_secondary_text_color:'button_secondary_text_color',button_font:'button_font',button_radius:'button_radius',footer_bg_color:'footer_bg_color',footer_text_color:'footer_text_color',site_max_width:'site_max_width',footer_max_width:'footer_max_width',nav_font_size:'nav_font_size',body_font_size:'body_font_size',logo_height:'logo_height',footer_phone:'phone',company_email:'email',company_address:'address',facebook_link:'facebook_url',instagram_link:'instagram_url',linkedin_link:'linkedin_url',twitter_link:'twitter_url',youtube_link:'youtube_url',tiktok_link:'tiktok_url',privacy_url:'privacy_url',font_css_links:'font_css_links',will_price:'will_price',lpa_price:'lpa_price',etb_price:'etb_price',legal_footer:'legal_footer',nav_menu_json:'nav_menu_json',footer_menu_json:'footer_menu_json'};
 function buildBrandJson(){ var v=getValues(); var o={}; for(var k in BRAND_MAP){ var val=v[k]; if(val==null||val==='') continue; o[BRAND_MAP[k]]=val; } return JSON.stringify(o); }
 function getWriteValues(){ return Object.assign({}, getValues(), { aiwills_brand_json: buildBrandJson() }); }
 function setValues(v){
@@ -574,6 +580,21 @@ function applyMeasured(){
 buildForm();
 el('scrapeBtn').addEventListener('click', scrape);
 el('writeBtn').addEventListener('click', write);
+async function loadCurrentBrand(){
+  var loc=el('locationId').value.trim();
+  if(!loc){ el('writeStatus').className='status bad'; el('writeStatus').textContent='Enter the GHL location ID above first.'; return; }
+  el('loadBtn').disabled=true; el('writeStatus').className='status'; el('writeStatus').textContent='Loading current details ...';
+  try{
+    var b=await fetch('/api/brand?locationId='+encodeURIComponent(loc)+'&cb='+Date.now()).then(function(r){return r.json();});
+    var v={}; FIELDS.forEach(function(f){ var ok=BRAND_MAP[f.k]; if(ok && b[ok]!=null && b[ok]!=='') v[f.k]=b[ok]; });
+    setValues(v); if(typeof updatePreview==='function') updatePreview();
+    var n=Object.keys(v).length;
+    el('writeStatus').className = n?'status ok':'status';
+    el('writeStatus').textContent = n? ('Loaded '+n+' saved value(s). Edit and Save.') : 'No saved details for this client yet - fill them in and Save.';
+  }catch(e){ el('writeStatus').className='status bad'; el('writeStatus').textContent='Load failed: '+e.message; }
+  el('loadBtn').disabled=false;
+}
+el('loadBtn').addEventListener('click', loadCurrentBrand);
 async function savePlan(){
   var locationId = el('locationId').value.trim();
   if(!locationId){ el('planStatus').className='status bad'; el('planStatus').textContent='Enter the GHL location ID above first.'; return; }
