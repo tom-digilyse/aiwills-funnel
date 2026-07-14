@@ -640,7 +640,7 @@ async function getCustomValuesMap(locationId, token){
 function send(res, code, obj){ if (res.headersSent) { try { res.end(); } catch(_){} return; } res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(obj)); }
 function readBody(req){ return new Promise(resolve => { let d = ''; req.on('data', c => d += c); req.on('end', () => resolve(d)); }); }
 
-const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css' };
+const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', '.pdf': 'application/pdf' };
 
 const server = http.createServer(async (req, res) => {
   try {
@@ -1100,6 +1100,18 @@ const server = http.createServer(async (req, res) => {
           const _d = fs.readFileSync(_fp);
           res.writeHead(200, { 'Content-Type': MIME[path.extname(_fp)] || 'text/plain' });
           return res.end(_d);
+        }
+      }
+    }
+    // Public shareable docs (Word files for Chris, linked from Trello). No secrets, so served before the auth gate.
+    {
+      const _dp = req.url.split('?')[0];
+      if (req.method === 'GET' && /^\/docs\/[A-Za-z0-9._-]+\.(docx|pdf)$/.test(_dp)){
+        const _dfp = path.join(__dirname, 'public', _dp);
+        if (_dfp.indexOf(path.join(__dirname, 'public', 'docs')) === 0 && fs.existsSync(_dfp) && fs.statSync(_dfp).isFile()){
+          const _dd = fs.readFileSync(_dfp);
+          res.writeHead(200, { 'Content-Type': MIME[path.extname(_dfp)] || 'application/octet-stream', 'Content-Disposition': 'attachment; filename="'+path.basename(_dfp)+'"' });
+          return res.end(_dd);
         }
       }
     }
