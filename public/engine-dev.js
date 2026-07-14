@@ -428,7 +428,7 @@ var REFERRAL_FUNNEL = [
     { type:'row', fields:[ {key:'email',type:'email',label:'Email',required:true}, {key:'phone',type:'tel',label:'Phone',required:true} ] },
     { key:'declaration', type:'checkbox', label:'I confirm that I am aged 18 or over and that the information I have given is accurate.', required:true }
   ]},
-  { id:'referral_done', name:'Done', kind:'referral_done', title:'', fields:[] }
+  { id:'referral_done', name:'Your quote', kind:'quote', title:'', fields:[] }
 ];
 var FUNNEL = (function(){ var f=((window.AIWILLS_CONFIG&&window.AIWILLS_CONFIG.funnel)||window.AIWILLS_FUNNEL||'').toString().toLowerCase(); return f==='etb'?ETB_FUNNEL:(f==='lpa'?LPA_FUNNEL:((f==='probate'||f==='referral')?REFERRAL_FUNNEL:WILLS_FUNNEL)); })();
 var FUNNEL_KEY = (function(){ var f=((window.AIWILLS_CONFIG&&window.AIWILLS_CONFIG.funnel)||window.AIWILLS_FUNNEL||'').toString().toLowerCase(); if(f==='etb'||f==='lpa'||f==='hub') return f; if(f==='probate'||f==='referral') return 'probate'; return 'wills'; })();
@@ -560,9 +560,15 @@ function render(){
     }
   } else if(s.kind==='done'){
     html += '<div class="mock"><div class="tick">✓</div><h3>Your Executor Toolbox is active</h3><p class="note">Your details and any documents you uploaded are securely stored. Your executors will be able to access what they need, when the time comes.</p><div style="text-align:left;margin-top:22px;padding-top:18px;border-top:1px solid #e7e7e7"><p style="font-weight:600;margin:0 0 8px">What happens next</p><ol style="margin:0;padding-left:20px;line-height:1.7"><li>Tell your executors that your Toolbox exists.</li><li>You can come back any time to add or update documents.</li><li>Keep your contact details current so we can reach you.</li></ol></div></div>';
-  } else if(s.kind==='referral_done'){
+  } else if(s.kind==='quote'){
     try{ saveToGhl(state, { submitted:true }); }catch(e){}
-    html += '<div class="mock"><div class="tick">\u2713</div><h3>'+esc(CFG.referral_thanks_title||'Thank you - your quote is on its way')+'</h3><p class="note">'+esc(CFG.referral_thanks_text||'We have everything we need. One of the team will be in touch shortly with your fixed fee quote and next steps.')+'</p></div>';
+    var _q=computeQuote(state);
+    if(_q){
+      var _cta = (CFG.quote_cta_url) ? ('<a class="btn wide" href="'+esc(CFG.quote_cta_url)+'" target="_blank" rel="noopener" style="display:block;text-align:center;text-decoration:none;margin-top:14px">'+esc(CFG.quote_cta_label||'Book a call to proceed')+'</a>') : '';
+      html += '<div class="mock"><div class="tick">\u2713</div><h3>'+esc(CFG.quote_title||'Your fixed fee probate quote')+'</h3><div class="price">'+esc(_q.display)+'</div><p class="note">'+esc(CFG.quote_note||'This is an indicative fixed fee based on your answers. We will confirm it and the next steps with you.')+'</p>'+_cta+'</div>';
+    } else {
+      html += '<div class="mock"><div class="tick">\u2713</div><h3>'+esc(CFG.referral_thanks_title||'Thank you - your quote is on its way')+'</h3><p class="note">'+esc(CFG.referral_thanks_text||'We have everything we need. One of the team will be in touch shortly with your fixed fee quote and next steps.')+'</p></div>';
+    }
   } else if(s.kind==='generate' && FUNNEL===LPA_FUNNEL){
     var _lcid=(rootEl&&rootEl.getAttribute('data-contact'))||qp('aw_c')||window.AIWILLS_CONTACT_ID||'';
     setTimeout(function(){ try{ fetch(API+'/api/lpa-save',{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({locationId:loc,contactId:_lcid,state:state,pdf:true})}).then(function(r){return r.json();}).then(function(j){ var w=el('lpapdfwrap'); if(!w) return; if(j&&j.token){ var u=API+'/api/lpa-pdf?t='+encodeURIComponent(j.token); w.innerHTML='<iframe src="'+u+'" style="width:100%;height:560px;border:1px solid #e0e0e0;border-radius:10px;margin-top:16px;background:#fff" title="Your LPA"></iframe><div style="margin-top:12px"><a class="btn wide" href="'+u+'" target="_blank" rel="noopener">Download your LPA (PDF)</a></div>'; } else { w.innerHTML='<p class="note">Could not generate the LPA document'+((j&&j.error)?(': '+esc(j.error)):'')+'.</p>'; } }).catch(function(){ var w=el('lpapdfwrap'); if(w) w.innerHTML='<p class="note">Could not generate the LPA document.</p>'; }); }catch(e){} },60);
@@ -593,7 +599,7 @@ function render(){
   var _ed=(window.AIWILLS_EDIT===true);
   el('back').textContent=_ed?'Back to summary':'Back';
   el('back').style.visibility=_ed?(s.kind==='review'?'hidden':'visible'):(cur===0?'hidden':'visible');
-  var next=el('next'); if(_ed){ next.style.display=(s.kind==='review')?'none':''; next.textContent='Save'; } else { next.style.display=(s.kind==='generate'||s.kind==='done'||s.kind==='referral_done')?'none':''; next.textContent=(s.kind==='review')?((FUNNEL===ETB_FUNNEL)?'Continue to activate':'Continue to payment'):((FUNNEL===REFERRAL_FUNNEL&&vis[cur+1]&&vis[cur+1].kind==='referral_done')?(CFG.referral_submit_label||'Get my quote'):'Continue'); }
+  var next=el('next'); if(_ed){ next.style.display=(s.kind==='review')?'none':''; next.textContent='Save'; } else { next.style.display=(s.kind==='generate'||s.kind==='done'||s.kind==='quote')?'none':''; next.textContent=(s.kind==='review')?((FUNNEL===ETB_FUNNEL)?'Continue to activate':'Continue to payment'):((FUNNEL===REFERRAL_FUNNEL&&vis[cur+1]&&vis[cur+1].kind==='quote')?(CFG.referral_submit_label||'Get my quote'):'Continue'); }
   var pay=el('pay'); if(pay) pay.addEventListener('click',function(){ try{ collectVisible(); }catch(e){} if(FUNNEL===LPA_FUNNEL){ var _lv=visible(); for(var _lg=0;_lg<_lv.length;_lg++){ if(_lv[_lg].kind==='generate'){ cur=_lg; render(); try{scrollTop();}catch(e){} return; } } } var _isEtb=(FUNNEL===ETB_FUNNEL); var _lbl=_isEtb?'Subscribe':('Pay '+esc(fmtPrice(CFG.will_price))); pay.disabled=true; pay.textContent='Redirecting to secure payment...'; var _url=_isEtb?(API+'/api/etb-checkout'):(API+'/api/checkout'); var _body=_isEtb?{locationId:loc,contactId:(window.AIWILLS_ETB_CID||''),contact:(state.your_details||{}),returnUrl:_retUrl()}:{locationId:loc,willJson:state,returnUrl:_retUrl()}; fetch(_url,{method:'POST',body:JSON.stringify(_body)}).then(function(r){return r.json();}).then(function(j){ if(j&&j.url){ window.location.href=j.url; } else { pay.disabled=false; pay.textContent=_lbl; alert('Could not start payment: '+((j&&j.error)||'unknown')); } }).catch(function(e){ pay.disabled=false; pay.textContent=_lbl; alert('Payment error: '+e.message); }); });
   var _dlp=el('dlp'); if(_dlp) _dlp.addEventListener('click',function(){ try{ window.print(); }catch(e){} });
   // payment redirects out to Stripe and returns to the generate step (see aw_paid handling on load); no auto-advance, no demo download.
@@ -601,6 +607,20 @@ function render(){
 }
 /* scroll to top only on real step changes, never on in-step reflow re-renders (which were yanking the page to the top on every radio click). */
 function scrollTop(){ try{ window.scrollTo(0,0); }catch(e){} var m=document.getElementById('aiwills-funnel'); if(m&&m.scrollIntoView){ try{ m.scrollIntoView({block:'start'}); }catch(e){} } }
+function computeQuote(state){
+  var raw=(window.AIWILLS_CONFIG||{}).probate_quote_rules_json; if(!raw) return null;
+  var rules; try{ rules=(typeof raw==='string')?JSON.parse(raw):raw; }catch(e){ return null; }
+  if(!rules||typeof rules!=='object') return null;
+  var cur=rules.currency||'\u00a3';
+  var fee=parseFloat(rules.base)||0;
+  var flat={}; try{ Object.keys(state||{}).forEach(function(sec){ var o=state[sec]; if(o&&typeof o==='object'&&!Array.isArray(o)){ Object.keys(o).forEach(function(k){ flat[sec+'.'+k]=o[k]; flat[k]=o[k]; }); } }); }catch(e){}
+  var add=rules.add||{};
+  Object.keys(add).forEach(function(cond){ var p=cond.split(':'); var key=p[0], want=p.slice(1).join(':'); var have=flat[key]; if(have!=null && String(have)===String(want)){ fee+=(parseFloat(add[cond])||0); } });
+  if(rules.min!=null) fee=Math.max(fee, parseFloat(rules.min)||0);
+  if(rules.max!=null) fee=Math.min(fee, parseFloat(rules.max)||fee);
+  var disp=cur+ (Math.round(fee)===fee ? String(fee) : fee.toFixed(2));
+  return { fee:fee, display:disp };
+}
 function _retUrl(){ var r=location.href.split('#')[0].split('?')[0]; var q=[]; if(loc) q.push('aw_loc='+encodeURIComponent(loc)); var c=qp('aw_c')||window.AIWILLS_CONTACT_ID||window.AIWILLS_ETB_CID||''; if(c) q.push('aw_c='+encodeURIComponent(c)); return q.length? (r+'?'+q.join('&')) : r; }
 function jumpIdx(i){ var vis=visible(); if(isNaN(i)||i<0||i>vis.length-1||i===cur) return; try{ collectVisible(); stripEmptyRepeaters(); saveLocal(); }catch(e){}
   var _tfree=(FUNNEL===ETB_FUNNEL && vis[i].kind!=='payment' && vis[i].kind!=='done');
