@@ -37,9 +37,9 @@ var CFG = window.AIWILLS_CONFIG || {}; (function(){ var _m='{'+'{'; for(var _k i
       var done=st&&(st.paid||st.started);
       var btn;
       if(!s.url){ btn='<button class="btn ghost" type="button" disabled>Coming soon</button>'; }
-      else if(st&&st.paid){ btn='<a class="btn ghost" href="'+esc(withId(s.url))+'">Open / edit</a>'; }
-      else if(done){ btn='<a class="btn" href="'+esc(withId(s.url))+'">Continue</a>'; }
-      else { btn='<a class="btn" href="'+esc(withId(s.url))+'">Get started</a>'; }
+      else if(st&&st.paid){ btn='<a class="btn ghost" target="_top" href="'+esc(withId(s.url))+'">Open / edit</a>'; }
+      else if(done){ btn='<a class="btn" target="_top" href="'+esc(withId(s.url))+'">Continue</a>'; }
+      else { btn='<a class="btn" target="_top" href="'+esc(withId(s.url))+'">Get started</a>'; }
       var badge=done?('<div class="hubstatus">'+(st.paid?'Purchased':'In progress')+'</div>'):'';
       return '<div class="hubcard"><div class="hubic">'+s.icon+'</div><h3>'+esc(s.title)+'</h3><p class="hubdesc">'+esc(s.blurb)+'</p>'+badge+btn+'</div>';
     }
