@@ -413,7 +413,7 @@ var REFERRAL_FUNNEL = [
     { key:'assetsEW', type:'radio', label:'Is everything you own in England & Wales?', required:true, options:['Yes','No'] },
     { key:'ownHome', type:'radio', label:'Do you own your home?', required:true, options:['Yes','No'] },
     { key:'ownBusiness', type:'radio', label:'Do you own a business?', required:true, options:['Yes','No'] },
-    { key:'estateBand', type:'radio', label:'Is the estate worth more or less than \u00a3325,000?', required:true, options:['Above','Below'] }
+    { key:'estateBand', type:'radio', label:function(s){ var married=(s.about&&s.about.hasPartner==='Yes'); return 'Is the estate worth more or less than \u00a3'+(married?'650,000':'325,000')+'? (This just tells us whether inheritance tax is likely, which affects the work involved.)'; }, required:true, options:['Above','Below'] }
   ]},
   { id:'concerns', name:'Your concerns', title:'What matters most to you?', lead:'Tick everything that applies. This helps us advise you properly.', fields:[
     { key:'mentalCapacity', type:'checkbox', label:'Losing mental capacity' },
@@ -448,7 +448,8 @@ function fld(base,f){
   if(f.type==='repeater') return repeater(base,f);
   var p=base+'.'+f.key, v=getP(p);
   var rf = f.reflow?' data-reflow="1"':'';
-  var lab='<label>'+esc(f.label)+(f.required?'':' <span class="opt">(optional)</span>')+'</label>';
+  var _flab=(typeof f.label==='function')?f.label(state):f.label;
+  var lab='<label>'+esc(_flab)+(f.required?'':' <span class="opt">(optional)</span>')+'</label>';
   var err='<div class="err">This field is required</div>';
   if(f.type==='select'){
     var sopts=(typeof f.options==='function')?(f.options(state)||[]):(f.options||[]);
