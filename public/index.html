@@ -48,6 +48,7 @@ details.measure summary{cursor:pointer;font-weight:600;font-size:13px}
 .results{font-size:12.5px;margin-top:8px}
 .results div{padding:2px 0}
 .muted{color:var(--muted)} .small{font-size:12px}
+.richbox{min-height:90px;border:1px solid #d9d9de;border-radius:8px;padding:9px 11px;font-size:14px;background:#fff;overflow:auto;line-height:1.5}.richbox:focus{outline:none;border-color:#8a8a9a}.richbox a{color:#1560d0;text-decoration:underline}
 </style>
 </head>
 <body>
@@ -127,50 +128,51 @@ details.measure summary{cursor:pointer;font-weight:600;font-size:13px}
 /* fields rendered + collected. key = the GHL custom value name. */
 var FIELDS = [
   {k:'company_name', label:'Company name', g:'brand'},
-  {k:'client_logo_url', label:'Logo URL', preview:'logo', g:'brand'},
-  {k:'client_primary_color', label:'Primary colour', color:true, g:'brand'},
-  {k:'client_heading_color', label:'Heading colour', color:true, g:'brand'},
-  {k:'client_body_color', label:'Body colour', color:true, g:'brand'},
-  {k:'client_heading_font', label:'Heading font', g:'brand'},
-  {k:'heading_font_size', label:'Heading size (e.g. 40px)', g:'brand'},
-  {k:'heading_weight', label:'Heading weight', select:true, opts:['Light','Normal','Medium','Semibold','Bold','Black'], g:'brand'},
-  {k:'client_body_font', label:'Body font', g:'brand'},
-  {k:'font_css_links', label:'Font stylesheet links (captured - loads custom fonts e.g. Adobe). JSON array of URLs.', textarea:true, g:'brand'},
-  {k:'header_bg_color', label:'Header background', color:true, g:'header'},
-  {k:'page_bg_color', label:'Page background', color:true, g:'header'},
-  {k:'nav_text_color', label:'Nav / menu text colour', color:true, g:'header'},
-  {k:'site_max_width', label:'Header width (100% or e.g. 1200px)', g:'header'},
-  {k:'nav_font_size', label:'Nav font size (e.g. 16px, lower this if the menu wraps)', g:'header'},
-  {k:'nav_weight', label:'Nav weight', select:true, opts:['Light','Normal','Medium','Semibold','Bold'], g:'header'},
+  {k:'client_logo_url', label:'Logo (image link)', preview:'logo', g:'brand'},
+  {k:'client_primary_color', label:'Main brand colour', color:true, g:'brand'},
+  {k:'client_heading_color', label:'Title colour', color:true, g:'brand'},
+  {k:'client_body_color', label:'Main text colour', color:true, g:'brand'},
+  {k:'client_icon_color', label:'Icon colour (blank = uses the brand colour)', color:true, g:'brand'},
+  {k:'client_heading_font', label:'Title font', g:'brand'},
+  {k:'heading_font_size', label:'Title size (e.g. 40px)', g:'brand'},
+  {k:'heading_weight', label:'How bold the titles are', select:true, opts:['Light','Normal','Medium','Semibold','Bold','Black'], g:'brand'},
+  {k:'client_body_font', label:'Main text font', g:'brand'},
+  {k:'font_css_links', label:'Font files (advanced - filled in automatically)', textarea:true, g:'brand'},
+  {k:'header_bg_color', label:'Header background colour', color:true, g:'header'},
+  {k:'page_bg_color', label:'Page background colour', color:true, g:'header'},
+  {k:'nav_text_color', label:'Menu text colour', color:true, g:'header'},
+  {k:'site_max_width', label:'Content width (100% or e.g. 1200px)', g:'header'},
+  {k:'nav_font_size', label:'Menu text size (e.g. 16px - lower it if the menu wraps)', g:'header'},
+  {k:'nav_weight', label:'How bold the menu links are', select:true, opts:['Light','Normal','Medium','Semibold','Bold'], g:'header'},
   {k:'logo_height', label:'Logo height (e.g. 50px)', g:'header'},
-  {k:'body_font_size', label:'Body font size (e.g. 17px)', g:'header'},
-  {k:'nav_menu_json', label:'Header navigation menu (add/edit items - use this if the site menu sits in its own row and was not captured)', menu:true, g:'header'},
-  {k:'button_style', label:'Button style (sets the corner radius below)', select:true, opts:['Pill','Rounded','Square'], g:'buttons'},
-  {k:'button_color', label:'Button colour (blank = use primary)', color:true, g:'buttons'},
-  {k:'button_hover_color', label:'Button hover colour (blank = auto-darken)', color:true, g:'buttons'},
+  {k:'body_font_size', label:'Main text size (e.g. 17px)', g:'header'},
+  {k:'nav_menu_json', label:'Menu links (add or edit)', menu:true, g:'header'},
+  {k:'button_style', label:'Button shape (Pill / Rounded / Square)', select:true, opts:['Pill','Rounded','Square'], g:'buttons'},
+  {k:'button_color', label:'Button colour (blank = brand colour)', color:true, g:'buttons'},
+  {k:'button_hover_color', label:'Button colour when hovered (blank = automatic)', color:true, g:'buttons'},
   {k:'button_text_color', label:'Button text colour', color:true, g:'buttons'},
-  {k:'button_secondary_color', label:'Secondary button colour (for buttons on a brand-coloured background, e.g. the footer CTA. Blank = white)', color:true, g:'buttons'},
-  {k:'button_secondary_text_color', label:'Secondary button text colour (blank = auto contrast)', color:true, g:'buttons'},
+  {k:'button_secondary_color', label:'Second button colour (for buttons on a coloured background, blank = white)', color:true, g:'buttons'},
+  {k:'button_secondary_text_color', label:'Second button text colour (blank = automatic)', color:true, g:'buttons'},
   {k:'button_font', label:'Button font', g:'buttons'},
-  {k:'button_weight', label:'Button weight', select:true, opts:['Normal','Medium','Semibold','Bold'], g:'buttons'},
-  {k:'button_radius', label:'Button corner radius (e.g. 8px, or 180px for a pill)', g:'buttons'},
-  {k:'footer_bg_color', label:'Footer background', color:true, g:'footer'},
-  {k:'footer_text_color', label:'Footer text colour (blank = auto)', color:true, g:'footer'},
-  {k:'footer_max_width', label:'Footer content width (e.g. 1176px)', g:'footer'},
-  {k:'footer_menu_json', label:'Footer menu (add/edit items)', menu:true, g:'footer'},
+  {k:'button_weight', label:'How bold the button text is', select:true, opts:['Normal','Medium','Semibold','Bold'], g:'buttons'},
+  {k:'button_radius', label:'Button corner roundness (set automatically by the shape above)', g:'buttons'},
+  {k:'footer_bg_color', label:'Footer background colour', color:true, g:'footer'},
+  {k:'footer_text_color', label:'Footer text colour (blank = automatic)', color:true, g:'footer'},
+  {k:'footer_max_width', label:'Footer width (e.g. 1176px)', g:'footer'},
+  {k:'footer_menu_json', label:'Footer links (add or edit)', menu:true, g:'footer'},
   {k:'footer_phone', label:'Phone', g:'contact'},
   {k:'company_email', label:'Email', g:'contact'},
   {k:'company_website', label:'Website', g:'contact'},
   {k:'company_address', label:'Address', g:'contact'},
-  {k:'facebook_link', label:'Facebook URL', g:'contact'},
-  {k:'instagram_link', label:'Instagram URL', g:'contact'},
-  {k:'linkedin_link', label:'LinkedIn URL', g:'contact'},
-  {k:'twitter_link', label:'X / Twitter URL', g:'contact'},
-  {k:'youtube_link', label:'YouTube URL', g:'contact'},
-  {k:'tiktok_link', label:'TikTok URL', g:'contact'},
-  {k:'privacy_url', label:'Privacy URL', g:'contact'},
+  {k:'facebook_link', label:'Facebook link', g:'contact'},
+  {k:'instagram_link', label:'Instagram link', g:'contact'},
+  {k:'linkedin_link', label:'LinkedIn link', g:'contact'},
+  {k:'twitter_link', label:'X / Twitter link', g:'contact'},
+  {k:'youtube_link', label:'YouTube link', g:'contact'},
+  {k:'tiktok_link', label:'TikTok link', g:'contact'},
+  {k:'privacy_url', label:'Privacy policy link', g:'contact'},
   {k:'will_price', label:'Will price', g:'pricing'},
-  {k:'legal_footer', label:'Legal footer line', g:'pricing'}
+  {k:'legal_footer', label:'Small print (legal text at the bottom of every page). Paste it from your website - links and formatting are kept.', rich:true, g:'pricing'}
 ];
 var GROUPS = [['brand','Brand'],['header','Header & nav'],['buttons','Buttons'],['footer','Footer'],['contact','Contact & social'],['pricing','Pricing & legal']];
 
@@ -183,6 +185,8 @@ function fieldHtml(f){
     h += '<div class="menued" data-for="'+f.k+'"></div><button type="button" class="menuadd" data-menuadd="'+f.k+'">+ Add menu item</button><details style="margin-top:8px"><summary style="cursor:pointer;font-size:12px;color:#666">Advanced: edit as JSON</summary><textarea id="f_'+f.k+'" data-k="'+f.k+'" rows="4"></textarea></details>';
   } else if (f.select){
     h += '<select id="f_'+f.k+'" data-k="'+f.k+'"><option value=""></option>'+f.opts.map(function(o){return '<option>'+o+'</option>';}).join('')+'</select>';
+  } else if (f.rich){
+    h += '<div class="richbox" data-rich="'+f.k+'" contenteditable="true"></div><textarea id="f_'+f.k+'" data-k="'+f.k+'" style="display:none"></textarea>';
   } else if (f.textarea){
     h += '<textarea id="f_'+f.k+'" data-k="'+f.k+'" rows="4"></textarea>';
   } else {
@@ -261,15 +265,43 @@ function getValues(){
   FIELDS.forEach(function(f){ v[f.k] = (el('f_'+f.k).value || '').trim(); });
   return v;
 }
+// Keep only safe tags/attributes so pasted legal text (with links/formatting) is preserved but can't inject anything.
+function awSafeHtml(html){
+  try{
+    var d=document.createElement('div'); d.innerHTML=String(html||'');
+    var ALLOW={A:1,B:1,STRONG:1,I:1,EM:1,U:1,SPAN:1,P:1,BR:1,DIV:1,UL:1,OL:1,LI:1};
+    var REMV={SCRIPT:1,STYLE:1,IFRAME:1,OBJECT:1,EMBED:1,LINK:1,META:1,SVG:1,NOSCRIPT:1};
+    var ATTR={href:1,target:1,rel:1};
+    (function walk(node){
+      [].slice.call(node.children).forEach(function(n){
+        if(REMV[n.tagName]){ n.parentNode.removeChild(n); return; }
+        walk(n);
+        if(!ALLOW[n.tagName]){ var f=document.createDocumentFragment(); while(n.firstChild) f.appendChild(n.firstChild); n.parentNode.replaceChild(f,n); return; }
+        [].slice.call(n.attributes).forEach(function(a){
+          var nm=a.name.toLowerCase();
+          if(!ATTR[nm]){ n.removeAttribute(a.name); return; }
+          if(nm==='href' && /^\s*javascript:/i.test(a.value)) n.removeAttribute('href');
+        });
+        if(n.tagName==='A' && n.getAttribute('href')){ n.setAttribute('target','_blank'); n.setAttribute('rel','noopener'); }
+      });
+    })(d);
+    return d.innerHTML;
+  }catch(e){ return ''; }
+}
+document.addEventListener('input', function(e){
+  var rb=e.target && e.target.closest && e.target.closest('.richbox');
+  if(rb){ var k=rb.getAttribute('data-rich'); var ta=el('f_'+k); if(ta){ ta.value=awSafeHtml(rb.innerHTML); } if(typeof updatePreview==='function') updatePreview(); }
+});
 // Map the tool's field keys to the funnel engine's config keys, so the funnel
 // reads ONE custom value (aiwills_brand_json) instead of 20+ merge fields.
-var BRAND_MAP={company_name:'company_name',client_logo_url:'logo_url',client_primary_color:'primary_color',client_heading_color:'heading_color',client_body_color:'body_color',header_bg_color:'header_bg_color',page_bg_color:'page_bg_color',nav_text_color:'nav_text_color',client_heading_font:'heading_font',heading_font_size:'heading_font_size',heading_weight:'heading_weight',nav_weight:'nav_weight',button_weight:'button_weight',client_body_font:'body_font',button_color:'button_color',button_hover_color:'button_hover_color',button_text_color:'button_text_color',button_secondary_color:'button_secondary_color',button_secondary_text_color:'button_secondary_text_color',button_font:'button_font',button_radius:'button_radius',footer_bg_color:'footer_bg_color',footer_text_color:'footer_text_color',site_max_width:'site_max_width',footer_max_width:'footer_max_width',nav_font_size:'nav_font_size',body_font_size:'body_font_size',logo_height:'logo_height',footer_phone:'phone',company_email:'email',company_address:'address',facebook_link:'facebook_url',instagram_link:'instagram_url',linkedin_link:'linkedin_url',twitter_link:'twitter_url',youtube_link:'youtube_url',tiktok_link:'tiktok_url',privacy_url:'privacy_url',font_css_links:'font_css_links',will_price:'will_price',legal_footer:'legal_footer',nav_menu_json:'nav_menu_json',footer_menu_json:'footer_menu_json'};
+var BRAND_MAP={company_name:'company_name',client_logo_url:'logo_url',client_primary_color:'primary_color',client_heading_color:'heading_color',client_body_color:'body_color',client_icon_color:'icon_color',header_bg_color:'header_bg_color',page_bg_color:'page_bg_color',nav_text_color:'nav_text_color',client_heading_font:'heading_font',heading_font_size:'heading_font_size',heading_weight:'heading_weight',nav_weight:'nav_weight',button_weight:'button_weight',client_body_font:'body_font',button_color:'button_color',button_hover_color:'button_hover_color',button_text_color:'button_text_color',button_secondary_color:'button_secondary_color',button_secondary_text_color:'button_secondary_text_color',button_font:'button_font',button_radius:'button_radius',footer_bg_color:'footer_bg_color',footer_text_color:'footer_text_color',site_max_width:'site_max_width',footer_max_width:'footer_max_width',nav_font_size:'nav_font_size',body_font_size:'body_font_size',logo_height:'logo_height',footer_phone:'phone',company_email:'email',company_address:'address',facebook_link:'facebook_url',instagram_link:'instagram_url',linkedin_link:'linkedin_url',twitter_link:'twitter_url',youtube_link:'youtube_url',tiktok_link:'tiktok_url',privacy_url:'privacy_url',font_css_links:'font_css_links',will_price:'will_price',legal_footer:'legal_footer',nav_menu_json:'nav_menu_json',footer_menu_json:'footer_menu_json'};
 function buildBrandJson(){ var v=getValues(); var o={}; for(var k in BRAND_MAP){ var val=v[k]; if(val==null||val==='') continue; o[BRAND_MAP[k]]=val; } return JSON.stringify(o); }
 function getWriteValues(){ return Object.assign({}, getValues(), { aiwills_brand_json: buildBrandJson() }); }
 function setValues(v){
   FIELDS.forEach(function(f){
     var val = v[f.k] || '';
     el('f_'+f.k).value = val;
+    if (f.rich){ var rb=document.querySelector('.richbox[data-rich="'+f.k+'"]'); if(rb) rb.innerHTML = awSafeHtml(val); }
     var c = document.querySelector('input[type=color][data-color="'+f.k+'"]');
     if (c && /^#[0-9a-fA-F]{6}$/.test(val)) c.value = val;
   });
