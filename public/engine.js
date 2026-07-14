@@ -43,7 +43,7 @@ var CFG = window.AIWILLS_CONFIG || {}; (function(){ var _m='{'+'{'; for(var _k i
       var badge=done?('<div class="hubstatus">'+(st.paid?'Purchased':'In progress')+'</div>'):'';
       return '<div class="hubcard"><div class="hubic">'+s.icon+'</div><h3>'+esc(s.title)+'</h3><p class="hubdesc">'+esc(s.blurb)+'</p>'+badge+btn+'</div>';
     }
-    function localSt(){ var o={}; if(!loc) return o; ['wills','lpa','etb'].forEach(function(k){ try{ if(localStorage.getItem('aw_draft_'+k+'_'+loc)) o[k]={started:true,paid:false}; }catch(e){} }); return o; }
+    function localSt(){ var o={}; if(!loc) return o; ['wills','lpa','etb'].forEach(function(k){ try{ if(localStorage.getItem('aw_draft_'+k+'_'+loc) || document.cookie.indexOf('aw_s_'+k+'_'+loc+'=1')>=0) o[k]={started:true,paid:false}; }catch(e){} }); return o; }
     function mergeSt(a,b){ var o={}; ['wills','lpa','etb'].forEach(function(k){ var x=a[k]||{}, y=b[k]||{}; o[k]={ started:!!(x.started||y.started), paid:!!(x.paid||y.paid) }; }); return o; }
     function paint(st){ var g=el('hubgrid'); if(g) g.innerHTML=SVC.map(function(s){return card(s, st[s.key]);}).join(''); }
     paint(localSt());
@@ -603,9 +603,9 @@ function go(dir){
 }
 
 function lsKey(){ try{ var fn=((window.AIWILLS_CONFIG&&window.AIWILLS_CONFIG.funnel)||'wills'); return 'aw_draft_'+fn+'_'+(loc||''); }catch(e){ return ''; } }
-function saveLocal(){ try{ if(window.AIWILLS_EDIT===true) return; var k=lsKey(); if(k){ localStorage.setItem(k, JSON.stringify(state)); try{ localStorage.setItem(k+'_pos', JSON.stringify({c:cur,m:maxCur})); }catch(e2){} } }catch(e){} }
+function saveLocal(){ try{ if(window.AIWILLS_EDIT===true) return; var k=lsKey(); if(k){ localStorage.setItem(k, JSON.stringify(state)); try{ localStorage.setItem(k+'_pos', JSON.stringify({c:cur,m:maxCur})); }catch(e2){} try{ document.cookie=k.replace('aw_draft_','aw_s_')+'=1;domain=.aiwills.co.uk;path=/;max-age=31536000;SameSite=Lax'; }catch(e3){} } }catch(e){} }
 function restoreLocal(){ try{ if(window.AIWILLS_EDIT===true||window.AIWILLS_PREFILL) return; var k=lsKey(); if(!k) return; var raw=localStorage.getItem(k); if(!raw) return; var saved=JSON.parse(raw); for(var s in saved){ if(state[s]&&saved[s]&&typeof saved[s]==='object'){ for(var kk in saved[s]) state[s][kk]=saved[s][kk]; } } try{ var _pos=JSON.parse(localStorage.getItem(k+'_pos')||'null'); if(_pos){ var _L=visible().length; maxCur=Math.max(0,Math.min(_pos.m||0,_L-1)); cur=Math.max(0,Math.min(_pos.c||0,maxCur)); } }catch(e3){} }catch(e){} }
-function clearLocal(){ try{ var k=lsKey(); if(k){ localStorage.removeItem(k); localStorage.removeItem(k+'_pos'); } }catch(e){} }
+function clearLocal(){ try{ var k=lsKey(); if(k){ localStorage.removeItem(k); localStorage.removeItem(k+'_pos'); try{ document.cookie=k.replace('aw_draft_','aw_s_')+'=;domain=.aiwills.co.uk;path=/;max-age=0'; }catch(e2){} } }catch(e){} }
 var _autoT; function autosave(){ try{ collectVisible(); saveLocal(); }catch(e){} if(!loc){ return; } clearTimeout(_autoT); _autoT=setTimeout(function(){ try{ saveToGhl(state); }catch(e){} }, 1000); } // local draft on every change (survives refresh) + debounced GHL save // persist on every change, not just Continue
 document.addEventListener('input', function(e){ var n=e.target.closest('[data-b]'); if(n){ var fl=n.closest('.field'); if(fl) fl.classList.remove('invalid'); autosave(); } });
 document.addEventListener('change', function(e){ var n=e.target.closest('[data-b]'); if(!n) return; try{ if(n.tagName==='INPUT' && (n.type==='text'||n.type==='')){ var _ck=(n.getAttribute('data-b')||'').split('.').pop(); if(/postcode/i.test(_ck)){ n.value=n.value.toUpperCase().replace(/\s+/g,' ').trim(); } else if(/name|address|city|county|town/i.test(_ck)){ n.value=n.value.replace(/\b([a-z])/g,function(m,c){return c.toUpperCase();}); } } }catch(_e){} if(n.type==='radio'){ var grp=n.closest('.choices'); if(grp){ [].forEach.call(grp.querySelectorAll('.choice'),function(l){ l.classList.toggle('on', !!l.querySelector('input:checked')); }); } } if(n.getAttribute('data-reflow')==='1'){ collectVisible(); render(); } autosave(); });
