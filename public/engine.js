@@ -37,9 +37,9 @@ var CFG = window.AIWILLS_CONFIG || {}; (function(){ var _m='{'+'{'; for(var _k i
       var done=st&&(st.paid||st.started);
       var btn;
       if(!s.url){ btn='<button class="btn ghost" type="button" disabled>Coming soon</button>'; }
-      else if(st&&st.paid){ btn='<a class="btn ghost" href="'+esc(withId(s.url))+'">Open / edit</a>'; }
-      else if(done){ btn='<a class="btn" href="'+esc(withId(s.url))+'">Continue</a>'; }
-      else { btn='<a class="btn" href="'+esc(withId(s.url))+'">Get started</a>'; }
+      else if(st&&st.paid){ btn='<a class="btn ghost" target="_top" href="'+esc(withId(s.url))+'">Open / edit</a>'; }
+      else if(done){ btn='<a class="btn" target="_top" href="'+esc(withId(s.url))+'">Continue</a>'; }
+      else { btn='<a class="btn" target="_top" href="'+esc(withId(s.url))+'">Get started</a>'; }
       var badge=done?('<div class="hubstatus">'+(st.paid?'Purchased':'In progress')+'</div>'):'';
       return '<div class="hubcard"><div class="hubic">'+s.icon+'</div><h3>'+esc(s.title)+'</h3><p class="hubdesc">'+esc(s.blurb)+'</p>'+badge+btn+'</div>';
     }
@@ -58,6 +58,7 @@ function wt(s){return {Light:'300',Normal:'400',Medium:'500',Semibold:'600',Bold
 (function(){ try{ var _seen={}, _add=function(u){ if(u&&!_seen[u]){ _seen[u]=1; var l=document.createElement('link'); l.rel='stylesheet'; l.href=u; document.head.appendChild(l); } }; var _caps=[]; try{ _caps=JSON.parse(CFG.font_css_links||'[]'); }catch(e){ _caps=[]; } _caps.forEach(_add); var _addFam=function(g){ g=(g||'').split(',')[0].replace(/["']/g,'').trim(); if(!g||/^(serif|sans-serif|monospace|cursive|fantasy|system-ui|-apple-system|blinkmacsystemfont|segoe ui|georgia|arial|helvetica|times new roman|times|verdana|tahoma)$/i.test(g)) return; _add('https://fonts.googleapis.com/css2?family='+g.replace(/ /g,'+')+':wght@400;500;600;700;900&display=swap'); }; [CFG.heading_font,CFG.body_font,CFG.button_font].forEach(function(f){ _addFam(f); _addFam(closestFont(f).g); }); }catch(e){} })();
 function el(id){ return document.getElementById(id); }
 function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+function fmtPrice(p){ p=String(p==null?'':p).trim(); if(!p) return p; return /^[0-9]+([.][0-9]{1,2})?$/.test(p)?('\u00a3'+p):p; }
 function age(d){ if(!d) return null; var t=new Date(d); if(isNaN(t)) return null; var n=new Date(), a=n.getFullYear()-t.getFullYear(), m=n.getMonth()-t.getMonth(); if(m<0||(m===0&&n.getDate()<t.getDate())) a--; return a; }
 function saveToGhl(state, opts){ var _pdf=!!(opts&&opts.pdf); try{ if(FUNNEL===ETB_FUNNEL){ if(!loc) return; var st=(state.payment&&state.payment.paid)?'paid':'started'; try{ fetch(API+'/api/etb-save',{method:'POST',body:JSON.stringify({locationId:loc,state:state,status:st,contactId:(window.AIWILLS_ETB_CID||''),pdf:_pdf})}).then(function(r){return r.json();}).then(function(j){ if(j&&j.contactId) window.AIWILLS_ETB_CID=j.contactId; }).catch(function(){}); }catch(e){} return; } }catch(e){} try{ if(FUNNEL===LPA_FUNNEL){ if(!loc) return; try{ fetch(API+'/api/lpa-save',{method:'POST',body:JSON.stringify({locationId:loc,contactId:(window.AIWILLS_CONTACT_ID||''),state:state,pdf:_pdf})}).then(function(r){return r.json();}).then(function(j){ if(j&&j.contactId) window.AIWILLS_CONTACT_ID=j.contactId; }).catch(function(){}); }catch(e){} return; } }catch(e){} var p=state.personal||{}; if(loc){ try{ fetch(API+'/api/will-save',{method:'POST',body:JSON.stringify({locationId:loc,contactId:(window.AIWILLS_CONTACT_ID||''),state:state,pdf:_pdf})}).then(function(r){return r.json();}).then(function(j){ if(j&&j.contactId) window.AIWILLS_CONTACT_ID=j.contactId; }).catch(function(){}); }catch(e){} } var url=CFG.will_save_webhook_url; if(url){ try{ fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contactId:(window.AIWILLS_CONTACT_ID||''),email:p.email||'',firstName:p.firstName||'',lastName:p.lastName||'',phone:p.phone||'',status:(state.payment&&state.payment.paid)?'paid':'started',willJson:JSON.stringify(state)})}); }catch(e){} } }
 
@@ -511,10 +512,10 @@ function render(){
     if(getP('payment.paid')===true){
       html += '<div class="mock"><div class="tick">✓</div><h3>'+(_isEtb?'Subscription active':'Payment received')+'</h3><p class="note">'+(_isEtb?'Your Executor Toolbox is now active.':'Continue to download your will.')+'</p></div>';
     } else if(_isEtb){
-      var _ep=esc(CFG.etb_price||'£19.99 / year');
+      var _ep=esc(fmtPrice(CFG.etb_price)||'£19.99 / year');
       html += '<div class="mock"><p>Executor Toolbox</p><div class="price">'+_ep+'</div><button class="btn wide" id="pay" type="button">Subscribe</button><p class="note">Secure card payment. Your subscription keeps your Toolbox stored and available to your executors. You can cancel any time.</p></div>';
     } else {
-      html += '<div class="mock"><p>'+esc(FUNNEL===LPA_FUNNEL?'Your LPA document':(FUNNEL===ETB_FUNNEL?'Your Executor Toolbox':'Your will document'))+'</p><div class="price">'+esc(CFG.will_price||'')+'</div><button class="btn wide" id="pay" type="button">Pay '+esc(CFG.will_price||'')+'</button><p class="note">Secure card payment. You will be returned here to download your will.</p></div>';
+      html += '<div class="mock"><p>'+esc(FUNNEL===LPA_FUNNEL?'Your LPA document':(FUNNEL===ETB_FUNNEL?'Your Executor Toolbox':'Your will document'))+'</p><div class="price">'+esc(fmtPrice(CFG.will_price))+'</div><button class="btn wide" id="pay" type="button">Pay '+esc(fmtPrice(CFG.will_price))+'</button><p class="note">Secure card payment. You will be returned here to download your will.</p></div>';
     }
   } else if(s.kind==='done'){
     html += '<div class="mock"><div class="tick">✓</div><h3>Your Executor Toolbox is active</h3><p class="note">Your details and any documents you uploaded are securely stored. Your executors will be able to access what they need, when the time comes.</p><div style="text-align:left;margin-top:22px;padding-top:18px;border-top:1px solid #e7e7e7"><p style="font-weight:600;margin:0 0 8px">What happens next</p><ol style="margin:0;padding-left:20px;line-height:1.7"><li>Tell your executors that your Toolbox exists.</li><li>You can come back any time to add or update documents.</li><li>Keep your contact details current so we can reach you.</li></ol></div></div>';
@@ -544,12 +545,12 @@ function render(){
   el('stepCount').textContent='Step '+(cur+1)+' of '+vis.length;
   el('bar').style.width=Math.round(((cur+1)/vis.length)*100)+'%';
   if(cur>maxCur) maxCur=cur; if(maxCur>vis.length-1) maxCur=vis.length-1;
-  try{ var _smenu=el('stepmenu'); if(_smenu){ if(window.AIWILLS_EDIT===true){ _smenu.innerHTML=''; } else { _smenu.innerHTML=vis.map(function(v,i){ var cls=(i===cur)?'on':(i<=maxCur?'done':''); return '<button type="button" data-sj="'+i+'"'+(cls?(' class="'+cls+'"'):'')+((i<=maxCur)?'':' disabled')+'>'+esc(v.name)+'</button>'; }).join(''); _smenu.querySelectorAll('[data-sj]').forEach(function(b){ b.addEventListener('click',function(){ jumpIdx(parseInt(b.getAttribute('data-sj'),10)); }); }); } } }catch(e){}
+  try{ var _smenu=el('stepmenu'); if(_smenu){ if(window.AIWILLS_EDIT===true){ _smenu.innerHTML=''; } else { _smenu.innerHTML=vis.map(function(v,i){ var _free=(FUNNEL===ETB_FUNNEL&&v.kind!=='payment'&&v.kind!=='done'); var ok=(i<=maxCur)||_free; var cls=(i===cur)?'on':(ok?'done':''); return '<button type="button" data-sj="'+i+'"'+(cls?(' class="'+cls+'"'):'')+(ok?'':' disabled')+'>'+esc(v.name)+'</button>'; }).join(''); _smenu.querySelectorAll('[data-sj]').forEach(function(b){ b.addEventListener('click',function(){ jumpIdx(parseInt(b.getAttribute('data-sj'),10)); }); }); } } }catch(e){}
   var _ed=(window.AIWILLS_EDIT===true);
   el('back').textContent=_ed?'Back to summary':'Back';
   el('back').style.visibility=_ed?(s.kind==='review'?'hidden':'visible'):(cur===0?'hidden':'visible');
   var next=el('next'); if(_ed){ next.style.display=(s.kind==='review')?'none':''; next.textContent='Save'; } else { next.style.display=(s.kind==='generate'||s.kind==='done')?'none':''; next.textContent=(s.kind==='review')?((FUNNEL===ETB_FUNNEL)?'Continue to activate':'Continue to payment'):'Continue'; }
-  var pay=el('pay'); if(pay) pay.addEventListener('click',function(){ try{ collectVisible(); }catch(e){} if(FUNNEL===LPA_FUNNEL){ var _lv=visible(); for(var _lg=0;_lg<_lv.length;_lg++){ if(_lv[_lg].kind==='generate'){ cur=_lg; render(); try{scrollTop();}catch(e){} return; } } } var _isEtb=(FUNNEL===ETB_FUNNEL); var _lbl=_isEtb?'Subscribe':('Pay '+esc(CFG.will_price||'')); pay.disabled=true; pay.textContent='Redirecting to secure payment...'; var _url=_isEtb?(API+'/api/etb-checkout'):(API+'/api/checkout'); var _body=_isEtb?{locationId:loc,contactId:(window.AIWILLS_ETB_CID||''),contact:(state.your_details||{}),returnUrl:(location.href.split('#')[0].split('?')[0])}:{locationId:loc,willJson:state,returnUrl:(location.href.split('#')[0].split('?')[0])}; fetch(_url,{method:'POST',body:JSON.stringify(_body)}).then(function(r){return r.json();}).then(function(j){ if(j&&j.url){ window.location.href=j.url; } else { pay.disabled=false; pay.textContent=_lbl; alert('Could not start payment: '+((j&&j.error)||'unknown')); } }).catch(function(e){ pay.disabled=false; pay.textContent=_lbl; alert('Payment error: '+e.message); }); });
+  var pay=el('pay'); if(pay) pay.addEventListener('click',function(){ try{ collectVisible(); }catch(e){} if(FUNNEL===LPA_FUNNEL){ var _lv=visible(); for(var _lg=0;_lg<_lv.length;_lg++){ if(_lv[_lg].kind==='generate'){ cur=_lg; render(); try{scrollTop();}catch(e){} return; } } } var _isEtb=(FUNNEL===ETB_FUNNEL); var _lbl=_isEtb?'Subscribe':('Pay '+esc(fmtPrice(CFG.will_price))); pay.disabled=true; pay.textContent='Redirecting to secure payment...'; var _url=_isEtb?(API+'/api/etb-checkout'):(API+'/api/checkout'); var _body=_isEtb?{locationId:loc,contactId:(window.AIWILLS_ETB_CID||''),contact:(state.your_details||{}),returnUrl:(location.href.split('#')[0].split('?')[0])}:{locationId:loc,willJson:state,returnUrl:(location.href.split('#')[0].split('?')[0])}; fetch(_url,{method:'POST',body:JSON.stringify(_body)}).then(function(r){return r.json();}).then(function(j){ if(j&&j.url){ window.location.href=j.url; } else { pay.disabled=false; pay.textContent=_lbl; alert('Could not start payment: '+((j&&j.error)||'unknown')); } }).catch(function(e){ pay.disabled=false; pay.textContent=_lbl; alert('Payment error: '+e.message); }); });
   var _dlp=el('dlp'); if(_dlp) _dlp.addEventListener('click',function(){ try{ window.print(); }catch(e){} });
   // payment redirects out to Stripe and returns to the generate step (see aw_paid handling on load); no auto-advance, no demo download.
   el('step').querySelectorAll('[data-goto]').forEach(function(b){ b.addEventListener('click',function(){ jumpTo(b.getAttribute('data-goto')); }); });
@@ -557,9 +558,10 @@ function render(){
 /* scroll to top only on real step changes, never on in-step reflow re-renders (which were yanking the page to the top on every radio click). */
 function scrollTop(){ try{ window.scrollTo(0,0); }catch(e){} var m=document.getElementById('aiwills-funnel'); if(m&&m.scrollIntoView){ try{ m.scrollIntoView({block:'start'}); }catch(e){} } }
 function jumpIdx(i){ var vis=visible(); if(isNaN(i)||i<0||i>vis.length-1||i===cur) return; try{ collectVisible(); stripEmptyRepeaters(); saveLocal(); }catch(e){}
-  if(i>cur){ for(var k=cur;k<i;k++){ var bad=validateStep(vis[k]); if(bad.length){ if(k!==cur){ cur=k; render(); scrollTop(); } alert('Please complete this step before moving on.'); return; } } }
-  cur=i; render(); scrollTop(); }
-function jumpTo(id){ var vis=visible(); for(var i=0;i<vis.length;i++){ if(vis[i].id===id){ cur=i; render(); scrollTop(); return; } } }
+  var _tfree=(FUNNEL===ETB_FUNNEL && vis[i].kind!=='payment' && vis[i].kind!=='done');
+  if(i>cur && !_tfree){ for(var k=cur;k<i;k++){ var bad=validateStep(vis[k]); if(bad.length){ if(k!==cur){ cur=k; render(); scrollTop(); } alert('Please complete this step before moving on.'); return; } } }
+  cur=i; render(); scrollTop(); try{ saveLocal(); }catch(e){} }
+function jumpTo(id){ var vis=visible(); for(var i=0;i<vis.length;i++){ if(vis[i].id===id){ cur=i; render(); scrollTop(); try{ saveLocal(); }catch(e){} return; } } }
 
 function collectVisible(){
   el('step').querySelectorAll('[data-b]').forEach(function(node){
@@ -597,7 +599,7 @@ function go(dir){
     if(window.AIWILLS_EDIT===true){ try{ jumpTo('review'); }catch(e){} return; } // edit hub: save this section, back to summary
   }
   cur+=dir; if(cur<0)cur=0; if(cur>vis.length-1){ alert('Demo complete. In production the contact is tagged and the will is issued.'); cur=vis.length-1; }
-  render(); scrollTop();
+  render(); scrollTop(); try{ saveLocal(); }catch(e){}
 }
 
 function lsKey(){ try{ var fn=((window.AIWILLS_CONFIG&&window.AIWILLS_CONFIG.funnel)||'wills'); return 'aw_draft_'+fn+'_'+(loc||''); }catch(e){ return ''; } }
