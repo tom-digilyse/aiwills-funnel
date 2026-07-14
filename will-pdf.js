@@ -13,6 +13,7 @@ function tc(v){ // title-case, mirrors Jinja | title
   return s.toLowerCase().replace(/\b([a-z])/g, function(m,c){ return c.toUpperCase(); });
 }
 function tcNA(v){ var s = esc(v); return s ? tc(s) : 'Not Available'; }
+function paddr(p){ p=p||{}; var s=esc(p.address)?tc(p.address):''; if(esc(p.city)) s+=(s?', ':'')+tc(p.city); if(esc(p.postcode)) s+=(s?', ':'')+esc(p.postcode).toUpperCase(); return s||'Not Available'; }
 function arr(a){ return Array.isArray(a) ? a : []; }
 function yes(v){ return esc(v).toLowerCase() === 'yes' || v === true; }
 
@@ -82,7 +83,7 @@ function execClause(doc, d){
   var s = 'I appoint my ';
   execs.forEach(function(e, i){
     if (i > 0) s += ', my ';
-    s += NA(tc(e.relationship)) + ', ' + tcNA(e.firstName) + ' ' + tcNA(e.lastName) + ', of ' + tcNA(e.address);
+    s += NA(tc(e.relationship)) + ', ' + tcNA(e.firstName) + ' ' + tcNA(e.lastName) + ', of ' + paddr(e);
   });
   s += ' to be ' + (count === 1 ? 'executor and trustee' : 'joint executors and trustees') + '.';
   H(doc, 'Appointment of Executors and Trustees');
@@ -95,11 +96,11 @@ function guardianClause(doc, d){
   if (!yes(ch.appointGuardians)) return;
   var g = d.guardian || {};
   var s = 'If at my death any of my children are under 18, I appoint my ' + NA(tc(g.relationship)) +
-          ', ' + tcNA(g.firstName) + ' ' + tcNA(g.lastName) + ', of ' + tcNA(g.address) + ' as guardian of such children';
+          ', ' + tcNA(g.firstName) + ' ' + tcNA(g.lastName) + ', of ' + paddr(g) + ' as guardian of such children';
   var sub = g.substitute || {};
   if (yes(sub.has)){
     s += ', with ' + NA(tc(sub.relationship)) + ', ' + tcNA(sub.firstName) + ' ' + tcNA(sub.lastName) +
-         ', of ' + tcNA(sub.address) + ' as substitute guardian';
+         ', of ' + paddr(sub) + ' as substitute guardian';
   }
   s += '.';
   H(doc, 'Appointment of Guardians');
@@ -114,7 +115,7 @@ function giftsClauses(doc, gifts){
     H(doc, 'Gifts and Legacies (Items)');
     items.forEach(function(x){
       P(doc, 'I give my ' + tcNA(x.description) + ', to my ' + tcNA(x.recipientRelationship) + ', ' +
-              tcNA(x.recipientName) + ', of ' + tcNA(x.recipientAddress) + ', free of inheritance tax.');
+              tcNA(x.recipientName) + ', of ' + paddr({address:x.recipientAddress,city:x.recipientCity,postcode:x.recipientPostcode}) + ', free of inheritance tax.');
     });
     P(doc, 'If any gift or legacy in this Will fails for any reason and is not otherwise disposed of by this Will or any codicil to it, then (subject to any specific provision to the contrary) that gift or legacy shall form part of my residuary estate and shall be distributed in accordance with the terms relating to the residue of my estate.');
   }
@@ -123,7 +124,7 @@ function giftsClauses(doc, gifts){
     H(doc, 'Cash Gifts');
     cash.forEach(function(x){
       P(doc, 'I give the sum of £' + esc(x.amount) + ' to my ' + tcNA(x.beneficiaryRelationship) + ', ' +
-              tcNA(x.beneficiaryName) + ', of ' + tcNA(x.beneficiaryAddress) + ', free of inheritance tax.');
+              tcNA(x.beneficiaryName) + ', of ' + paddr({address:x.beneficiaryAddress,city:x.beneficiaryCity,postcode:x.beneficiaryPostcode}) + ', free of inheritance tax.');
     });
   }
 
@@ -175,7 +176,7 @@ function residuaryClause(doc, d, spouseName){
     P(doc, 'I give all my residuary estate (being all my real and personal property whatsoever and wheresoever not otherwise effectively disposed of by this my Will) to my spouse/partner, ' + spouseName + ' absolutely, provided that he/she survives me by a period of 28 days.');
     P(doc, 'But if my said spouse/partner shall fail to survive me by such period, then I give my residuary estate to the following beneficiaries in the proportions specified below:');
     arr(r.beneficiaries).forEach(function(b){
-      P(doc, tcNA(b.name) + ' of ' + tcNA(b.address) + ' — ' + esc(b.share) + '%');
+      P(doc, tcNA(b.name) + ' of ' + paddr(b) + ' — ' + esc(b.share) + '%');
     });
     P(doc, 'And if any such beneficiary shall fail to survive me by a period of 28 days leaving issue who survive me, such issue shall take (in equal shares between them) the share their parent would have taken had they survived me.');
     P(doc, 'And if any such beneficiary shall fail to survive me by a period of 28 days leaving no issue who survive me, their share shall pass to the surviving beneficiaries in proportion to their respective shares.');
@@ -184,7 +185,7 @@ function residuaryClause(doc, d, spouseName){
   } else if (distrib === 'Between other persons who are listed below'){
     P(doc, 'I give the whole of my residuary estate to the following individuals, in the shares specified:');
     arr(r.beneficiaries).forEach(function(b){
-      P(doc, '- ' + esc(b.share) + '% to my ' + tcNA(b.relationship) + ', ' + tcNA(b.name) + ', of ' + tcNA(b.address) + ';');
+      P(doc, '- ' + esc(b.share) + '% to my ' + tcNA(b.relationship) + ', ' + tcNA(b.name) + ', of ' + paddr(b) + ';');
     });
     P(doc, 'If any such beneficiary dies before me, that share shall pass to their issue in equal shares per stirpes.');
     P(doc, 'If any such beneficiary shall predecease me leaving no issue who survive me, their share shall accrue to the surviving beneficiaries in proportion to their respective shares.');
@@ -270,7 +271,7 @@ function renderWill(doc, d, isMirror){
     }
   } else {
     testatorName = partnerName(partner);
-    testatorAddr = esc(partner.address) ? tc(partner.address) : 'Not Available';
+    testatorAddr = paddr(partner);
     spouseSlotName = spouseDisplay(personal, personal.aka); // primary person is the spouse in the mirror will
     akaIntro = null; // mirror intro has no AKA in the source template
   }
@@ -365,12 +366,12 @@ function normalizeWill(s){
     partner: {
       firstName:PT.firstName, lastName:PT.lastName,
       aka:{ has:PT.akaHas, firstName:PT.akaFirstName, lastName:PT.akaLastName },
-      dob:PT.dob, status:PT.status, address:PT.address, phone:PT.phone
+      dob:PT.dob, status:PT.status, address:PT.address, city:PT.city, postcode:PT.postcode, phone:PT.phone
     },
     children: { anyUnder18:CH.anyUnder18, appointGuardians:CH.appointGuardians, count:CH.count },
     guardian: {
-      firstName:G.firstName, lastName:G.lastName, address:G.address, relationship:G.relationship,
-      substitute:{ has:G.subHas, firstName:G.subFirstName, lastName:G.subLastName, address:G.subAddress, relationship:G.subRelationship }
+      firstName:G.firstName, lastName:G.lastName, address:G.address, city:G.city, postcode:G.postcode, relationship:G.relationship,
+      substitute:{ has:G.subHas, firstName:G.subFirstName, lastName:G.subLastName, address:G.subAddress, city:G.subCity, postcode:G.subPostcode, relationship:G.subRelationship }
     },
     executors: Array.isArray(EX.list) ? EX.list : (Array.isArray(s.executors) ? s.executors : []),
     gifts: _gifts(s.gifts),

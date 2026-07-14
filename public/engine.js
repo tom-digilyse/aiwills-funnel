@@ -78,11 +78,13 @@ var GIFT_FIELDS = [
   { key:'items', type:'repeater', itemLabel:'Item gift', max:20, fields:[
     { key:'description', type:'text', label:'What is the item?', required:true },
     { key:'recipientRelationship', type:'select', options:relOpts, label:'Their relationship to you', required:true },
-    { type:'row', fields:[ {key:'recipientName',type:'text',label:'Recipient name',required:true}, {key:'recipientAddress',type:'text',label:'Recipient address',required:true} ] }
+    { type:'row', fields:[ {key:'recipientName',type:'text',label:'Recipient name',required:true}, {key:'recipientAddress',type:'text',label:'Recipient address (line 1)',required:true} ] },
+    { type:'row', fields:[ {key:'recipientCity',type:'text',label:'Town / city',required:true}, {key:'recipientPostcode',type:'text',label:'Postcode',required:true} ] }
   ]},
   { key:'cash', type:'repeater', itemLabel:'Cash gift', max:20, fields:[
     { type:'row', fields:[ {key:'amount',type:'number',label:'Amount (£)',required:true}, {key:'beneficiaryRelationship',type:'select',options:relOpts,label:'Their relationship to you',required:true} ] },
-    { type:'row', fields:[ {key:'beneficiaryName',type:'text',label:'Beneficiary name',required:true}, {key:'beneficiaryAddress',type:'text',label:'Beneficiary address',required:true} ] }
+    { type:'row', fields:[ {key:'beneficiaryName',type:'text',label:'Beneficiary name',required:true}, {key:'beneficiaryAddress',type:'text',label:'Beneficiary address (line 1)',required:true} ] },
+    { type:'row', fields:[ {key:'beneficiaryCity',type:'text',label:'Town / city',required:true}, {key:'beneficiaryPostcode',type:'text',label:'Postcode',required:true} ] }
   ]},
   { key:'charities', type:'repeater', itemLabel:'Charitable donation', max:20, fields:[
     { type:'row', fields:[ {key:'name',type:'text',label:'Charity name',required:true}, {key:'number',type:'text',label:'Charity number'} ] },
@@ -116,7 +118,8 @@ var WILLS_FUNNEL = [
     { type:'row', showIf:pYes, fields:[ {key:'firstName',type:'text',label:'Their first name',required:true}, {key:'lastName',type:'text',label:'Their last name',required:true} ] },
     { key:'status', type:'select', label:'Your status together', required:true, options:['Married','Civil partnership','Partner'], showIf:pYes },
     { key:'dob', type:'date', label:'Their date of birth', required:true, showIf:pYes },
-    { key:'address', type:'text', label:'Where do they live?', required:true, showIf:pYes },
+    { key:'address', type:'text', label:'Their address (line 1)', required:true, showIf:pYes },
+    { type:'row', showIf:pYes, fields:[ {key:'city',type:'text',label:'Town / city',required:true}, {key:'postcode',type:'text',label:'Postcode',required:true} ] },
     { key:'phone', type:'tel', label:'Their contact number', required:true, showIf:pYes },
     { key:'akaHas', type:'radio', label:'Do they go by any other names?', required:true, reflow:true, options:['Yes','No'], showIf:pYes },
     { type:'row', showIf:function(s){return s.partner.hasPartner==='Yes'&&s.partner.akaHas==='Yes';}, fields:[ {key:'akaFirstName',type:'text',label:'Their other first name',required:true}, {key:'akaLastName',type:'text',label:'Their other last name',required:true} ] },
@@ -141,17 +144,20 @@ var WILLS_FUNNEL = [
     fields:[
       { type:'row', fields:[ {key:'firstName',type:'text',label:'Guardian first name',required:true}, {key:'lastName',type:'text',label:'Guardian last name',required:true} ] },
       { key:'relationship', type:'select', options:relOpts, label:'Relationship to your children', required:true },
-      { key:'address', type:'text', label:'Where do they live?', required:true },
+      { key:'address', type:'text', label:'Guardian address (line 1)', required:true },
+      { type:'row', fields:[ {key:'city',type:'text',label:'Town / city',required:true}, {key:'postcode',type:'text',label:'Postcode',required:true} ] },
       { key:'subHas', type:'radio', label:'Add a substitute guardian?', required:true, reflow:true, options:['Yes','No'] },
       { type:'row', showIf:function(s){return s.guardian.subHas==='Yes';}, fields:[ {key:'subFirstName',type:'text',label:'Substitute first name',required:true}, {key:'subLastName',type:'text',label:'Substitute last name',required:true} ] },
       { key:'subRelationship', type:'select', options:relOpts, label:'Substitute relationship', required:true, showIf:function(s){return s.guardian.subHas==='Yes';} },
-      { key:'subAddress', type:'text', label:'Where does the substitute live?', required:true, showIf:function(s){return s.guardian.subHas==='Yes';} }
+      { key:'subAddress', type:'text', label:'Substitute address (line 1)', required:true, showIf:function(s){return s.guardian.subHas==='Yes';} },
+      { type:'row', showIf:function(s){return s.guardian.subHas==='Yes';}, fields:[ {key:'subCity',type:'text',label:'Town / city',required:true}, {key:'subPostcode',type:'text',label:'Postcode',required:true} ] }
     ] },
   { id:'executors', name:'Executors', title:'Your executors', lead:'Executors carry out your wishes. You can name up to four.', fields:[
     { key:'list', type:'repeater', itemLabel:'Executor', required:true, max:4, emptyMsg:'Add at least one executor.', fields:[
       { type:'row', fields:[ {key:'firstName',type:'text',label:'First name',required:true}, {key:'lastName',type:'text',label:'Last name',required:true} ] },
       { key:'relationship', type:'select', options:relOpts, label:'Relationship to you', required:true },
-      { key:'address', type:'text', label:'Where do they live?', required:true }
+      { key:'address', type:'text', label:'Address (line 1)', required:true },
+      { type:'row', fields:[ {key:'city',type:'text',label:'Town / city',required:true}, {key:'postcode',type:'text',label:'Postcode',required:true} ] }
     ]}
   ]},
   { id:'gifts', name:'Gifts', title:'Gifts and legacies', lead:'Leave specific items, cash sums, charity donations or gifts for pets. All optional.',
@@ -177,7 +183,8 @@ var WILLS_FUNNEL = [
       fields:[
         { type:'row', fields:[ {key:'name',type:'text',label:'Full name',required:true}, {key:'share',type:'number',label:'Share %',required:true,reflow:true} ] },
         { key:'relationship', type:'select', options:relOpts, label:'Relationship to you', required:true },
-        { key:'address', type:'text', label:'Address', required:true }
+        { key:'address', type:'text', label:'Address (line 1)', required:true },
+        { type:'row', fields:[ {key:'city',type:'text',label:'Town / city',required:true}, {key:'postcode',type:'text',label:'Postcode',required:true} ] }
       ] },
     { key:'ageOfBenefit', type:'select', label:'At what age should beneficiaries inherit?', required:false, options:['18','21','25'], showIf:function(){return false;} }
   ]},
