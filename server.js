@@ -381,6 +381,8 @@ async function etbSave(loc, state, contactId, status, opts){
   var values = etbExtract(state, status || 'started');
   var cf = []; var written = [], noField = [];
   Object.keys(values).forEach(function(name){ var id = map[name.toLowerCase()]; if (id){ cf.push({ id: id, value: String(values[name]) }); written.push(name); } else { noField.push(name); } });
+  try{ var _csf=await awCurrentStepCF(token, loc, map, 'ETB', 'etb', opts&&opts.step); if(_csf.length) cf=cf.concat(_csf); }catch(e){}
+  try{ var _esid=await awEnsureField(token, loc, map, 'ETB Summary'); if(_esid) cf=cf.concat([{ id:_esid, value: awSummarise(state||{}) }]); }catch(e){}
   var base = { customFields: cf }; // GHL PUT rejects empty email, so only send personal fields that actually have a value
   var pmap = { firstName: pd.firstName, lastName: pd.lastName, email: pd.email, phone: pd.phone, address1: pd.address, city: pd.city, postalCode: pd.postcode };
   Object.keys(pmap).forEach(function(k){ if (pmap[k]!=null && String(pmap[k]).trim()!=='') base[k]=pmap[k]; });
@@ -512,10 +514,71 @@ function awLines(obj, indent){
   return out.join('\n');
 }
 function awSummarise(state){ try{ var s=awLines(state,0); return s||'(no details captured yet)'; }catch(e){ return '(summary unavailable)'; } }
-async function awEnsureField(token, loc, map, name){
+async function awEnsureField(token, loc, map, name, dataType){
+  dataType=dataType||'LARGE_TEXT';
   var fid=map[name.toLowerCase()];
-  if(!fid){ try{ var c=await ghl('POST','/locations/'+loc+'/customFields',token,{name:name,dataType:'LARGE_TEXT',model:'contact'}); var nf=c.customField||c; if(nf&&nf.id){ fid=nf.id; map[name.toLowerCase()]=fid; } }catch(e){ console.error('field create '+name, e.message); } }
+  if(!fid){ try{ var c=await ghl('POST','/locations/'+loc+'/customFields',token,{name:name,dataType:dataType,model:'contact'}); var nf=c.customField||c; if(nf&&nf.id){ fid=nf.id; map[name.toLowerCase()]=fid; } }catch(e){ console.error('field create '+name, e.message); } }
   return fid;
+}
+
+// Map an engine funnel step (section id) to the matching GHL pipeline stage name (Chris's workflows trigger on the "<Service> Current Step" field). Probate = lead pipeline, engine only sets New Lead.
+var AW_STAGE_MAP = {
+  wills: { personal:'Your Details', partner:'Spouse/Partner', situation:'Spouse/Partner', children:'Your Children', guardian:'Guardians', executors:'Executors', gifts:'Gifts', mirrorGifts:'Gifts', residual:'Residual Estate', funeral:'Funeral Arrangements', mirrorFuneral:'Funeral Arrangements', review:'Pay Bill', payment:'Pay Bill', generate:'Pay Bill' },
+  lpa: { your_details:'Donor Details', attorneys:'Attorneys', lpa_type:'LPA Type', decisions:'Decisions', treatment:'Decisions', preferences:'Preferences', usage:'Usage', notify:'Notification', provider:'Provider', registration:'Registration', exemption:'Exemption', declaration:'Declaration', review:'Pay Bill LPA', payment:'Pay Bill LPA', generate:'Pay Bill LPA' },
+  etb: { your_details:'Your Details', executors:'Executors', will:'Will', codicil:'Codicil', lpa:'LPA', property:'Property', insurance:'Insurance', bank_accounts:'Banks', pensions:'Pensions', investments:'Investments', business:'Business', debts:'Debts', digital_assets:'Digital', wishes:'Wishes & memories', review:'Payment', payment:'Payment', done:'Payment' }
+};
+function awStageFor(service, step){
+  if(service==='probate'||service==='referral') return 'New Lead';
+  var m=AW_STAGE_MAP[service]; if(!m||!step) return '';
+  return m[step]||'';
+}
+async function awCurrentStepCF(token, loc, map, label, service, step){
+  var stage=awStageFor(service, step); if(!stage) return [];
+  var fid=await awEnsureField(token, loc, map, label+' Current Step', 'TEXT');
+  return fid ? [{ id:fid, value:stage }] : [];
+}
+
+// Break key single-value answers into tidy named fields (readable in GHL, usable as workflow conditions). Lists stay in the Summary.
+function _len(list){ try{ return (list||[]).filter(function(x){ return x && (x.firstName||x.lastName||x.name||x.description||x.amount); }).length; }catch(e){ return 0; } }
+function _v(x){ return (x!=null && String(x).trim()!=='') ? String(x).trim() : ''; }
+function awNamedFields(service, state){
+  var s=state||{}, o=[];
+  function add(n,v){ if(_v(v)!=='') o.push({ name:n, value:String(v) }); }
+  if(service==='wills'){
+    var pt=s.partner||{}, si=s.situation||{}, ch=s.children||{}, re=s.residual||{}, fu=s.funeral||{};
+    if(pt.hasPartner==='Yes') add('Will Marital Status', pt.status||'Has partner');
+    else if(pt.hasPartner==='No') add('Will Marital Status','Single');
+    if(pt.hasPartner==='Yes') add('Will Mirror Will', pt.mirrorWill);
+    add('Will Has Children', ch.hasChildren);
+    if(ch.hasChildren==='Yes'){ add('Will Number of Children', ch.count); add('Will Children Under 18', ch.anyUnder18); add('Will Guardians Appointed', ch.appointGuardians); }
+    var ne=_len(s.executors&&s.executors.list); if(ne) add('Will Number of Executors', ne);
+    add('Will Estate Distribution', re.distribution);
+    add('Will Property Abroad', si.propertyAbroad);
+    add('Will Domicile Elsewhere', si.domicileElsewhere);
+    add('Will Has Previous Will', si.previousWillHas);
+    add('Will Funeral Preference', fu.arrangements);
+  } else if(service==='lpa'){
+    add('LPA Type', (s.lpa_type||{}).type);
+    var na=_len(s.attorneys&&s.attorneys.list); if(na) add('LPA Number of Attorneys', na);
+    add('LPA Attorney Decisions', (s.decisions||{}).mode);
+    add('LPA Registered By', (s.registration||{}).who);
+    add('LPA Fee Status', (s.exemption||{}).status);
+  } else if(service==='probate'||service==='referral'){
+    var ab=s.about||{}, es=s.estate||{}, co=s.concerns||{};
+    add('Probate Has Partner', ab.hasPartner);
+    add('Probate Has Children', ab.hasChildren);
+    add('Probate Estate Band', es.estateBand);
+    if(_v(es.value)!=='') add('Probate Estate Value', '\u00a3'+es.value);
+    var cm={mentalCapacity:'Mental capacity',careFees:'Care fees',divorceBankruptcy:'Divorce/bankruptcy',remarriage:'Remarriage',iht:'Inheritance tax'};
+    var picked=Object.keys(cm).filter(function(k){ var v=co[k]; return v===true||v==='Yes'||v==='true'||v===1||v==='1'; }).map(function(k){ return cm[k]; });
+    if(picked.length) add('Probate Concerns', picked.join(', '));
+  }
+  return o;
+}
+async function awNamedFieldsCF(token, loc, map, service, state){
+  var list=awNamedFields(service, state); var out=[];
+  for(var i=0;i<list.length;i++){ try{ var fid=await awEnsureField(token, loc, map, list[i].name, 'TEXT'); if(fid) out.push({ id:fid, value:list[i].value }); }catch(e){} }
+  return out;
 }
 async function awStateAndSummaryCF(token, loc, map, label, state){
   var out=[];
@@ -575,6 +638,8 @@ async function willSave(loc, state, contactId, opts){
   var base={}; var pmap={ firstName:p.firstName, lastName:p.lastName, email:p.email, phone:p.phone }; // GHL PUT rejects empty email
   Object.keys(pmap).forEach(function(k){ if(pmap[k]!=null && String(pmap[k]).trim()!=='') base[k]=pmap[k]; });
   var _cf=await awStateAndSummaryCF(token, loc, map, 'Will', state); if(_cf.length) base.customFields=_cf;
+  try{ var _csf=await awCurrentStepCF(token, loc, map, 'Will', 'wills', opts&&opts.step); if(_csf.length) base.customFields=(base.customFields||[]).concat(_csf); }catch(e){}
+  try{ var _nf=await awNamedFieldsCF(token, loc, map, 'wills', state); if(_nf.length) base.customFields=(base.customFields||[]).concat(_nf); }catch(e){}
   var up=await upsertOrUpdateContact(token, loc, contactId, base);
   var cid=(up.contact&&up.contact.id)||up.id||contactId||'';
   var pdfRes; if (opts && opts.pdf && cid) pdfRes = await storeGeneratedPdf(loc, cid, 'wills');
@@ -582,7 +647,7 @@ async function willSave(loc, state, contactId, opts){
   return { contactId: cid, saved: _cf.length>0, pdf: pdfRes };
 }
 /* Persist a referral-funnel state JSON onto the contact and tag the lead on submit (probate etc). */
-async function referralSave(loc, state, contactId, key, status){
+async function referralSave(loc, state, contactId, key, status, step){
   if(!loc) throw new Error('locationId required');
   var k=String(key||'probate').replace(/[^a-z]/gi,'').toLowerCase()||'probate';
   var label=k.charAt(0).toUpperCase()+k.slice(1);
@@ -592,6 +657,8 @@ async function referralSave(loc, state, contactId, key, status){
   var base={}; var pmap={ firstName:p.firstName, lastName:p.lastName, email:p.email, phone:p.phone };
   Object.keys(pmap).forEach(function(x){ if(pmap[x]!=null && String(pmap[x]).trim()!=='') base[x]=pmap[x]; });
   var _rcf=await awStateAndSummaryCF(token, loc, map, label, state); if(_rcf.length) base.customFields=_rcf;
+  try{ var _csf=await awCurrentStepCF(token, loc, map, label, k, step); if(_csf.length) base.customFields=(base.customFields||[]).concat(_csf); }catch(e){}
+  try{ var _nf=await awNamedFieldsCF(token, loc, map, k, state); if(_nf.length) base.customFields=(base.customFields||[]).concat(_nf); }catch(e){}
   var up=await upsertOrUpdateContact(token, loc, contactId, base);
   var cid=(up.contact&&up.contact.id)||up.id||contactId||'';
   if(status==='submitted' && cid){
@@ -612,6 +679,8 @@ async function lpaSave(loc, state, contactId, opts){
   Object.keys(pmap).forEach(function(k){ if(pmap[k]!=null && String(pmap[k]).trim()!=='') base[k]=pmap[k]; });
   var _lcf=await awStateAndSummaryCF(token, loc, map, 'LPA', state);
   if(_lcf.length){ base.customFields=_lcf; }
+  try{ var _csf=await awCurrentStepCF(token, loc, map, 'LPA', 'lpa', opts&&opts.step); if(_csf.length) base.customFields=(base.customFields||[]).concat(_csf); }catch(e){}
+  try{ var _nf=await awNamedFieldsCF(token, loc, map, 'lpa', state); if(_nf.length) base.customFields=(base.customFields||[]).concat(_nf); }catch(e){}
   var up=await upsertOrUpdateContact(token, loc, contactId, base);
   var cid=(up.contact&&up.contact.id)||up.id||contactId||'';
   var pdfRes; if (opts && opts.pdf && cid) pdfRes = await storeGeneratedPdf(loc, cid, 'lpa');
@@ -996,7 +1065,7 @@ const server = http.createServer(async (req, res) => {
       try {
         const b = JSON.parse((await readBody(req)) || '{}');
         const loc = (b.locationId||'').replace(/[^A-Za-z0-9]/g,'');
-        return send(res, 200, await referralSave(loc, b.state||{}, b.contactId||'', b.key||'probate', b.status||'started'));
+        return send(res, 200, await referralSave(loc, b.state||{}, b.contactId||'', b.key||'probate', b.status||'started', b.step||''));
       } catch(e){ return send(res, 200, { error: e.message }); }
     }
     if (req.method === 'POST' && pathOnly === '/api/etb-save'){
@@ -1004,7 +1073,7 @@ const server = http.createServer(async (req, res) => {
       try {
         const b = JSON.parse((await readBody(req)) || '{}');
         const loc = (b.locationId||'').replace(/[^A-Za-z0-9]/g,'');
-        return send(res, 200, await etbSave(loc, b.state||{}, b.contactId||'', b.status||'started', { pdf: !!b.pdf }));
+        return send(res, 200, await etbSave(loc, b.state||{}, b.contactId||'', b.status||'started', { pdf: !!b.pdf, step: b.step||'' }));
       } catch(e){ return send(res, 200, { error: e.message }); }
     }
     if (req.method === 'POST' && pathOnly === '/api/etb-upload'){
@@ -1032,7 +1101,7 @@ const server = http.createServer(async (req, res) => {
       try {
         const b = JSON.parse((await readBody(req)) || '{}');
         const loc = (b.locationId||'').replace(/[^A-Za-z0-9]/g,'');
-        const _wr = await willSave(loc, b.state||{}, b.contactId||'', { pdf: !!b.pdf });
+        const _wr = await willSave(loc, b.state||{}, b.contactId||'', { pdf: !!b.pdf, step: b.step||'' });
         if(_wr && _wr.contactId){ try{ _wr.token = signEdit({ loc:loc, cid:_wr.contactId, exp:Date.now()+1000*60*60*24*30 }); }catch(e){} }
         return send(res, 200, _wr);
       } catch(e){ return send(res, 200, { error: e.message }); }
@@ -1042,7 +1111,7 @@ const server = http.createServer(async (req, res) => {
       try {
         const b = JSON.parse((await readBody(req)) || '{}');
         const loc = (b.locationId||'').replace(/[^A-Za-z0-9]/g,'');
-        const _lr = await lpaSave(loc, b.state||{}, b.contactId||'', { pdf: !!b.pdf });
+        const _lr = await lpaSave(loc, b.state||{}, b.contactId||'', { pdf: !!b.pdf, step: b.step||'' });
         if(_lr && _lr.contactId){ try{ _lr.token = signEdit({ loc:loc, cid:_lr.contactId, exp:Date.now()+1000*60*60*24*30 }); }catch(e){} }
         return send(res, 200, _lr);
       } catch(e){ return send(res, 200, { error: e.message }); }
