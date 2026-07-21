@@ -459,7 +459,7 @@ function verifyStripeSig(raw, sigHeader, secret){
   } catch(e){ return false; }
 }
 /* ---- edit-link tokens: gate the load-by-contact endpoints so a contactId alone can't read someone's data ---- */
-function editSecret(){ return process.env.EDIT_SECRET || (String(process.env.STRIPE_SECRET_KEY||'').indexOf('sk_test')===0 ? 'aiwills-dev-edit-secret' : ''); }
+function editSecret(){ return process.env.EDIT_SECRET || ''; } // no fallback: empty secret means signEdit/verifyEdit refuse to mint or accept tokens
 function b64u(s){ return Buffer.from(s).toString('base64').replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); }
 function b64ud(s){ s=String(s).replace(/-/g,'+').replace(/_/g,'/'); while(s.length%4)s+='='; return Buffer.from(s,'base64').toString('utf8'); }
 function signEdit(payload){ var sec=editSecret(); if(!sec) return ''; var p=b64u(JSON.stringify(payload)); var h=crypto.createHmac('sha256',sec).update(p).digest('hex').slice(0,32); return p+'.'+h; }
@@ -976,6 +976,11 @@ const server = http.createServer(async (req, res) => {
       const cmd = "cd " + repo
         + " && GIT_SSH_COMMAND='ssh -i " + key + " -o StrictHostKeyChecking=no' git fetch --all --prune"
         + " && git reset --hard origin/main"
+        + " && node --check server.js && node --check will-pdf.js && node --check public/engine.js && node --check public/engine-dev.js"
+        + " && /bin/mkdir -p " + dest + "/_prev"
+        + " && ( /bin/cp -f " + dest + "/server.js " + dest + "/_prev/server.js || true )"
+        + " && ( /bin/cp -f " + dest + "/will-pdf.js " + dest + "/_prev/will-pdf.js || true )"
+        + " && ( /bin/cp -f " + dest + "/public/engine.js " + dest + "/_prev/engine.js || true )"
         + " && /bin/cp -R public/. " + dest + "/public/"
         + " && /bin/cp -f server.js will-pdf.js package.json " + dest + "/"
         + " && /bin/mkdir -p " + dest + "/tmp && /bin/touch " + dest + "/tmp/restart.txt"
@@ -1123,7 +1128,7 @@ const server = http.createServer(async (req, res) => {
         const u=new URL(req.url,'http://x');
         const loc=u.searchParams.get('locationId')||''; const cid=u.searchParams.get('contactId')||''; const key=u.searchParams.get('key')||'';
         const need=process.env.HUBLINK_SECRET||'';
-        if(need && key!==need) return send(res,403,{error:'bad key'});
+        if(!need || key!==need) return send(res,403,{error:'bad key'});
         if(!loc||!cid) return send(res,400,{error:'locationId and contactId required'});
         const tok=signEdit({loc:loc,cid:cid,exp:Date.now()+1000*60*60*24*90});
         if(!tok) return send(res,500,{error:'signing unavailable'});
@@ -1144,25 +1149,13 @@ const server = http.createServer(async (req, res) => {
       } catch(e){ return send(res, 200, { error: e.message }); }
     }
     // DEV ONLY: mint an edit token to test the edit flow. Disabled the moment EDIT_SECRET is set (production).
-    if (req.method === 'GET' && pathOnly === '/api/_edit-token'){
-      res.setHeader('Access-Control-Allow-Origin','*');
-      try {
-        if(process.env.EDIT_SECRET) return send(res,403,{error:'disabled in production'});
-        const u=new URL(req.url,'http://x');
-        const loc=(u.searchParams.get('locationId')||'').replace(/[^A-Za-z0-9]/g,'');
-        const cid=(u.searchParams.get('contactId')||'').replace(/[^A-Za-z0-9]/g,'');
-        const funnel=(u.searchParams.get('funnel')||'etb');
-        if(!loc||!cid) return send(res,400,{error:'locationId and contactId required'});
-        return send(res,200,{ token: signEdit({ loc:loc, cid:cid, funnel:funnel, exp: Date.now()+1000*60*60 }) });
-      } catch(e){ return send(res, 200, { error: e.message }); }
-    }
     // Production mint: secret-gated (only Chris's login / a GHL workflow can call it). Returns a per-contact edit link.
     if (req.method === 'POST' && pathOnly === '/api/edit-link'){
       res.setHeader('Access-Control-Allow-Origin','*');
       try {
         const b = JSON.parse((await readBody(req)) || '{}');
         const secret = b.secret || req.headers['x-edit-secret'] || '';
-        const need = process.env.EDIT_LINK_SECRET || (String(process.env.STRIPE_SECRET_KEY||'').indexOf('sk_test')===0 ? 'aiwills-dev-link-secret' : '');
+        const need = process.env.EDIT_LINK_SECRET || '';
         if (!need || secret !== need) return send(res, 403, { error: 'forbidden' });
         const loc = (b.locationId||'').replace(/[^A-Za-z0-9]/g,'');
         const cid = (b.contactId||'').replace(/[^A-Za-z0-9]/g,'');
