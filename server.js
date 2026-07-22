@@ -854,6 +854,37 @@ const server = http.createServer(async (req, res) => {
       } catch(e){ res.writeHead(200, { 'Content-Type':'application/json' }); const dbg=(new URL(req.url,'http://x')).searchParams.get('debug'); return res.end(dbg ? JSON.stringify({_err:String((e&&e.message)||e)}) : '{}'); }
     }
     // ----- payment: create a Stripe Checkout session (central AI Wills Stripe) -----
+    // ----- service URLs self-register from the real funnel page (needs no extra GHL permission) -----
+    if (req.method === 'POST' && pathOnly === '/api/register-url'){
+      res.setHeader('Access-Control-Allow-Origin','*');
+      try {
+        const rb = JSON.parse((await readBody(req)) || '{}');
+        const rloc = String(rb.locationId || '').replace(/[^A-Za-z0-9]/g,'');
+        const rkey = String(rb.key || '').toLowerCase();
+        if (!rloc || ['wills','lpa','etb','probate'].indexOf(rkey) < 0) return send(res, 400, { error: 'bad request' });
+        let ru; try { ru = new URL(String(rb.url || '')); } catch(e){ return send(res, 400, { error: 'bad url' }); }
+        if (ru.protocol !== 'https:') return send(res, 200, { ok:true, stored:false, reason:'not https' });
+        const rhost = ru.hostname.toLowerCase();
+        // Never record our own test harness, and only trust hosts we recognise as funnel hosts.
+        if (rhost === 'engine.aiwills.co.uk' || rhost === 'aiwills.digilyse.co') return send(res, 200, { ok:true, stored:false, reason:'own domain' });
+        if (!/(^|\.)aiwills\.co\.uk$/.test(rhost)) { console.error('register-url: host not allowlisted ' + rhost + ' loc=' + rloc + ' key=' + rkey); return send(res, 200, { ok:true, stored:false, reason:'host not allowlisted' }); }
+        if (/\/(preview|page-builder|funnel-builder)\//i.test(ru.pathname)) return send(res, 200, { ok:true, stored:false, reason:'builder or preview url' });
+        // Only ever fill a gap, and never create a partial store: /api/brand treats a non-empty store as
+        // the whole config, so writing one stray key would wipe that account's branding.
+        const rcur = brandStoreGet(rloc);
+        if (!rcur || !Object.keys(rcur).length) return send(res, 200, { ok:true, stored:false, reason:'no config yet' });
+        const rfield = rkey + '_url';
+        const rexisting = String(rcur[rfield] || '').trim();
+        const rIsPlaceholder = !rexisting || /engine\.aiwills\.co\.uk/i.test(rexisting);
+        if (!rIsPlaceholder) return send(res, 200, { ok:true, stored:false, reason:'already set' });
+        const rclean = ru.origin + ru.pathname;
+        if (rexisting === rclean) return send(res, 200, { ok:true, stored:false, reason:'unchanged' });
+        rcur[rfield] = rclean;
+        brandStorePut(rloc, rcur);
+        console.error('register-url: stored ' + rfield + '=' + rclean + ' for ' + rloc);
+        return send(res, 200, { ok:true, stored:true, url:rclean });
+      } catch(e){ return send(res, 200, { error: e.message }); }
+    }
     if (req.method === 'GET' && pathOnly === '/api/hub-status'){
       res.setHeader('Access-Control-Allow-Origin','*');
       const hu=new URL(req.url,'http://x'); const hloc=(hu.searchParams.get('locationId')||'').replace(/[^A-Za-z0-9]/g,''); const hcid=(hu.searchParams.get('contactId')||'').replace(/[^A-Za-z0-9]/g,'');

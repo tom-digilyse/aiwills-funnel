@@ -736,6 +736,26 @@ function closeGaps(){
 }
 initState(); restoreLocal(); applyBrand();
 try{ var _qp=new URLSearchParams(location.search); if(_qp.get('aw_paid')==='1' && _qp.get('aw_id')){ window.AIWILLS_WILL_ID=_qp.get('aw_id'); if(state.payment) state.payment.paid=true; var _vv=visible(); for(var _i=0;_i<_vv.length;_i++){ if(_vv[_i].id==='generate'){ cur=_i; break; } } } if(_qp.get('aw_etb_paid')==='1' && FUNNEL===ETB_FUNNEL){ if(state.payment) state.payment.paid=true; var _ev=visible(); for(var _j=0;_j<_ev.length;_j++){ if(_ev[_j].id==='done'){ cur=_j; break; } } } if(window.AIWILLS_EDIT===true){ var _rv=visible(); for(var _k=0;_k<_rv.length;_k++){ if(_rv[_k].kind==='review'){ cur=_k; break; } } } }catch(e){}
+
+/* Service URLs register themselves. When this engine runs on a real funnel page it already knows its
+   own address, so it tells the server once. The services hub can then link to the client's own page
+   instead of a shared test page, with nothing for anyone to set by hand. */
+try{ (function(){
+  if(!loc) return;
+  var _rk=FUNNEL_KEY; if(['wills','lpa','etb','probate'].indexOf(_rk)<0) return;
+  var _rh=(location.hostname||'').toLowerCase();
+  if(_rh==='engine.aiwills.co.uk'||_rh==='aiwills.digilyse.co'||_rh==='localhost'||_rh==='127.0.0.1') return;
+  if(location.protocol!=='https:') return;
+  var _rp=location.pathname||'';
+  if(/\/(preview|page-builder|funnel-builder)\//i.test(_rp)) return;
+  var _ru=location.origin+location.pathname;
+  var _rck='aw_regurl_'+_rk+'_'+loc;
+  try{ if(localStorage.getItem(_rck)===_ru) return; }catch(e){}
+  fetch(API+'/api/register-url',{method:'POST',body:JSON.stringify({locationId:loc,key:_rk,url:_ru})})
+    .then(function(r){return r.json();})
+    .then(function(){ try{ localStorage.setItem(_rck,_ru); }catch(e){} })
+    .catch(function(){});
+})(); }catch(e){}
 render(); closeGaps();
 window.addEventListener('load', closeGaps);
 setTimeout(closeGaps,400); setTimeout(closeGaps,1200);
