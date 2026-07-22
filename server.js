@@ -875,7 +875,12 @@ const server = http.createServer(async (req, res) => {
         if (!rcur || !Object.keys(rcur).length) return send(res, 200, { ok:true, stored:false, reason:'no config yet' });
         const rfield = rkey + '_url';
         const rexisting = String(rcur[rfield] || '').trim();
-        const rIsPlaceholder = !rexisting || /engine\.aiwills\.co\.uk/i.test(rexisting);
+        // A placeholder is anything still pointing at our own shared test harness, on EITHER of our
+        // domains, or any *-test.html page. Those must be healed; a real client URL must never be.
+        let rexHost = '', rexPath = '';
+        try { const rx = new URL(rexisting); rexHost = rx.hostname.toLowerCase(); rexPath = rx.pathname || ''; } catch(e){}
+        const rOurs = (rexHost === 'engine.aiwills.co.uk' || rexHost === 'aiwills.digilyse.co');
+        const rIsPlaceholder = !rexisting || rOurs || /-test\.html$/i.test(rexPath);
         if (!rIsPlaceholder) return send(res, 200, { ok:true, stored:false, reason:'already set' });
         const rclean = ru.origin + ru.pathname;
         if (rexisting === rclean) return send(res, 200, { ok:true, stored:false, reason:'unchanged' });
