@@ -154,6 +154,11 @@ function residuaryClause(doc, d, spouseName){
   var distrib = esc(r.distribution);
   if (!distrib) return;
   var step = yes(r.includeStepChildren) ? ' (which expression shall include my stepchildren)' : '';
+  // Safety net: these branches match the engine's dropdown labels by exact string. If a label is ever
+  // edited in the engine without editing here, the residuary gift would vanish silently and the will
+  // would fall to intestacy with no error. Make that loud in the logs rather than invisible.
+  var KNOWN = ['All to my spouse/partner, then equally between my children','To be shared equally between my children only','All to my spouse/partner','To my spouse/partner then to those who I have listed below','Between other persons who are listed below'];
+  if (KNOWN.indexOf(distrib) < 0) console.error('will-pdf: UNRECOGNISED residuary distribution ' + JSON.stringify(distrib) + ' - no residuary gift will be written. Engine label and will-pdf.js are out of sync.');
   H(doc, 'The Residuary Estate');
 
   if (distrib === 'All to my spouse/partner, then equally between my children'){
@@ -235,23 +240,43 @@ function organClause(doc, v){
 }
 
 function signatureBlock(doc){
-  doc.moveDown(0.8);
-  P(doc, 'Signed by me in the presence of the undersigned witnesses, who both attest and witness my signature in my presence, and in the presence of each other.');
-  doc.moveDown(0.3);
-  doc.font('Times-Roman').fontSize(11).fillColor('black');
+  doc.moveDown(1);
+  var ATTEST = 'Signed by me in the presence of the undersigned witnesses, who both attest and witness my signature in my presence, and in the presence of each other.';
+  var usableW = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+  var floor = function(){ return doc.page.height - doc.page.margins.bottom; };
+
+  // Heights are measured from real font metrics, not guessed, so the reserve is never
+  // so generous that it pushes the signature onto a page of its own unnecessarily.
+  doc.font('Helvetica').fontSize(12); var lh12 = doc.currentLineHeight();
+  doc.font('Helvetica').fontSize(11); var lh11 = doc.currentLineHeight();
+  var attestH = doc.font('Helvetica').fontSize(11.5).heightOfString(ATTEST, { width: usableW, lineGap: 3 });
+
+  // Group A - attestation + date + signature. This must stay with the final clause above so the
+  // testator's signature is never separated from the end of the will text.
+  var needA = attestH + (0.9 * lh12) + lh12 + (0.7 * lh12) + lh12 + 4;
+  if (doc.y + needA > floor()) doc.addPage();
+
+  doc.font('Helvetica').fontSize(11.5).fillColor('black').text(ATTEST, { align:'justify', lineGap:3 });
+  doc.moveDown(0.9);
+  doc.font('Helvetica').fontSize(12).fillColor('black');
   doc.text('Date: ___________________________');
-  doc.moveDown(0.4);
+  doc.moveDown(0.7);
   doc.text('Signature: ___________________________');
-  doc.moveDown(0.8);
+  doc.moveDown(1.1);
+
+  // Group B - both witness blocks move together, so a witness is never split across a page break.
+  var perWitness = lh12 + (0.35 * lh12) + 4 * (lh11 + 5) + (0.9 * lh12);
+  if (doc.y + (2 * perWitness) + 4 > floor()) doc.addPage();
+
   [['Witness 1'],['Witness 2']].forEach(function(w){
-    doc.font('Times-Bold').fontSize(11).text(w[0]);
-    doc.moveDown(0.2);
-    doc.font('Times-Roman').fontSize(10.5).fillColor('#222')
-       .text('Name: ______________________________________________')
-       .text('Address: ____________________________________________')
-       .text('Profession: _________________________________________')
-       .text('Signature: __________________________________________');
-    doc.fillColor('black').moveDown(0.7);
+    doc.font('Helvetica-Bold').fontSize(12).fillColor('black').text(w[0]);
+    doc.moveDown(0.35);
+    doc.font('Helvetica').fontSize(11).fillColor('#222')
+       .text('Name: ______________________________________________', { lineGap:5 })
+       .text('Address: ____________________________________________', { lineGap:5 })
+       .text('Profession: _________________________________________', { lineGap:5 })
+       .text('Signature: __________________________________________', { lineGap:5 });
+    doc.fillColor('black').moveDown(0.9);
   });
 }
 
