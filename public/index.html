@@ -172,12 +172,16 @@ var FIELDS = [
   {k:'youtube_link', label:'YouTube link', g:'contact'},
   {k:'tiktok_link', label:'TikTok link', g:'contact'},
   {k:'privacy_url', label:'Privacy policy link', g:'contact'},
+  {k:'wills_url', label:'Wills page link (this client\'s own funnel page, not a test page)', g:'services'},
+  {k:'lpa_url', label:'LPA page link', g:'services'},
+  {k:'etb_url', label:'Executor Toolbox page link', g:'services'},
+  {k:'probate_url', label:'Probate / referral page link', g:'services'},
   {k:'will_price', label:'Will price', g:'pricing'},
   {k:'lpa_price', label:'LPA price', g:'pricing'},
   {k:'etb_price', label:'Executor Toolbox price (per year)', g:'pricing'},
   {k:'legal_footer', label:'Small print (legal text at the bottom of every page). Paste it from your website - links and formatting are kept.', rich:true, g:'pricing'}
 ];
-var GROUPS = [['brand','Brand'],['header','Header & nav'],['buttons','Buttons'],['footer','Footer'],['contact','Contact & social'],['pricing','Pricing & legal']];
+var GROUPS = [['brand','Brand'],['header','Header & nav'],['buttons','Buttons'],['footer','Footer'],['contact','Contact & social'],['services','Service page links'],['pricing','Pricing & legal']];
 
 function el(id){ return document.getElementById(id); }
 function fieldHtml(f){
@@ -300,7 +304,7 @@ document.addEventListener('input', function(e){
 });
 // Map the tool's field keys to the funnel engine's config keys, so the funnel
 // reads ONE custom value (aiwills_brand_json) instead of 20+ merge fields.
-var BRAND_MAP={company_name:'company_name',client_logo_url:'logo_url',client_primary_color:'primary_color',client_heading_color:'heading_color',client_body_color:'body_color',client_icon_color:'icon_color',header_bg_color:'header_bg_color',page_bg_color:'page_bg_color',nav_text_color:'nav_text_color',client_heading_font:'heading_font',heading_font_size:'heading_font_size',heading_weight:'heading_weight',nav_weight:'nav_weight',button_weight:'button_weight',client_body_font:'body_font',button_color:'button_color',button_hover_color:'button_hover_color',button_text_color:'button_text_color',button_secondary_color:'button_secondary_color',button_secondary_text_color:'button_secondary_text_color',button_font:'button_font',button_radius:'button_radius',footer_bg_color:'footer_bg_color',footer_text_color:'footer_text_color',site_max_width:'site_max_width',footer_max_width:'footer_max_width',nav_font_size:'nav_font_size',body_font_size:'body_font_size',logo_height:'logo_height',footer_phone:'phone',company_email:'email',company_address:'address',facebook_link:'facebook_url',instagram_link:'instagram_url',linkedin_link:'linkedin_url',twitter_link:'twitter_url',youtube_link:'youtube_url',tiktok_link:'tiktok_url',privacy_url:'privacy_url',font_css_links:'font_css_links',will_price:'will_price',lpa_price:'lpa_price',etb_price:'etb_price',legal_footer:'legal_footer',nav_menu_json:'nav_menu_json',footer_menu_json:'footer_menu_json'};
+var BRAND_MAP={company_name:'company_name',client_logo_url:'logo_url',client_primary_color:'primary_color',client_heading_color:'heading_color',client_body_color:'body_color',client_icon_color:'icon_color',header_bg_color:'header_bg_color',page_bg_color:'page_bg_color',nav_text_color:'nav_text_color',client_heading_font:'heading_font',heading_font_size:'heading_font_size',heading_weight:'heading_weight',nav_weight:'nav_weight',button_weight:'button_weight',client_body_font:'body_font',button_color:'button_color',button_hover_color:'button_hover_color',button_text_color:'button_text_color',button_secondary_color:'button_secondary_color',button_secondary_text_color:'button_secondary_text_color',button_font:'button_font',button_radius:'button_radius',footer_bg_color:'footer_bg_color',footer_text_color:'footer_text_color',site_max_width:'site_max_width',footer_max_width:'footer_max_width',nav_font_size:'nav_font_size',body_font_size:'body_font_size',logo_height:'logo_height',footer_phone:'phone',company_email:'email',company_address:'address',facebook_link:'facebook_url',instagram_link:'instagram_url',linkedin_link:'linkedin_url',twitter_link:'twitter_url',youtube_link:'youtube_url',tiktok_link:'tiktok_url',privacy_url:'privacy_url',font_css_links:'font_css_links',wills_url:'wills_url',lpa_url:'lpa_url',etb_url:'etb_url',probate_url:'probate_url',will_price:'will_price',lpa_price:'lpa_price',etb_price:'etb_price',legal_footer:'legal_footer',nav_menu_json:'nav_menu_json',footer_menu_json:'footer_menu_json'};
 function buildBrandJson(){ var v=getValues(); var o={}; for(var k in BRAND_MAP){ var val=v[k]; if(val==null||val==='') continue; o[BRAND_MAP[k]]=val; } return JSON.stringify(o); }
 function getWriteValues(){ return Object.assign({}, getValues(), { aiwills_brand_json: buildBrandJson() }); }
 function setValues(v){
