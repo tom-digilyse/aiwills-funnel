@@ -205,6 +205,9 @@ var WILLS_FUNNEL = [
     { key:'planHas', type:'radio', label:'Do they have a funeral plan?', required:true, options:['Yes','No'] },
     { key:'organDonation', type:'radio', label:'Do they wish to donate their organs?', required:true, options:['Yes','No'] }
   ]},
+  { id:'addlpa', name:'Add LPA', title:'Add a Lasting Power of Attorney?', lead:'A will decides who inherits. A Lasting Power of Attorney lets people you trust make decisions for you if you ever cannot. You can add one to your order now. If you are preparing mirror wills your choice applies to both of you, and we will collect the attorney details after payment.', showIf:function(s){ return !!(CFG.lpa_price && String(CFG.lpa_price).replace(/[^0-9.]/g,'')); }, fields:[
+    { key:'want', type:'radio', label:'Would you like to add an LPA?', required:true, reflow:true, options:['No, just my will','Property & Financial Affairs','Health & Welfare','Both types'] }
+  ]},
   { id:'review', name:'Review', title:'Review your will', lead:'Check everything below. You can jump back to any section to edit, then continue to payment.', kind:'review' },
   { id:'payment', name:'Payment', title:'Payment', lead:'Secure card payment to generate your will.', kind:'payment' },
   { id:'generate', name:'Generate', title:'Your will', kind:'generate' }
@@ -552,7 +555,8 @@ function review(){
   var html=''; var ed=(window.AIWILLS_EDIT===true);
   visible().forEach(function(s){ if(!(s.fields&&s.fields.length)) return; var rows=summary(s.id,s.fields); if(!rows && !ed) return; var body=rows||'<div style="padding:2px 0 8px;color:#8a8a8a;font-size:14px">Nothing added yet.</div>'; html+='<div class="sum"><h3>'+esc(s.name)+'<button type="button" class="edit" data-goto="'+s.id+'">'+(rows?'Edit':'Add')+'</button></h3>'+body+'</div>'; });
   if(window.AIWILLS_EDIT===true){ var _tok=window.AIWILLS_TOKEN||''; var _isE=(FUNNEL===ETB_FUNNEL); var _dl='<a class="btn wide" href="'+API+(_isE?'/api/etb-pdf?t=':'/api/will-pdf?t=')+encodeURIComponent(_tok)+'" target="_blank" rel="noopener" style="display:block;text-align:center;text-decoration:none;margin-top:8px">'+(_isE?'Download summary (PDF)':'Download your will (PDF)')+'</a>'; var _docs=[]; visible().forEach(function(s){ if(!s.fields) return; flat(s.fields).forEach(function(f){ if(f.type!=='file') return; var fp=s.id+'.'+f.key; var u=getP(fp+'_url'); if(u) _docs.push({name:(getP(fp)||f.label||'Document'), url:u}); }); }); var _fh=_docs.length?('<div class="sum" style="margin-top:12px"><h3>Your documents</h3>'+_docs.map(function(d){return '<div style="padding:4px 0"><a href="'+esc(d.url)+'" target="_blank" rel="noopener">'+esc(d.name)+'</a></div>';}).join('')+'</div>'):''; return html+_dl+_fh; }
-  return html+((FUNNEL===WILLS_FUNNEL)?'<button type="button" class="btn wide" id="dl" style="margin-top:8px">Download will (PDF)</button>':'');
+  var _lpaNote=''; try{ if(FUNNEL===WILLS_FUNNEL){ var _gb=willBundle(state); if(_gb.lpas>0){ _lpaNote='<div class="mock" style="margin-top:12px;text-align:left"><p style="font-weight:600;margin:0 0 6px">Your Lasting Power of Attorney'+(_gb.lpas>1?'s':'')+'</p><p class="note" style="margin:0">You added '+_gb.lpas+' LPA'+(_gb.lpas>1?'s':'')+' to your order. We will be in touch shortly to collect the attorney details and prepare '+(_gb.lpas>1?'them':'it')+'. There is nothing more you need to do right now.</p></div>'; } } }catch(e){}
+  return html+((FUNNEL===WILLS_FUNNEL)?'<button type="button" class="btn wide" id="dl" style="margin-top:8px">Download will (PDF)</button>':'')+_lpaNote;
 }
 
 function render(){
@@ -566,6 +570,11 @@ function render(){
     } else if(_isEtb){
       var _ep=esc(fmtPrice(CFG.etb_price)||'£19.99 / year');
       html += '<div class="mock"><p>Executor Toolbox</p><div class="price">'+_ep+'</div><button class="btn wide" id="pay" type="button">Subscribe</button><p class="note">Secure card payment. Your subscription keeps your Toolbox stored and available to your executors. You can cancel any time.</p></div>';
+    } else if(FUNNEL===WILLS_FUNNEL){
+      var _b=willBundle(state); var _m=function(n){ return fmtPrice(String(Math.round(n*100)/100)); }; var _rows='';
+      _rows+='<div class="srow"><span class="k">'+(_b.wills>1?'Mirror wills (x'+_b.wills+')':'Will')+'</span><span class="v">'+esc(_m(_b.wills*_b.wp))+'</span></div>';
+      if(_b.lpas>0){ _rows+='<div class="srow"><span class="k">Lasting Power of Attorney (x'+_b.lpas+')</span><span class="v">'+esc(_m(_b.lpas*_b.lp))+'</span></div>'; }
+      html += '<div class="mock"><p>Your order</p><div class="sum" style="text-align:left;margin:0 0 14px">'+_rows+'<div class="srow" style="border-top:2px solid var(--line);font-weight:700"><span class="k" style="color:var(--heading)">Total</span><span class="v">'+esc(_m(_b.total))+'</span></div></div><button class="btn wide" id="pay" type="button">Pay '+esc(_m(_b.total))+'</button><p class="note">Secure card payment. You will be returned here to download your will'+(_b.lpas>0?'. Your LPA'+(_b.lpas>1?'s':'')+' will be prepared separately and we will be in touch to complete '+(_b.lpas>1?'them':'it')+'.':'.')+'</p></div>';
     } else {
       var _svcp=(FUNNEL===LPA_FUNNEL)?(CFG.lpa_price||CFG.will_price):CFG.will_price;
       html += '<div class="mock"><p>'+esc(FUNNEL===LPA_FUNNEL?'Your LPA document':(FUNNEL===ETB_FUNNEL?'Your Executor Toolbox':'Your will document'))+'</p><div class="price">'+esc(fmtPrice(_svcp))+'</div><button class="btn wide" id="pay" type="button">Pay '+esc(fmtPrice(_svcp))+'</button><p class="note">Secure card payment. You will be returned here to download your will.</p></div>';
@@ -612,13 +621,23 @@ function render(){
   el('back').textContent=_ed?'Back to summary':'Back';
   el('back').style.visibility=_ed?(s.kind==='review'?'hidden':'visible'):(cur===0?'hidden':'visible');
   var next=el('next'); if(_ed){ next.style.display=(s.kind==='review')?'none':''; next.textContent='Save'; } else { next.style.display=(s.kind==='generate'||s.kind==='done'||s.kind==='quote')?'none':''; next.textContent=(s.kind==='review')?((FUNNEL===ETB_FUNNEL)?'Continue to activate':'Continue to payment'):((FUNNEL===REFERRAL_FUNNEL&&vis[cur+1]&&vis[cur+1].kind==='quote')?(CFG.referral_submit_label||'Get my quote'):'Continue'); }
-  var pay=el('pay'); if(pay) pay.addEventListener('click',function(){ try{ collectVisible(); }catch(e){} if(FUNNEL===LPA_FUNNEL){ var _lv=visible(); for(var _lg=0;_lg<_lv.length;_lg++){ if(_lv[_lg].kind==='generate'){ cur=_lg; render(); try{scrollTop();}catch(e){} return; } } } var _isEtb=(FUNNEL===ETB_FUNNEL); var _lbl=_isEtb?'Subscribe':('Pay '+esc(fmtPrice(CFG.will_price))); pay.disabled=true; pay.textContent='Redirecting to secure payment...'; var _url=_isEtb?(API+'/api/etb-checkout'):(API+'/api/checkout'); var _body=_isEtb?{locationId:loc,contactId:(window.AIWILLS_ETB_CID||''),contact:(state.your_details||{}),returnUrl:_retUrl()}:{locationId:loc,willJson:state,returnUrl:_retUrl()}; fetch(_url,{method:'POST',body:JSON.stringify(_body)}).then(function(r){return r.json();}).then(function(j){ if(j&&j.url){ window.location.href=j.url; } else { pay.disabled=false; pay.textContent=_lbl; alert('Could not start payment: '+((j&&j.error)||'unknown')); } }).catch(function(e){ pay.disabled=false; pay.textContent=_lbl; alert('Payment error: '+e.message); }); });
+  var pay=el('pay'); if(pay) pay.addEventListener('click',function(){ try{ collectVisible(); }catch(e){} if(FUNNEL===LPA_FUNNEL){ var _lv=visible(); for(var _lg=0;_lg<_lv.length;_lg++){ if(_lv[_lg].kind==='generate'){ cur=_lg; render(); try{scrollTop();}catch(e){} return; } } } var _isEtb=(FUNNEL===ETB_FUNNEL); var _wb=(FUNNEL===WILLS_FUNNEL)?willBundle(state):null; var _lbl=_isEtb?'Subscribe':('Pay '+esc(fmtPrice(String(_wb?(Math.round(_wb.total*100)/100):CFG.will_price)))); pay.disabled=true; pay.textContent='Redirecting to secure payment...'; var _url=_isEtb?(API+'/api/etb-checkout'):(API+'/api/checkout'); var _body=_isEtb?{locationId:loc,contactId:(window.AIWILLS_ETB_CID||''),contact:(state.your_details||{}),returnUrl:_retUrl()}:{locationId:loc,willJson:state,returnUrl:_retUrl(),pricingV:2}; fetch(_url,{method:'POST',body:JSON.stringify(_body)}).then(function(r){return r.json();}).then(function(j){ if(j&&j.url){ window.location.href=j.url; } else { pay.disabled=false; pay.textContent=_lbl; alert('Could not start payment: '+((j&&j.error)||'unknown')); } }).catch(function(e){ pay.disabled=false; pay.textContent=_lbl; alert('Payment error: '+e.message); }); });
   var _dlp=el('dlp'); if(_dlp) _dlp.addEventListener('click',function(){ try{ window.print(); }catch(e){} });
   // payment redirects out to Stripe and returns to the generate step (see aw_paid handling on load); no auto-advance, no demo download.
   el('step').querySelectorAll('[data-goto]').forEach(function(b){ b.addEventListener('click',function(){ jumpTo(b.getAttribute('data-goto')); }); });
 }
 /* scroll to top only on real step changes, never on in-step reflow re-renders (which were yanking the page to the top on every radio click). */
 function scrollTop(){ try{ window.scrollTo(0,0); }catch(e){} var m=document.getElementById('aiwills-funnel'); if(m&&m.scrollIntoView){ try{ m.scrollIntoView({block:'start'}); }catch(e){} } }
+function willBundle(state){
+  var st=state||{}, pt=st.partner||{}, al=st.addlpa||{};
+  var wills=(pt.hasPartner==='Yes'&&pt.mirrorWill==='Yes')?2:1;
+  var want=String(al.want||'');
+  var types=/both/i.test(want)?2:(/financial|property|welfare|health/i.test(want)?1:0);
+  var lpas=types*wills;
+  var wp=parseFloat(String(CFG.will_price||'').replace(/[^0-9.]/g,''))||0;
+  var lp=parseFloat(String(CFG.lpa_price||'').replace(/[^0-9.]/g,''))||0;
+  return { wills:wills, types:types, lpas:lpas, wp:wp, lp:lp, total:(wills*wp)+(lpas*lp) };
+}
 function computeQuote(state){
   var raw=(window.AIWILLS_CONFIG||{}).probate_quote_rules_json; if(!raw) return null;
   var rules; try{ rules=(typeof raw==='string')?JSON.parse(raw):raw; }catch(e){ return null; }

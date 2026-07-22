@@ -557,6 +557,7 @@ function awNamedFields(service, state){
     add('Will Domicile Elsewhere', si.domicileElsewhere);
     add('Will Has Previous Will', si.previousWillHas);
     add('Will Funeral Preference', fu.arrangements);
+    var al=s.addlpa||{}; if(al.want && !/^no/i.test(String(al.want))) add('Will LPA Add-on', al.want);
   } else if(service==='lpa'){
     add('LPA Type', (s.lpa_type||{}).type);
     var na=_len(s.attorneys&&s.attorneys.list); if(na) add('LPA Number of Attorneys', na);
@@ -605,6 +606,7 @@ function deriveTags(service, state){
   if(_yes(hasChildren)) tags.push('aiw-has-children');
   var mirror = (p.mirrorWill!=null?p.mirrorWill:ab.mirrorWill);
   if(_yes(mirror)) tags.push('aiw-wants-mirror-will');
+  if(s.addlpa && s.addlpa.want && !/^no/i.test(String(s.addlpa.want))) tags.push('aiw-lpa-addon');
   if(_yes(sit.propertyAbroad)) tags.push('aiw-property-abroad');
   if(_yes(sit.domicileElsewhere)) tags.push('aiw-domicile-elsewhere');
   if(_yes(sit.previousWillHas)) tags.push('aiw-has-existing-will');
@@ -863,8 +865,17 @@ const server = http.createServer(async (req, res) => {
         if (!loc) return send(res, 400, { error: 'locationId is required' });
         const token = await getWriteToken(loc);
         const cv = await getCustomValuesMap(loc, token);
-        const amount = Math.round(parseFloat(String(cv['will_price'] || '').replace(/[^0-9.]/g,'')) * 100);
-        if (!amount || amount < 100) return send(res, 400, { error: 'will_price is not set for this location' });
+        const wpP = Math.round(parseFloat(String(cv['will_price'] || '').replace(/[^0-9.]/g,'')) * 100);
+        if (!wpP || wpP < 100) return send(res, 400, { error: 'will_price is not set for this location' });
+        const lpP = Math.round(parseFloat(String(cv['lpa_price'] || '').replace(/[^0-9.]/g,'')) * 100) || 0;
+        // Bundle pricing only when the funnel opts in (pricingV>=2). Legacy engines get single-will pricing, so stable clients are unaffected until promoted.
+        const wj = cbody.willJson || {};
+        const pt = wj.partner || {}, al = wj.addlpa || {};
+        const bundleOn = Number(cbody.pricingV || 0) >= 2;
+        const willQty = (bundleOn && pt.hasPartner === 'Yes' && pt.mirrorWill === 'Yes') ? 2 : 1;
+        let lpaTypes = 0; if (bundleOn) { const want = String(al.want || ''); lpaTypes = /both/i.test(want) ? 2 : (/financial|property|welfare|health/i.test(want) ? 1 : 0); }
+        const lpaQty = (bundleOn && lpP > 0) ? (lpaTypes * willQty) : 0;
+        const amount = wpP * willQty + lpP * lpaQty;
         const company = cv['company_name'] || 'AI Wills';
         const person = (cbody.willJson && cbody.willJson.personal) || cbody.contact || {};
         let contactId = cbody.contactId || '';
@@ -873,22 +884,31 @@ const server = http.createServer(async (req, res) => {
           contactId = (up.contact && up.contact.id) || up.id || contactId;
         } catch(e){ console.error('lead upsert', e.message); }
         const id = crypto.randomBytes(16).toString('hex');
-        willStorePut(id, { willJson: cbody.willJson || {}, paid: false, locationId: loc, contactId: contactId, company: company, createdAt: Date.now() });
+        willStorePut(id, { willJson: cbody.willJson || {}, paid: false, locationId: loc, contactId: contactId, company: company, willQty: willQty, lpaQty: lpaQty, createdAt: Date.now() });
         const ret = cbody.returnUrl || ('https://' + (req.headers.host || 'aiwills.digilyse.co'));
         const sep = ret.indexOf('?') >= 0 ? '&' : '?';
-        const sess = await stripeReq('POST', '/v1/checkout/sessions', {
+        const sparams = {
           'mode': 'payment',
           'success_url': ret + sep + 'aw_paid=1&aw_id=' + id,
           'cancel_url': ret + sep + 'aw_paid=0',
-          'line_items[0][quantity]': 1,
+          'line_items[0][quantity]': willQty,
           'line_items[0][price_data][currency]': 'gbp',
-          'line_items[0][price_data][unit_amount]': amount,
-          'line_items[0][price_data][product_data][name]': 'Will document (' + company + ')',
+          'line_items[0][price_data][unit_amount]': wpP,
+          'line_items[0][price_data][product_data][name]': (willQty > 1 ? 'Mirror wills' : 'Will document') + ' (' + company + ')',
           'metadata[aw_id]': id,
           'metadata[locationId]': loc,
           'metadata[contactId]': contactId,
+          'metadata[will_qty]': String(willQty),
+          'metadata[lpa_qty]': String(lpaQty),
           'customer_email': person.email || ''
-        }, process.env.STRIPE_SECRET_KEY);
+        };
+        if (lpaQty > 0) {
+          sparams['line_items[1][quantity]'] = lpaQty;
+          sparams['line_items[1][price_data][currency]'] = 'gbp';
+          sparams['line_items[1][price_data][unit_amount]'] = lpP;
+          sparams['line_items[1][price_data][product_data][name]'] = 'Lasting Power of Attorney (' + company + ')';
+        }
+        const sess = await stripeReq('POST', '/v1/checkout/sessions', sparams, process.env.STRIPE_SECRET_KEY);
         return send(res, 200, { url: sess.url, id: id });
       } catch(e){ return send(res, 200, { error: e.message }); }
     }
