@@ -747,9 +747,22 @@ async function findContactByEmail(loc, email){
   } catch(e){ return null; }
 }
 async function getCustomValuesMap(locationId, token){
-  const ex = await ghl('GET', '/locations/' + locationId + '/customValues', token);
-  const list = ex.customValues || ex.customValue || []; const byName = {};
-  list.forEach(function(cv){ byName[(cv.name || '').toLowerCase()] = cv.value; });
+  const byName = {};
+  // GHL first (legacy accounts still hold config there), but never fatal.
+  try {
+    const ex = await ghl('GET', '/locations/' + locationId + '/customValues', token);
+    const list = ex.customValues || ex.customValue || [];
+    list.forEach(function(cv){ byName[(cv.name || '').toLowerCase()] = cv.value; });
+  } catch(e){ console.error('getCustomValuesMap ghl', e.message); }
+  // Our per-location store WINS. This is where the onboarding/scraper tool writes and where
+  // /api/brand reads, so checkout must agree with the price the customer was shown.
+  try {
+    const stored = brandStoreGet(locationId);
+    if (stored) Object.keys(stored).forEach(function(k){
+      const v = stored[k];
+      if (v != null && v !== '') byName[String(k).toLowerCase()] = v;
+    });
+  } catch(e){ console.error('getCustomValuesMap store', e.message); }
   return byName;
 }
 
