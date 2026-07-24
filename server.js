@@ -746,6 +746,14 @@ async function findContactByEmail(loc, email){
     return r.contact || (r.contacts && r.contacts[0]) || null;
   } catch(e){ return null; }
 }
+async function findContactByPhone(loc, phone){
+  try {
+    const token = await getWriteToken(loc);
+    const num = String(phone||'').replace(/[^0-9+]/g,'');
+    const r = await ghl('GET', '/contacts/search/duplicate?locationId='+loc+'&number='+encodeURIComponent(num), token);
+    return r.contact || (r.contacts && r.contacts[0]) || null;
+  } catch(e){ return null; }
+}
 async function getCustomValuesMap(locationId, token){
   const byName = {};
   // GHL first (legacy accounts still hold config there), but never fatal.
@@ -1245,12 +1253,14 @@ const server = http.createServer(async (req, res) => {
         const b = JSON.parse((await readBody(req)) || '{}');
         const loc = (b.locationId||'').replace(/[^A-Za-z0-9]/g,'');
         const email = (b.email||'').trim();
+        const phone = (b.phone||'').trim();
+        const channel = (String(b.channel||'').toLowerCase()==='sms') ? 'sms' : (email ? 'email' : 'sms');
         const funnel = (['wills','lpa','etb'].indexOf(b.funnel)>=0)?b.funnel:'etb';
         const base = b.returnBase || '';
-        if (!loc || !email) return send(res, 400, { error: 'locationId and email required' });
+        if (!loc || (!email && !phone)) return send(res, 400, { error: 'locationId and an email or phone required' });
         (async function(){
           try {
-            const c = await findContactByEmail(loc, email);
+            const c = email ? await findContactByEmail(loc, email) : await findContactByPhone(loc, phone);
             if (!c || !c.id) return;
             const token = signEdit({ loc:loc, cid:c.id, funnel:funnel, exp: Date.now()+30*24*3600*1000 });
             if (!token) return;
@@ -1260,10 +1270,11 @@ const server = http.createServer(async (req, res) => {
             let fid = map['edit link'];
             if (!fid){ try { const cf = await ghl('POST','/locations/'+loc+'/customFields',wtoken,{name:'Edit Link',dataType:'TEXT',model:'contact'}); const nf=cf.customField||cf; if(nf&&nf.id) fid=nf.id; }catch(e){} }
             if (fid) await ghl('PUT','/contacts/'+c.id, wtoken, { customFields: [{ id: fid, value: url }] });
-            try { await ghl('POST','/contacts/'+c.id+'/tags', wtoken, { tags: ['send-edit-link'] }); }catch(e){}
+            // Base tag drives the send workflow; the channel tag lets it branch text vs email if wanted.
+            try { await ghl('POST','/contacts/'+c.id+'/tags', wtoken, { tags: ['send-edit-link', (channel==='sms'?'aiw-login-sms':'aiw-login-email')] }); }catch(e){}
           } catch(e){ console.error('edit-request', e.message); }
         })();
-        return send(res, 200, { ok:true, message:'If that email is on file, a secure edit link is on its way.' });
+        return send(res, 200, { ok:true, message:'If we have your details, your secure link is on its way.' });
       } catch(e){ return send(res, 200, { error: e.message }); }
     }
     // Public client-facing pages (login, hub, funnels): served BEFORE the tool's auth gate.
