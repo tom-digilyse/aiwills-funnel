@@ -57,7 +57,20 @@ var CFG = window.AIWILLS_CONFIG || {}; (function(){ var _m='{'+'{'; for(var _k i
     function mergeSt(a,b){ var o={}; ['wills','lpa','etb','probate'].forEach(function(k){ var x=a[k]||{}, y=b[k]||{}; o[k]={ started:!!(x.started||y.started), paid:!!(x.paid||y.paid) }; }); return o; }
     function paint(st){ var g=el('hubgrid'); if(!g) return; g.innerHTML=SVC.map(function(s){return card(s, st[s.key]);}).join('');
       // Gate: a visitor who is not logged in gets asked "new or returning?" before entering any service.
-      g.querySelectorAll('a.btn').forEach(function(a){ a.addEventListener('click', function(ev){ if(window.AIWILLS_EDIT===true) return; ev.preventDefault(); awGate(a.getAttribute('href'), a.getAttribute('data-k')||'wills'); }); });
+      g.querySelectorAll('a.btn').forEach(function(a){ a.addEventListener('click', function(ev){
+        if(window.AIWILLS_EDIT===true) return; // logged in: straight through
+        var known=null; try{ known=JSON.parse(localStorage.getItem('aw_ident_'+loc)||'null'); }catch(e){}
+        if(known && (known.email||known.phone)){ ev.preventDefault(); awKnownGo(a.getAttribute('href'), a.getAttribute('data-k')||'wills', known); return; } // already gave details on this device: no gate
+        ev.preventDefault(); awGate(a.getAttribute('href'), a.getAttribute('data-k')||'wills');
+      }); });
+    }
+    function awKnownGo(url,svcKey,known){
+      try{ var section=(svcKey==='wills')?'personal':((svcKey==='probate')?'contact_details':'your_details');
+        var ex=null; try{ ex=JSON.parse(localStorage.getItem('aw_draft_'+svcKey+'_'+loc)||'null'); }catch(e){}
+        if(!ex){ var d={}; d[section]={ firstName:known.firstName||'', email:known.email||'', phone:known.phone||'' }; localStorage.setItem('aw_draft_'+svcKey+'_'+loc, JSON.stringify(d)); }
+      }catch(e){}
+      var u=url||''; if(u && known.cid && u.indexOf('aw_c=')<0) u+=(u.indexOf('?')>=0?'&':'?')+'aw_c='+enc(known.cid);
+      if(u) window.top.location.href=u;
     }
     function awGate(url,svcKey){
       var m=document.getElementById('awgatemodal'); if(!m){ m=document.createElement('div'); m.id='awgatemodal'; document.body.appendChild(m); }
@@ -93,7 +106,7 @@ var CFG = window.AIWILLS_CONFIG || {}; (function(){ var _m='{'+'{'; for(var _k i
         else if(svcKey==='etb'){ ep='/api/etb-save'; body={locationId:loc,contactId:'',state:st,status:'started',step:'gate'}; }
         else if(svcKey==='probate'){ ep='/api/referral-save'; body={locationId:loc,contactId:'',state:st,key:'probate',step:'gate',status:'started'}; }
         else { ep='/api/will-save'; body={locationId:loc,contactId:'',state:st,step:'gate'}; }
-        var goNext=function(cid){ var u=url||''; if(u&&cid) u+= (u.indexOf('?')>=0?'&':'?')+'aw_c='+enc(cid); try{ m.parentNode.removeChild(m); }catch(e){} if(u) window.top.location.href=u; };
+        var goNext=function(cid){ try{ localStorage.setItem('aw_ident_'+loc, JSON.stringify({ firstName:fn, email:em, phone:ph, cid:cid||'' })); }catch(e){} var u=url||''; if(u&&cid) u+= (u.indexOf('?')>=0?'&':'?')+'aw_c='+enc(cid); try{ m.parentNode.removeChild(m); }catch(e){} if(u) window.top.location.href=u; };
         fetch(API+ep,{method:'POST',body:JSON.stringify(body)}).then(function(r){return r.json();}).then(function(j){ goNext((j&&j.contactId)||''); }).catch(function(){ goNext(''); });
       };
     }
