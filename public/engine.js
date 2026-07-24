@@ -27,6 +27,7 @@
   function run(){
 
 var CFG = window.AIWILLS_CONFIG || {}; (function(){ var _m='{'+'{'; for(var _k in CFG){ if(typeof CFG[_k]==='string' && CFG[_k].indexOf(_m)>=0) CFG[_k]=''; } })();
+  try{ if(window.AIWILLS_EDIT===true) awStartAutoLogout(); }catch(e){}
   if(String((window.AIWILLS_CONFIG||{}).funnel||'').toLowerCase()==='hub'){ renderHub(); return; }
   try{ var _psf=String(CFG.plan_services||'').toLowerCase().split(',').map(function(x){return x.trim();}).filter(Boolean); var _fk=(function(){var f=String((CFG.funnel)||window.AIWILLS_FUNNEL||'').toLowerCase();return (f==='etb'||f==='lpa')?f:((f==='probate'||f==='referral')?'probate':'wills');})(); if(_psf.length && _psf.indexOf(_fk)<0){ mount.innerHTML='<div class="aw-ready" style="max-width:640px;margin:60px auto;padding:32px;border:1px solid var(--line);border-radius:14px;background:#fff;text-align:center;font-family:var(--bf)"><h3 style="font-family:var(--hf);color:var(--heading)">This service is not part of your plan</h3><p style="color:var(--muted)">Please speak to your adviser about adding it, or go back to your services page.</p></div>'; try{ mount.classList.add('aw-ready'); }catch(e){} return; } }catch(e){}
   function renderHub(){
@@ -39,7 +40,7 @@ var CFG = window.AIWILLS_CONFIG || {}; (function(){ var _m='{'+'{'; for(var _k i
       {key:'probate',title:(CFG.probate_title||'Probate'),blurb:(CFG.probate_blurb||'Get a free, no-obligation fixed fee probate quote.'),url:(CFG.probate_url||'https://engine.aiwills.co.uk/probate-test.html'),icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18"/><path d="M5 7h14"/><path d="M5 7l-2 5a3.5 3.5 0 0 0 7 0L8 7"/><path d="M16 7l-2 5a3.5 3.5 0 0 0 7 0l-2-5"/></svg>'}
     ];
     try{ var _ps=String(CFG.plan_services||'').toLowerCase().split(',').map(function(x){return x.trim();}).filter(Boolean); if(_ps.length){ SVC=SVC.filter(function(s){ return _ps.indexOf(s.key)>=0; }); } else { SVC=SVC.filter(function(s){ return s.key!=='probate' || !!CFG.probate_url; }); } }catch(e){}
-    mount.innerHTML='<header id="hdr" class="hdr"></header><main class="main"><div class="hubwrap"><h1 class="hubh1">Your documents</h1><p class="lead">Choose a service to get started, or open one you have already begun.</p><div class="hubgrid" id="hubgrid"></div></div></main><footer id="ftr" class="ftr"></footer>';
+    mount.innerHTML='<header id="hdr" class="hdr"></header><main class="main"><div class="hubwrap"><h1 class="hubh1">Your documents</h1><p class="lead">Choose a service to get started, or open one you have already begun.</p><div id="awlogin" style="margin:2px 0 4px;font-size:14px"></div><div class="hubgrid" id="hubgrid"></div></div></main><footer id="ftr" class="ftr"></footer>';
     try{ applyBrand(); }catch(e){} try{var _sm=parseInt(getComputedStyle(document.documentElement).getPropertyValue('--site-max'))||1200; if(_sm<1120) document.documentElement.style.setProperty('--site-max','1120px');}catch(e){} try{ closeGaps(); }catch(e){} try{ window.addEventListener('load',function(){try{closeGaps();}catch(e){}}); setTimeout(function(){try{closeGaps();}catch(e){}},300); setTimeout(function(){try{closeGaps();}catch(e){}},1000); }catch(e){}
     var contact=(rootEl&&rootEl.getAttribute('data-contact'))||''; if(!contact||contact.indexOf('{'+'{')>=0) contact=qp('aw_c')||window.AIWILLS_CONTACT_ID||''; function withId(u){ if(!u) return u; var q=[]; if(loc)q.push('aw_loc='+enc(loc)); if(contact)q.push('aw_c='+enc(contact)); var _tk=qp('aw_t')||window.AIWILLS_TOKEN||''; if(_tk)q.push('aw_t='+enc(_tk)); if(!q.length) return u; return u+(u.indexOf('?')>=0?'&':'?')+q.join('&'); }
     function card(s,st){
@@ -57,6 +58,38 @@ var CFG = window.AIWILLS_CONFIG || {}; (function(){ var _m='{'+'{'; for(var _k i
     function paint(st){ var g=el('hubgrid'); if(g) g.innerHTML=SVC.map(function(s){return card(s, st[s.key]);}).join(''); }
     paint(localSt());
     if(loc && contact){ fetch(API+'/api/hub-status?locationId='+enc(loc)+'&contactId='+enc(contact)).then(function(r){return r.json();}).then(function(j){ paint(mergeSt(localSt(),(j&&j.services)||{})); }).catch(function(){}); }
+    awHubLoginUI();
+    function awHubLoginUI(){
+      var box=document.getElementById('awlogin'); if(!box) return;
+      if(window.AIWILLS_EDIT===true){
+        box.innerHTML='<span style="color:var(--muted)">You are logged in. <a href="#" id="awlogout" style="color:var(--primary);font-weight:600;text-decoration:none">Log out</a></span>';
+        var lo=document.getElementById('awlogout'); if(lo) lo.addEventListener('click',function(ev){ ev.preventDefault(); awLogout('manual'); });
+      } else {
+        box.innerHTML='<span style="color:var(--muted)">Already started with us? <a href="#" id="awloginlink" style="color:var(--primary);font-weight:600;text-decoration:none">Log in</a></span>';
+        var ll=document.getElementById('awloginlink'); if(ll) ll.addEventListener('click',function(ev){ ev.preventDefault(); awOpenLogin(); });
+      }
+    }
+    function awOpenLogin(){
+      var m=document.getElementById('awloginmodal'); if(!m){ m=document.createElement('div'); m.id='awloginmodal'; document.body.appendChild(m); }
+      m.style.cssText='position:fixed;inset:0;background:rgba(20,20,20,.45);z-index:99998;display:flex;align-items:center;justify-content:center;padding:20px;font-family:var(--bf,Arial,sans-serif)';
+      m.innerHTML='<div style="background:#fff;max-width:420px;width:100%;border-radius:16px;padding:26px 24px;box-shadow:0 10px 40px rgba(0,0,0,.2)"><h2 style="font-family:var(--hf,Georgia,serif);color:var(--heading);margin:0 0 6px;font-size:21px">Log in to your account</h2><p style="color:var(--muted);font-size:14px;line-height:1.5;margin:0 0 16px">We will send you a secure one-tap link. No password needed.</p><div style="display:flex;gap:8px;margin-bottom:14px"><button type="button" id="awtabsms" style="flex:1;padding:10px;border:1px solid var(--line);border-radius:10px;background:#fff;cursor:pointer;font-family:var(--bf)">Text me</button><button type="button" id="awtabemail" style="flex:1;padding:10px;border:1px solid var(--line);border-radius:10px;background:#fff;cursor:pointer;font-family:var(--bf)">Email me</button></div><input id="awlogininput" style="width:100%;box-sizing:border-box;padding:12px 14px;border:1px solid var(--line);border-radius:10px;font-size:15px;font-family:var(--bf)"><div id="awloginmsg" style="font-size:13px;margin-top:10px;min-height:18px;color:var(--muted)"></div><button type="button" id="awloginsend" style="width:100%;margin-top:8px;background:var(--btn-bg,var(--primary));color:#fff;border:none;border-radius:var(--btn-radius,10px);padding:13px;font-weight:600;cursor:pointer;font-family:var(--bf)">Send my link</button><button type="button" id="awloginclose" style="width:100%;margin-top:6px;background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px">Cancel</button></div>';
+      var chan='sms';
+      function setTab(c){ chan=c; var inp=document.getElementById('awlogininput'); if(c==='sms'){ inp.type='tel'; inp.placeholder='Your mobile number'; } else { inp.type='email'; inp.placeholder='you@example.com'; } document.getElementById('awtabsms').style.fontWeight=(c==='sms')?'700':'400'; document.getElementById('awtabsms').style.borderColor=(c==='sms')?'var(--primary)':'var(--line)'; document.getElementById('awtabemail').style.fontWeight=(c==='email')?'700':'400'; document.getElementById('awtabemail').style.borderColor=(c==='email')?'var(--primary)':'var(--line)'; }
+      document.getElementById('awtabsms').onclick=function(){ setTab('sms'); };
+      document.getElementById('awtabemail').onclick=function(){ setTab('email'); };
+      document.getElementById('awloginclose').onclick=function(){ m.parentNode&&m.parentNode.removeChild(m); };
+      m.onclick=function(ev){ if(ev.target===m){ m.parentNode&&m.parentNode.removeChild(m); } };
+      setTab('sms');
+      document.getElementById('awloginsend').onclick=function(){
+        var v=(document.getElementById('awlogininput').value||'').trim(); var msg=document.getElementById('awloginmsg');
+        if(chan==='email' && !/.+@.+\..+/.test(v)){ msg.style.color='#c8100d'; msg.textContent='Please enter a valid email.'; return; }
+        if(chan==='sms' && v.replace(/[^0-9]/g,'').length<7){ msg.style.color='#c8100d'; msg.textContent='Please enter a valid mobile number.'; return; }
+        var btn=document.getElementById('awloginsend'); btn.disabled=true; msg.style.color='var(--muted)'; msg.textContent='Sending...';
+        var base=location.origin+location.pathname+'?aw_loc='+enc(loc);
+        var body={ locationId:loc, funnel:'wills', channel:chan, returnBase:base }; if(chan==='email') body.email=v; else body.phone=v;
+        fetch(API+'/api/edit-request',{method:'POST',body:JSON.stringify(body)}).then(function(r){return r.json();}).then(function(j){ btn.disabled=false; msg.style.color='var(--primary)'; msg.textContent=(j&&j.message)||('If we have your details, your link is on its way by '+(chan==='sms'?'text':'email')+'.'); }).catch(function(){ btn.disabled=false; msg.style.color='#c8100d'; msg.textContent='Something went wrong, please try again.'; });
+      };
+    }
   }
 
 /* Closest free Google font for a commercial/Adobe font, so the funnel falls to a near-match (not a generic serif) if the real font can't load (Typekit domain-lock, self-hosted). */
@@ -711,6 +744,21 @@ function go(dir){
 
 function lsKey(){ try{ var fn=((window.AIWILLS_CONFIG&&window.AIWILLS_CONFIG.funnel)||'wills'); return 'aw_draft_'+fn+'_'+(loc||''); }catch(e){ return ''; } }
 function saveLocal(){ try{ if(window.AIWILLS_EDIT===true) return; var k=lsKey(); if(k){ localStorage.setItem(k, JSON.stringify(state)); try{ localStorage.setItem(k+'_pos', JSON.stringify({c:cur,m:maxCur})); }catch(e2){} try{ document.cookie=k.replace('aw_draft_','aw_s_')+'=1;domain=.aiwills.co.uk;path=/;max-age=31536000;SameSite=Lax'; }catch(e3){} } }catch(e){} }
+function awLogout(reason){
+  try{ window.AIWILLS_EDIT=false; window.AIWILLS_TOKEN=''; window.AIWILLS_PREFILL=null; }catch(e){}
+  try{ var u=new URL(location.href); u.searchParams.delete('aw_t'); history.replaceState(null,'',u.pathname+(u.search||'')+(u.hash||'')); }catch(e){}
+  try{ var ov=document.getElementById('aw-logout'); if(!ov){ ov=document.createElement('div'); ov.id='aw-logout'; document.body.appendChild(ov); }
+    ov.style.cssText='position:fixed;inset:0;background:rgba(255,255,255,.97);z-index:99999;display:flex;align-items:center;justify-content:center;padding:24px;font-family:var(--bf,Arial,sans-serif)';
+    ov.innerHTML='<div style="max-width:420px;text-align:center;border:1px solid var(--line,#e6e6e6);border-radius:16px;padding:34px 28px;background:#fff;box-shadow:0 6px 30px rgba(0,0,0,.08)"><h2 style="font-family:var(--hf,Georgia,serif);color:var(--heading,#1B1D1F);margin:0 0 10px;font-size:22px">You have been logged out</h2><p style="color:var(--muted,#6b6e72);line-height:1.55;margin:0 0 18px">For your security we log you out after a period of inactivity. Open your secure link again, or request a new one, to carry on.</p><button type="button" onclick="location.reload()" style="background:var(--btn-bg,var(--primary,#0B3D2E));color:#fff;border:none;border-radius:var(--btn-radius,10px);padding:13px 26px;font-weight:600;cursor:pointer;font-family:var(--bf)">Continue</button></div>';
+  }catch(e){}
+}
+function awStartAutoLogout(){
+  if(window.AIWILLS_EDIT!==true) return;
+  var MINS=10;
+  function reset(){ if(window._awLogoutTimer) clearTimeout(window._awLogoutTimer); window._awLogoutTimer=setTimeout(function(){ awLogout('idle'); }, MINS*60*1000); }
+  ['mousemove','keydown','click','scroll','touchstart'].forEach(function(ev){ try{ document.addEventListener(ev, reset, {passive:true}); }catch(e){ try{ document.addEventListener(ev, reset); }catch(e2){} } });
+  reset();
+}
 function restoreLocal(){ try{ if(window.AIWILLS_EDIT===true||window.AIWILLS_PREFILL) return; var k=lsKey(); if(!k) return; var raw=localStorage.getItem(k); if(!raw) return; var saved=JSON.parse(raw); for(var s in saved){ if(state[s]&&saved[s]&&typeof saved[s]==='object'){ for(var kk in saved[s]) state[s][kk]=saved[s][kk]; } } try{ var _pos=JSON.parse(localStorage.getItem(k+'_pos')||'null'); if(_pos){ var _L=visible().length; maxCur=Math.max(0,Math.min(_pos.m||0,_L-1)); cur=Math.max(0,Math.min(_pos.c||0,maxCur)); } }catch(e3){} }catch(e){} }
 function clearLocal(){ try{ var k=lsKey(); if(k){ localStorage.removeItem(k); localStorage.removeItem(k+'_pos'); try{ document.cookie=k.replace('aw_draft_','aw_s_')+'=;domain=.aiwills.co.uk;path=/;max-age=0'; }catch(e2){} } }catch(e){} }
 var _autoT; function autosave(){ try{ collectVisible(); saveLocal(); }catch(e){} if(!loc){ return; } clearTimeout(_autoT); _autoT=setTimeout(function(){ try{ saveToGhl(state); }catch(e){} }, 1000); } // local draft on every change (survives refresh) + debounced GHL save // persist on every change, not just Continue
