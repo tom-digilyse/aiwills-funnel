@@ -55,7 +55,19 @@ var CFG = window.AIWILLS_CONFIG || {}; (function(){ var _m='{'+'{'; for(var _k i
     }
     function localSt(){ var o={}; if(!loc) return o; ['wills','lpa','etb','probate'].forEach(function(k){ try{ if(localStorage.getItem('aw_draft_'+k+'_'+loc) || document.cookie.indexOf('aw_s_'+k+'_'+loc+'=1')>=0) o[k]={started:true,paid:false}; }catch(e){} }); return o; }
     function mergeSt(a,b){ var o={}; ['wills','lpa','etb','probate'].forEach(function(k){ var x=a[k]||{}, y=b[k]||{}; o[k]={ started:!!(x.started||y.started), paid:!!(x.paid||y.paid) }; }); return o; }
-    function paint(st){ var g=el('hubgrid'); if(g) g.innerHTML=SVC.map(function(s){return card(s, st[s.key]);}).join(''); }
+    function paint(st){ var g=el('hubgrid'); if(!g) return; g.innerHTML=SVC.map(function(s){return card(s, st[s.key]);}).join('');
+      // Gate: a visitor who is not logged in gets asked "new or returning?" before entering any service.
+      g.querySelectorAll('a.btn').forEach(function(a){ a.addEventListener('click', function(ev){ if(window.AIWILLS_EDIT===true) return; ev.preventDefault(); awGate(a.getAttribute('href')); }); });
+    }
+    function awGate(url){
+      var m=document.getElementById('awgatemodal'); if(!m){ m=document.createElement('div'); m.id='awgatemodal'; document.body.appendChild(m); }
+      m.style.cssText='position:fixed;inset:0;background:rgba(20,20,20,.45);z-index:99998;display:flex;align-items:center;justify-content:center;padding:20px;font-family:var(--bf,Arial,sans-serif)';
+      m.innerHTML='<div style="background:#fff;max-width:420px;width:100%;border-radius:16px;padding:26px 24px;box-shadow:0 10px 40px rgba(0,0,0,.2)"><h2 style="font-family:var(--hf,Georgia,serif);color:var(--heading);margin:0 0 6px;font-size:21px">Have you used us before?</h2><p style="color:var(--muted);font-size:14px;line-height:1.5;margin:0 0 18px">If you have already started or bought a service, log in and we will bring up your saved details. If you are new, carry straight on.</p><button type="button" id="awgatenew" style="width:100%;background:var(--btn-bg,var(--primary));color:#fff;border:none;border-radius:var(--btn-radius,10px);padding:13px;font-weight:600;cursor:pointer;font-family:var(--bf)">I\'m new - get started</button><button type="button" id="awgatelogin" style="width:100%;margin-top:8px;background:#fff;color:var(--heading);border:1px solid var(--line);border-radius:var(--btn-radius,10px);padding:13px;font-weight:600;cursor:pointer;font-family:var(--bf)">I\'ve been here before - log in</button><button type="button" id="awgateclose" style="width:100%;margin-top:6px;background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px">Cancel</button></div>';
+      document.getElementById('awgatenew').onclick=function(){ try{ m.parentNode.removeChild(m); }catch(e){} if(url) window.top.location.href=url; };
+      document.getElementById('awgatelogin').onclick=function(){ try{ m.parentNode.removeChild(m); }catch(e){} awOpenLogin(); };
+      document.getElementById('awgateclose').onclick=function(){ try{ m.parentNode.removeChild(m); }catch(e){} };
+      m.onclick=function(ev){ if(ev.target===m){ try{ m.parentNode.removeChild(m); }catch(e){} } };
+    }
     paint(localSt());
     if(loc && contact){ fetch(API+'/api/hub-status?locationId='+enc(loc)+'&contactId='+enc(contact)).then(function(r){return r.json();}).then(function(j){ paint(mergeSt(localSt(),(j&&j.services)||{})); }).catch(function(){}); }
     awHubLoginUI();
