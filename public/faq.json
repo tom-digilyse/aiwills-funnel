@@ -1,0 +1,822 @@
+{
+ "faq": {
+  "wills": {
+   "personal": [
+    {
+     "q": "Why do you need my full legal name and address?",
+     "a": "Your Will must clearly identify who it belongs to. Please use your full legal name as it appears on official documents such as your passport or driving licence."
+    },
+    {
+     "q": "What if I am known by a different name day to day?",
+     "a": "Enter your full legal name here. If you are commonly known by another name, there is usually space to note it so there is no confusion later."
+    },
+    {
+     "q": "What date of birth should I enter?",
+     "a": "Enter it as day, month and year. This helps confirm your identity and makes sure the Will refers to the right person."
+    },
+    {
+     "q": "Is my information kept private?",
+     "a": "Yes. Your details are stored securely and are only used to prepare your documents."
+    }
+   ],
+   "partner": [
+    {
+     "q": "Why are you asking about my partner or spouse?",
+     "a": "Marriage, civil partnership and living with a partner can all affect how your estate is shared. Your answers here make sure your Will reflects your wishes correctly."
+    },
+    {
+     "q": "Does getting married change an existing Will?",
+     "a": "In England and Wales, marriage or a new civil partnership usually cancels an earlier Will unless it was written in expectation of that marriage. It is sensible to make a new Will after you marry."
+    },
+    {
+     "q": "I live with my partner but we are not married. Are they protected?",
+     "a": "Unmarried partners do not automatically inherit under the standard rules, so it is important to name them in your Will if you want them to be provided for."
+    },
+    {
+     "q": "What if I am separated but not yet divorced?",
+     "a": "You are still legally married until a divorce is finalised. Choose the option that matches your legal position today, and make sure your Will says what you want to happen."
+    }
+   ],
+   "situation": [
+    {
+     "q": "Why are you asking about my circumstances?",
+     "a": "A few questions about your family and situation help make sure nothing important is missed and that your Will suits your needs."
+    },
+    {
+     "q": "What sort of things should I mention?",
+     "a": "Things such as whether you have children, dependants, or anyone who relies on you financially can all affect how you may wish to plan."
+    },
+    {
+     "q": "Do my finances need to be exact here?",
+     "a": "No. This section is about your general situation, not precise figures. A broad picture is enough to guide the rest of your Will."
+    },
+    {
+     "q": "What if my circumstances are complex?",
+     "a": "You can still complete the online Will, but if your situation is unusual it is wise to take advice so everything is covered the way you want."
+    }
+   ],
+   "children": [
+    {
+     "q": "Why do you ask about my children?",
+     "a": "Recording your children makes sure they can be included in your wishes and, if they are under 18, that you can name someone to care for them."
+    },
+    {
+     "q": "What is a guardian and when is one used?",
+     "a": "A guardian is the person you choose to look after your children under 18 if you are no longer able to. They only step in if there is no surviving parent with parental responsibility."
+    },
+    {
+     "q": "Should I ask someone before naming them as guardian?",
+     "a": "Yes, it is a good idea to check they are happy to take on the role before you name them. You can also name a replacement in case your first choice cannot act."
+    },
+    {
+     "q": "Do I need to include adult children here?",
+     "a": "You can still list adult children, but guardianship only applies to those under 18\\. Adult children can be included as people who benefit from your Will in a later step."
+    }
+   ],
+   "executors": [
+    {
+     "q": "What does an executor actually do?",
+     "a": "An executor is the person you trust to carry out the instructions in your Will, such as dealing with your money, paying any debts, and passing on gifts to the people you have named."
+    },
+    {
+     "q": "Who can I choose as an executor?",
+     "a": "Anyone aged 18 or over who you trust. Many people choose a spouse, partner, adult child, close friend, or a professional. It is often wise to name more than one."
+    },
+    {
+     "q": "How many executors should I appoint?",
+     "a": "You can appoint up to four to act at once. Naming at least two, or a replacement, is sensible in case one is unable to act when the time comes."
+    },
+    {
+     "q": "Can someone be both an executor and a beneficiary?",
+     "a": "Yes. It is very common for the person carrying out your wishes to also receive something from your estate."
+    },
+    {
+     "q": "Should I tell my executors I have chosen them?",
+     "a": "Yes. Letting them know, and telling them where your Will is kept, makes things much easier for them later."
+    }
+   ],
+   "gifts": [
+    {
+     "q": "What is a gift in my Will?",
+     "a": "A gift is a specific item or a set amount of money left to a particular person or charity. Gifts are given out before the rest of your estate is shared."
+    },
+    {
+     "q": "Can I leave a fixed sum of money to someone?",
+     "a": "Yes. You can leave a set cash amount to any person or charity. These are paid out before the remainder of your estate is shared."
+    },
+    {
+     "q": "Can I leave a specific item, such as jewellery or a car?",
+     "a": "Yes. Describe the item clearly so there is no confusion about which one you mean and who should receive it."
+    },
+    {
+     "q": "Can I leave something to a charity?",
+     "a": "Yes. You can name a charity as the person to receive a gift. Include the charity name and, if you have it, its registered number."
+    },
+    {
+     "q": "What if I no longer own the item when I pass away?",
+     "a": "If the item no longer exists, that particular gift simply cannot be made. The rest of your Will is not affected."
+    }
+   ],
+   "residual": [
+    {
+     "q": "What is my residual estate?",
+     "a": "It is everything that is left after any gifts, debts and costs have been dealt with. This is usually the largest part of what you pass on."
+    },
+    {
+     "q": "How do I decide who receives it?",
+     "a": "You can leave it all to one person, or split it by percentage shares between several people or charities. Choose what feels right for you."
+    },
+    {
+     "q": "Do the shares need to add up to 100 percent?",
+     "a": "Yes. When you split your residual estate by shares, the percentages should add up to 100 percent so nothing is left undecided."
+    },
+    {
+     "q": "What happens if someone I name dies before me?",
+     "a": "You can name a back-up to receive their share. If you do not, the standard rules decide what happens to that share, which may not match your wishes."
+    }
+   ],
+   "funeral": [
+    {
+     "q": "Are my funeral wishes legally binding?",
+     "a": "Funeral wishes are a guide for your family and executors rather than strict legal instructions, but recording them helps your loved ones follow your preferences."
+    },
+    {
+     "q": "What can I include?",
+     "a": "You can note whether you prefer burial or cremation, any religious or cultural wishes, songs or readings, and any other requests that matter to you."
+    },
+    {
+     "q": "Do I have to complete this section?",
+     "a": "No, it is optional. Many people find it a comfort to record their wishes so their family does not have to guess."
+    }
+   ],
+   "review": [
+    {
+     "q": "Why should I check everything now?",
+     "a": "This is your chance to make sure names are spelled correctly and your wishes are captured accurately before your Will is produced. Small errors are much easier to fix now."
+    },
+    {
+     "q": "Can I still make changes on this page?",
+     "a": "Yes. You can go back to any section and edit your answers before you finish."
+    },
+    {
+     "q": "What happens after I confirm?",
+     "a": "Once you are happy, you move on to payment and then your Will is produced, along with clear instructions on how to sign it correctly."
+    }
+   ],
+   "payment": [
+    {
+     "q": "Is my payment secure?",
+     "a": "Yes. Payments are handled through a secure, encrypted checkout."
+    },
+    {
+     "q": "What do I receive after paying?",
+     "a": "Your completed Will document is produced, together with step-by-step guidance on how to sign and witness it so it becomes legally valid."
+    },
+    {
+     "q": "Will I be charged again?",
+     "a": "You are charged for what you order at checkout. Any ongoing options, if offered, are shown clearly before you confirm."
+    }
+   ],
+   "generate": [
+    {
+     "q": "What happens when my Will is generated?",
+     "a": "Your answers are turned into a finished Will document that you can download and print, ready for signing."
+    },
+    {
+     "q": "How do I make my Will legally valid?",
+     "a": "Print your Will, then sign it in the presence of two independent adult witnesses who are not beneficiaries or married to a beneficiary. They must sign too. Full instructions are provided."
+    },
+    {
+     "q": "Who can be a witness?",
+     "a": "Two adults who are not receiving anything in your Will and are not the spouse or civil partner of anyone who is. Witnessing incorrectly can invalidate gifts."
+    },
+    {
+     "q": "Where should I keep my Will once signed?",
+     "a": "Keep it somewhere safe and make sure your executors know where it is. Avoid attaching anything to it with staples or pins after signing. ---"
+    }
+   ]
+  },
+  "lpa": {
+   "your_details": [
+    {
+     "q": "Whose details do I enter here?",
+     "a": "Your own. You are the person making the Lasting Power of Attorney and choosing others to act on your behalf if you are ever unable to."
+    },
+    {
+     "q": "Why is my full legal name and date of birth needed?",
+     "a": "An LPA is a formal legal document, so it must identify you exactly. Use your name as it appears on official identification."
+    },
+    {
+     "q": "Can I make an LPA for someone else?",
+     "a": "No. A person must make their own LPA while they still have the mental capacity to understand and make the decision."
+    },
+    {
+     "q": "Do I have to finish in one go?",
+     "a": "No. Your progress is saved, so you can complete it at your own pace."
+    }
+   ],
+   "attorneys": [
+    {
+     "q": "What is an attorney in an LPA?",
+     "a": "An attorney is a person you trust to make decisions for you. It does not mean a lawyer. It can be a partner, family member or close friend aged 18 or over."
+    },
+    {
+     "q": "Who should I choose?",
+     "a": "Choose people who know you well, who you trust completely, and who are willing to act. Think about who is best placed to handle money, or health and care decisions."
+    },
+    {
+     "q": "Can I appoint more than one attorney?",
+     "a": "Yes. You can appoint several attorneys, and there is usually an option to name a replacement in case one can no longer act."
+    },
+    {
+     "q": "Are there rules about who can be a financial attorney?",
+     "a": "A financial attorney must be 18 or over and not bankrupt or subject to a debt relief order at the time they are appointed."
+    }
+   ],
+   "lpa_type": [
+    {
+     "q": "What are the two types of LPA?",
+     "a": "A Property and Financial Affairs LPA covers money, bank accounts, bills and property. A Health and Welfare LPA covers medical care, daily routine and where you live."
+    },
+    {
+     "q": "Should I set up one or both?",
+     "a": "Many people choose both so that decisions about money and about their health and care are all covered. Each type is completed separately."
+    },
+    {
+     "q": "When can each type be used?",
+     "a": "A Property and Financial LPA can be used as soon as it is registered if you allow it. A Health and Welfare LPA can only be used once you are unable to make those decisions yourself."
+    }
+   ],
+   "decisions": [
+    {
+     "q": "What am I deciding on this page?",
+     "a": "You choose how your attorneys work together. If you have more than one, you decide whether they must agree on everything or can act on their own."
+    },
+    {
+     "q": "What does jointly mean?",
+     "a": "Acting jointly means your attorneys must agree on every decision and act together. This can offer reassurance but can be less practical for everyday matters."
+    },
+    {
+     "q": "What does jointly and severally mean?",
+     "a": "It means your attorneys can act together or independently. It is the most flexible option and is the most commonly chosen."
+    },
+    {
+     "q": "Can I mix the two?",
+     "a": "Yes. You can ask attorneys to act together for major decisions but separately for everyday ones. Be clear so there is no confusion later."
+    }
+   ],
+   "preferences": [
+    {
+     "q": "What is the difference between a preference and an instruction?",
+     "a": "A preference is guidance your attorneys should consider but do not have to follow. An instruction is a rule they must follow. Instructions carry legal weight, so word them carefully."
+    },
+    {
+     "q": "Do I need to add anything here?",
+     "a": "No, this section is optional. Many people leave it blank and simply trust their attorneys to act in their best interests."
+    },
+    {
+     "q": "Can you give an example of a preference?",
+     "a": "An example might be a wish to stay living at home for as long as possible, or a preference about how your money is invested."
+    }
+   ],
+   "notify": [
+    {
+     "q": "Who are people to notify?",
+     "a": "These are people you choose to be told when your LPA is registered, giving them a chance to raise concerns if they have any. This adds a layer of protection."
+    },
+    {
+     "q": "Do I have to name anyone?",
+     "a": "No, it is optional. You can register your LPA without naming anyone to notify."
+    },
+    {
+     "q": "How many people can I notify?",
+     "a": "You can usually name up to five people. Choose people you trust to speak up if they think something is wrong."
+    }
+   ],
+   "provider": [
+    {
+     "q": "Who is a certificate provider?",
+     "a": "A certificate provider is an independent person who confirms you understand the LPA and are not under pressure to make it. They sign to say the LPA is being made properly."
+    },
+    {
+     "q": "Who can act as a certificate provider?",
+     "a": "Either someone who has known you well for at least two years, or a professional with the relevant skills, such as a doctor or solicitor. They must not be one of your attorneys or a close family member."
+    },
+    {
+     "q": "Why is a certificate provider needed?",
+     "a": "It is an important safeguard. It helps make sure the LPA reflects your genuine wishes and protects you from pressure."
+    }
+   ],
+   "registration": [
+    {
+     "q": "What does registration mean?",
+     "a": "An LPA must be registered with the relevant government office before it can be used. This section prepares your LPA for that process."
+    },
+    {
+     "q": "How long does registration take?",
+     "a": "Registration is handled by the government office and can take several weeks. It is best to set up your LPA well before it is needed."
+    },
+    {
+     "q": "Can an LPA be used before it is registered?",
+     "a": "No. It must be registered first. That is why it is wise not to leave it until the last minute."
+    }
+   ],
+   "exemption": [
+    {
+     "q": "What is this fee for?",
+     "a": "An LPA must be registered before it can be used, and the government charges a separate registration fee for this. Any costs are shown clearly before you confirm."
+    },
+    {
+     "q": "Is the registration fee included in what I pay here?",
+     "a": "Check the summary shown at checkout. It sets out what is included and whether the government fee is paid separately."
+    },
+    {
+     "q": "Can I get help with the fee?",
+     "a": "Some people on a low income or certain benefits may qualify for a reduction or an exemption. Guidance is provided where this applies."
+    }
+   ],
+   "declaration": [
+    {
+     "q": "What am I confirming in the declaration?",
+     "a": "You confirm that the information is correct and that you understand what the LPA means and what your attorneys can do. It is an important legal step."
+    },
+    {
+     "q": "Why does this matter?",
+     "a": "The declaration shows you are making the LPA freely and understand it. Please read it carefully before you agree."
+    },
+    {
+     "q": "What if I am not sure about something?",
+     "a": "Do not agree until you are comfortable. You can go back and review any section, or take advice before you continue."
+    }
+   ],
+   "review": [
+    {
+     "q": "What should I check before finishing?",
+     "a": "Make sure every name and date of birth is correct and that you have chosen how your attorneys should act. Errors can cause delays when the LPA is registered."
+    },
+    {
+     "q": "Can I edit my answers?",
+     "a": "Yes. You can return to any section and make changes before you complete your order."
+    }
+   ],
+   "payment": [
+    {
+     "q": "Is checkout secure?",
+     "a": "Yes. Payment is taken through a secure, encrypted checkout."
+    },
+    {
+     "q": "What am I paying for here?",
+     "a": "This covers preparing your LPA document. The summary shows exactly what is included before you confirm."
+    }
+   ],
+   "generate": [
+    {
+     "q": "What happens when my LPA is generated?",
+     "a": "Your answers are turned into a finished LPA document that you can download, print and sign in the correct order."
+    },
+    {
+     "q": "What are the next steps to make my LPA valid?",
+     "a": "Your LPA must be signed by you, your attorneys and a certificate provider in the correct order, and then registered before it can be used. Clear instructions are provided."
+    },
+    {
+     "q": "Does the order of signing matter?",
+     "a": "Yes. The signatures must be made in the right order or the LPA can be rejected. Follow the guidance provided carefully. ---"
+    }
+   ]
+  },
+  "probate": {
+   "about": [
+    {
+     "q": "Why do you ask about me first?",
+     "a": "Knowing your role, such as whether you are named in the Will or are a close relative, helps show how probate may apply to you and what support you may need."
+    },
+    {
+     "q": "What is probate?",
+     "a": "Probate is the legal process of dealing with the money, property and possessions of someone who has passed away. It gives the right person the authority to sort out the estate."
+    },
+    {
+     "q": "Do I always need probate?",
+     "a": "Not always. It depends on the size of the estate and how assets were held. A few questions here help show whether probate is likely to be needed."
+    },
+    {
+     "q": "Is my information handled sensitively?",
+     "a": "Yes. We understand this is a difficult time and your information is treated securely and with care."
+    }
+   ],
+   "estate": [
+    {
+     "q": "What does estate mean here?",
+     "a": "The estate is everything the person who died owned, such as property, bank and savings accounts, investments, vehicles and valuable possessions, less any debts."
+    },
+    {
+     "q": "Do I need exact figures?",
+     "a": "No. A reasonable estimate is fine at this stage. It helps show the size of the estate and what may be required."
+    },
+    {
+     "q": "Why does the estate value matter?",
+     "a": "The total value affects whether probate is needed and whether any tax may be due, so a rough total is helpful."
+    },
+    {
+     "q": "What about debts such as a mortgage or loans?",
+     "a": "Debts are paid from the estate before anything is shared out, so it helps to include mortgages, loans, credit cards and outstanding bills where you can."
+    }
+   ],
+   "concerns": [
+    {
+     "q": "Why are you asking what I am concerned about?",
+     "a": "Everyone's situation is different. Telling us what worries you most helps make sure you are pointed towards the right kind of support."
+    },
+    {
+     "q": "What sort of concerns can I raise?",
+     "a": "Anything that is on your mind, such as time, cost, tax, property, or simply not knowing where to start. There is no wrong answer."
+    },
+    {
+     "q": "What if I am not sure what I need?",
+     "a": "That is completely normal. Share what you can and a specialist can help you work out the right next steps."
+    }
+   ],
+   "contact_details": [
+    {
+     "q": "Why do you need my details?",
+     "a": "So we can send your quote or information and, if you wish, put you in touch with someone who can help with the next steps."
+    },
+    {
+     "q": "Will I be contacted?",
+     "a": "Only to help with your enquiry. You will be told what happens next before anything is arranged."
+    },
+    {
+     "q": "Are my details kept private?",
+     "a": "Yes. Your information is stored securely and used only to help with your request."
+    }
+   ],
+   "referral_done": [
+    {
+     "q": "How is my quote worked out?",
+     "a": "It is based on the information you have provided about the estate. The more accurate your answers, the more accurate the guide price."
+    },
+    {
+     "q": "Is the quote fixed?",
+     "a": "It is an initial guide based on what you have told us. A firm price is confirmed once the full details of the estate are known."
+    },
+    {
+     "q": "Am I committed to anything by getting a quote?",
+     "a": "No. A quote is for your information and there is no obligation to proceed."
+    },
+    {
+     "q": "What happens after I get my quote?",
+     "a": "If you wish to go ahead, your details can be passed to a suitable specialist who will talk you through the process and how they can support you. ---"
+    }
+   ]
+  },
+  "etb": {
+   "your_details": [
+    {
+     "q": "What is the Executor Toolbox for?",
+     "a": "It is a secure place to record the important information your loved ones or executors will need one day, such as your accounts, policies and key contacts, all in one organised location."
+    },
+    {
+     "q": "What should I record on this first page?",
+     "a": "Your key personal information, such as your full name, date of birth and main contact details, so everything is easy to identify later."
+    },
+    {
+     "q": "Do I have to complete it all at once?",
+     "a": "No. You can fill in one section at a time and update it whenever something changes."
+    },
+    {
+     "q": "Is my information safe?",
+     "a": "Yes. Your details are stored securely and are only accessible to you and the people you choose to share access with."
+    }
+   ],
+   "executors": [
+    {
+     "q": "Who should I record as my executors?",
+     "a": "The people you have chosen, or intend to choose, to carry out your wishes. Recording them here helps your family know who is responsible."
+    },
+    {
+     "q": "What if I have not made a Will yet?",
+     "a": "You can still note who you would like to act, but remember that executors are only formally appointed in a valid Will."
+    },
+    {
+     "q": "Should I include their contact details?",
+     "a": "Yes, where you can. Names and up to date contact details make it much easier for everyone when the time comes."
+    }
+   ],
+   "will": [
+    {
+     "q": "What should I record about my Will?",
+     "a": "Whether you have a Will, when it was made, and where the signed original is kept. This helps your executors find it quickly."
+    },
+    {
+     "q": "Do I upload my Will here?",
+     "a": "You record the key details and where it is stored. Follow the guidance on the page about storing or noting the location of the original."
+    },
+    {
+     "q": "What if I do not have a Will?",
+     "a": "You can note that here. It is worth knowing that without a Will your estate is shared according to the standard legal rules, which may not match your wishes."
+    }
+   ],
+   "codicil": [
+    {
+     "q": "What is a codicil?",
+     "a": "A codicil is a document that makes a small change or addition to an existing Will without replacing the whole thing."
+    },
+    {
+     "q": "Why record a codicil here?",
+     "a": "If you have made one, your executors need to know it exists and where it is kept, so it is read alongside your Will."
+    },
+    {
+     "q": "What if I do not have one?",
+     "a": "Most people do not. You can simply leave this section blank or note that there is no codicil."
+    }
+   ],
+   "lpa": [
+    {
+     "q": "Why record a Lasting Power of Attorney here?",
+     "a": "An LPA lets people you trust make decisions for you if you cannot. Noting it here tells your family it exists and who your attorneys are."
+    },
+    {
+     "q": "What details should I add?",
+     "a": "Whether you have a Property and Financial Affairs LPA, a Health and Welfare LPA, or both, the names of your attorneys, and where the documents are kept."
+    },
+    {
+     "q": "What if I do not have an LPA?",
+     "a": "You can leave this blank. You may wish to consider setting one up, as it only works if it is put in place while you are able to make the decision."
+    }
+   ],
+   "property": [
+    {
+     "q": "What property information should I add?",
+     "a": "Record the address, whether you own or rent, and where documents such as the deeds or tenancy agreement are kept."
+    },
+    {
+     "q": "Should I include a mortgage?",
+     "a": "Yes. Note the lender and roughly what is outstanding so your executors have the full picture."
+    },
+    {
+     "q": "What if I own more than one property?",
+     "a": "Add each one separately so nothing is overlooked, including any property owned with someone else."
+    }
+   ],
+   "insurance": [
+    {
+     "q": "Which policies should I list?",
+     "a": "Include life insurance, home, car and any other policies, with the provider and policy numbers where you have them."
+    },
+    {
+     "q": "Why record life insurance in particular?",
+     "a": "A life insurance policy may pay out to your family, so making sure they know it exists means it will not be missed."
+    },
+    {
+     "q": "Do I need to include the policy documents?",
+     "a": "You mainly need the provider, the policy number and where the paperwork is kept, so your executors can contact them."
+    }
+   ],
+   "pensions": [
+    {
+     "q": "What pension details should I record?",
+     "a": "Any pensions you hold, the provider's name, and where the paperwork is kept. Include workplace and personal pensions."
+    },
+    {
+     "q": "Why are pensions important to record?",
+     "a": "Pensions can be easy to overlook and may be an important part of what you leave behind, so noting the provider helps your family trace them."
+    },
+    {
+     "q": "What about the State Pension?",
+     "a": "You can note it too. It stops when you die, but recording it helps your family notify the right office."
+    }
+   ],
+   "bank_accounts": [
+    {
+     "q": "What bank details should I store?",
+     "a": "List the banks or building societies you hold accounts with and the type of account. You do not need to store PINs or passwords."
+    },
+    {
+     "q": "Should I include savings accounts and ISAs?",
+     "a": "Yes. Include current accounts, savings accounts and ISAs so nothing is missed."
+    },
+    {
+     "q": "Is it safe to record account information here?",
+     "a": "Yes. Your information is stored securely. For safety, record where accounts are held rather than full security details."
+    }
+   ],
+   "investments": [
+    {
+     "q": "What counts as an investment here?",
+     "a": "Things such as shares, bonds, investment funds and any investment accounts you hold, along with the provider and where records are kept."
+    },
+    {
+     "q": "Do I need exact values?",
+     "a": "No. A rough idea is helpful, but the main aim is to record what you hold and who to contact."
+    },
+    {
+     "q": "What if my investments change often?",
+     "a": "Note the provider and account rather than exact amounts, and review this section from time to time to keep it current."
+    }
+   ],
+   "business": [
+    {
+     "q": "What should I record if I own a business?",
+     "a": "Note the business name, your role, any co-owners, and where key documents such as agreements or accounts are held."
+    },
+    {
+     "q": "Why does this matter for my executors?",
+     "a": "A business may need to be run, sold or passed on. Clear notes help your family and any partners deal with it smoothly."
+    },
+    {
+     "q": "What if I do not own a business?",
+     "a": "You can simply leave this section blank."
+    }
+   ],
+   "debts": [
+    {
+     "q": "What debts should I record?",
+     "a": "Any money you owe, such as loans, credit cards or finance agreements, with the lender's name and rough balance."
+    },
+    {
+     "q": "Why record debts here?",
+     "a": "Debts are settled from your estate, so recording them gives your executors a clear and complete picture."
+    },
+    {
+     "q": "Should I include the mortgage?",
+     "a": "If you have already recorded it under property, you do not need to repeat it. Otherwise, add it here so it is not missed."
+    }
+   ],
+   "digital_assets": [
+    {
+     "q": "What are digital assets?",
+     "a": "These are your online accounts and anything you own or store digitally, such as email, social media, online subscriptions, photos and any digital wallets."
+    },
+    {
+     "q": "Should I store my passwords here?",
+     "a": "Record where accounts are held and how you would like them handled. Follow the guidance provided about storing any sensitive login details safely."
+    },
+    {
+     "q": "Why does this matter?",
+     "a": "Many important accounts are now online only. Listing them helps your family access memories and close accounts that would otherwise be hard to find."
+    }
+   ],
+   "wishes": [
+    {
+     "q": "What can I record about my wishes?",
+     "a": "Your funeral preferences, any messages for loved ones, and other personal wishes you would like your family to know about."
+    },
+    {
+     "q": "Are these wishes legally binding?",
+     "a": "They are a guide for your family rather than strict legal instructions, but they make a real difference in helping loved ones honour your wishes."
+    },
+    {
+     "q": "Can I note who I would like to receive certain items?",
+     "a": "You can add notes about your wishes, but remember that gifts are only legally binding when set out in a valid Will."
+    }
+   ],
+   "review": [
+    {
+     "q": "Why should I review everything now?",
+     "a": "A quick check makes sure your information is accurate and complete, so it is genuinely useful to your family when they need it."
+    },
+    {
+     "q": "Can I change my answers later?",
+     "a": "Yes. You can come back and update any section at any time as your circumstances change."
+    },
+    {
+     "q": "How often should I update my information?",
+     "a": "Review it at least once a year and whenever something changes, such as a new account, a house move, or a change in your wishes."
+    }
+   ],
+   "payment": [
+    {
+     "q": "What does activating do?",
+     "a": "It confirms your record is ready and, where offered, lets you set who can access it and when. This makes sure the right people can find your information."
+    },
+    {
+     "q": "Who should be able to access my record?",
+     "a": "Only people you trust, such as your executors or close family. Think carefully about who you give access to and what they can see."
+    },
+    {
+     "q": "Can I change access later?",
+     "a": "Yes. You stay in control and can update who has access whenever you wish."
+    }
+   ],
+   "done": [
+    {
+     "q": "I have finished. What now?",
+     "a": "Your record is saved securely. Make sure the people who will need it know it exists and how to access it when the time comes."
+    },
+    {
+     "q": "Do I need to do anything else?",
+     "a": "Just keep it up to date. Revisit it after any big change so it always reflects your current situation."
+    },
+    {
+     "q": "Who should know this record exists?",
+     "a": "The people who will rely on it, such as your executors or close family, so they can find everything quickly when it matters most. ---"
+    }
+   ]
+  }
+ },
+ "glossary": [
+  {
+   "term": "Estate",
+   "def": "Everything a person owns (money, property, possessions and investments) less any debts they owe."
+  },
+  {
+   "term": "Will",
+   "def": "A legal document that sets out who should receive a person’s estate and who will carry out their wishes after they die."
+  },
+  {
+   "term": "Executor",
+   "def": "The person named in a Will who is trusted to carry out its instructions, such as paying debts and passing on gifts."
+  },
+  {
+   "term": "Beneficiary",
+   "def": "A person or organisation who receives something from an estate."
+  },
+  {
+   "term": "Guardian",
+   "def": "The person chosen to look after children under 18 if their parents can no longer do so."
+  },
+  {
+   "term": "Witness",
+   "def": "One of two independent adults who watch a Will being signed and sign it themselves to confirm it is genuine."
+  },
+  {
+   "term": "Residual estate",
+   "def": "What is left of an estate after any specific gifts, debts and costs have been dealt with."
+  },
+  {
+   "term": "Intestacy",
+   "def": "The situation where someone dies without a valid Will, so the standard legal rules decide who inherits."
+  },
+  {
+   "term": "Codicil",
+   "def": "A short document that makes a small change or addition to an existing Will without replacing it."
+  },
+  {
+   "term": "Lasting Power of Attorney (LPA)",
+   "def": "A legal document that lets a person choose others to make decisions for them if they are ever unable to."
+  },
+  {
+   "term": "Donor",
+   "def": "The person making a Lasting Power of Attorney and choosing others to act on their behalf."
+  },
+  {
+   "term": "Attorney",
+   "def": "A person trusted to make decisions under an LPA. It does not mean a lawyer."
+  },
+  {
+   "term": "Replacement attorney",
+   "def": "A back-up attorney who steps in if an original attorney can no longer act."
+  },
+  {
+   "term": "Property and Financial Affairs LPA",
+   "def": "An LPA covering money, bank accounts, bills and property."
+  },
+  {
+   "term": "Health and Welfare LPA",
+   "def": "An LPA covering medical care, daily routine and where a person lives."
+  },
+  {
+   "term": "Jointly",
+   "def": "Attorneys must agree on every decision and act together."
+  },
+  {
+   "term": "Jointly and severally",
+   "def": "Attorneys can act together or independently. The most flexible and common option."
+  },
+  {
+   "term": "Certificate provider",
+   "def": "An independent person who confirms the donor understands the LPA and is not under pressure to make it."
+  },
+  {
+   "term": "People to notify",
+   "def": "People chosen to be told when an LPA is registered so they can raise concerns if needed."
+  },
+  {
+   "term": "Life-sustaining treatment",
+   "def": "Medical treatment needed to keep someone alive, which a Health and Welfare LPA can cover."
+  },
+  {
+   "term": "Probate",
+   "def": "The legal process of dealing with the estate of someone who has died."
+  },
+  {
+   "term": "Assets",
+   "def": "Things of value owned by a person, such as property, savings, investments and possessions."
+  },
+  {
+   "term": "Liabilities",
+   "def": "Money a person owes, such as a mortgage, loans, credit cards or outstanding bills."
+  },
+  {
+   "term": "Estate administration",
+   "def": "The work of gathering in an estate, paying debts and tax, and passing on what is left."
+  },
+  {
+   "term": "Digital assets",
+   "def": "Online accounts and anything owned or stored digitally, such as email, photos and subscriptions."
+  },
+  {
+   "term": "Certificate of registration",
+   "def": "Confirmation from the government office that an LPA has been registered and can be used."
+  }
+ ]
+}
