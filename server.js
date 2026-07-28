@@ -898,6 +898,15 @@ const server = http.createServer(async (req, res) => {
         return send(res, 200, { ok:true, stored:true, url:rclean });
       } catch(e){ return send(res, 200, { error: e.message }); }
     }
+    if (req.method === 'GET' && pathOnly === '/api/faq'){
+      // Shared FAQ content (same for every client) - served once, cached by the browser.
+      try {
+        const fp = path.join(__dirname, 'public', 'faq.json');
+        const body = fs.readFileSync(fp);
+        res.writeHead(200, { 'Content-Type':'application/json; charset=utf-8', 'Cache-Control':'public, max-age=3600', 'Access-Control-Allow-Origin':'*' });
+        return res.end(body);
+      } catch(e){ return send(res, 200, { faq:{}, glossary:[] }); }
+    }
     if (req.method === 'GET' && pathOnly === '/api/hub-status'){
       res.setHeader('Access-Control-Allow-Origin','*');
       const hu=new URL(req.url,'http://x'); const hloc=(hu.searchParams.get('locationId')||'').replace(/[^A-Za-z0-9]/g,''); const hcid=(hu.searchParams.get('contactId')||'').replace(/[^A-Za-z0-9]/g,'');
