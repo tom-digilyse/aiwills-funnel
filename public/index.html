@@ -172,16 +172,16 @@ var FIELDS = [
   {k:'youtube_link', label:'YouTube link', g:'contact'},
   {k:'tiktok_link', label:'TikTok link', g:'contact'},
   {k:'privacy_url', label:'Privacy policy link', g:'contact'},
-  {k:'wills_url', label:'Wills page link (this client\'s own funnel page, not a test page)', g:'services'},
-  {k:'lpa_url', label:'LPA page link', g:'services'},
-  {k:'etb_url', label:'Executor Toolbox page link', g:'services'},
-  {k:'probate_url', label:'Probate / referral page link', g:'services'},
+  {k:'wills_url', label:'Wills page link (sets itself when the published page is first opened - only fill in to override)', g:'pricing', adv:true},
+  {k:'lpa_url', label:'LPA page link (auto-set - only fill in to override)', g:'pricing', adv:true},
+  {k:'etb_url', label:'Executor Toolbox page link (auto-set - only fill in to override)', g:'pricing', adv:true},
+  {k:'probate_url', label:'Probate page link (auto-set - only fill in to override)', g:'pricing', adv:true},
   {k:'will_price', label:'Will price', g:'pricing'},
   {k:'lpa_price', label:'LPA price', g:'pricing'},
   {k:'etb_price', label:'Executor Toolbox price (per year)', g:'pricing'},
   {k:'legal_footer', label:'Small print (legal text at the bottom of every page). Paste it from your website - links and formatting are kept.', rich:true, g:'pricing'}
 ];
-var GROUPS = [['brand','Brand'],['header','Header & nav'],['buttons','Buttons'],['footer','Footer'],['contact','Contact & social'],['services','Service page links'],['pricing','Pricing & legal']];
+var GROUPS = [['brand','Brand'],['header','Header & nav'],['buttons','Buttons'],['footer','Footer'],['contact','Contact & social'],['pricing','Pricing & legal']];
 
 function el(id){ return document.getElementById(id); }
 function fieldHtml(f){
