@@ -514,33 +514,79 @@ var LPA_FUNNEL = [
 ];
 
 var REFERRAL_FUNNEL = [
-  { id:'about', name:'About you', title:(window.AIWILLS_CONFIG&&window.AIWILLS_CONFIG.referral_title)||'Get your fixed fee probate quote', lead:'A few quick questions so we can give you an accurate quote. It takes about two minutes.', fields:[
-    { key:'over18', type:'radio', label:'Are you over 18 years old?', required:true, options:['Yes','No'] },
-    { key:'hasPartner', type:'radio', label:'Do you have a spouse or partner?', required:true, reflow:true, options:['Yes','No'] },
-    { key:'mirrorWill', type:'radio', label:'Would you both like a mirror will? (Two separate but almost identical wills for a couple.)', required:true, options:['Yes','No'], showIf:function(s){return s.about.hasPartner==='Yes';} },
-    { key:'hasChildren', type:'radio', label:'Do you have any children?', required:true, options:['Yes','No'] }
+  // Probate: someone has died and the estate needs sorting out. Every question either moves
+  // the price, qualifies the lead out, or is something the firm would have to ring up and ask.
+  { id:'about', name:'The person who died', title:(window.AIWILLS_CONFIG&&window.AIWILLS_CONFIG.referral_title)||'Get your fixed fee probate quote', lead:'A few questions about the estate so we can quote accurately. It takes about three minutes.', fields:[
+    { key:'hasDied', type:'radio', label:'Has the person already passed away?', required:true, reflow:true, options:['Yes','No - I am planning ahead for myself'] },
+    { key:'planningNote', type:'note', text:'Probate only applies after someone has died. If you are planning your own affairs, a will is the place to start. Leave your details at the end and we will point you in the right direction.', showIf:function(s){ return s.about.hasDied==='No - I am planning ahead for myself'; } },
+    { type:'row', fields:[
+      { key:'deceasedFirstName', type:'text', label:'Their first name', required:true, showIf:function(s){ return s.about.hasDied==='Yes'; } },
+      { key:'deceasedLastName', type:'text', label:'Their last name', required:true, showIf:function(s){ return s.about.hasDied==='Yes'; } }
+    ]},
+    { key:'dateOfDeath', type:'date', label:'Date of death', required:true, showIf:function(s){ return s.about.hasDied==='Yes'; } },
+    { key:'jurisdiction', type:'radio', label:'Where did they live?', required:true, options:['England or Wales','Scotland','Northern Ireland','Outside the UK'], showIf:function(s){ return s.about.hasDied==='Yes'; } },
+    { key:'jurisdictionNote', type:'note', text:'Estates outside England and Wales follow a different process. We will let you know how we can help before any work begins.', showIf:function(s){ var j=s.about.jurisdiction; return !!j && j!=='England or Wales'; } },
+    { key:'relationship', type:'radio', label:'What was your relationship to them?', required:true, options:['Spouse or civil partner','Child','Other relative','Friend','Executor named in the will','Professional adviser'], showIf:function(s){ return s.about.hasDied==='Yes'; } }
   ]},
-  { id:'estate', name:'Your estate', title:'About the estate', lead:'These questions shape the quote.', fields:[
-    { key:'liveEW', type:'radio', label:'Do you live in England or Wales?', required:true, options:['Yes','No'] },
-    { key:'assetsEW', type:'radio', label:'Is everything you own in England & Wales?', required:true, options:['Yes','No'] },
-    { key:'ownHome', type:'radio', label:'Do you own your home?', required:true, options:['Yes','No'] },
-    { key:'ownBusiness', type:'radio', label:'Do you own a business?', required:true, options:['Yes','No'] },
-    { key:'estateBand', type:'radio', label:function(s){ var married=(s.about&&s.about.hasPartner==='Yes'); return 'Is the estate worth more or less than \u00a3'+(married?'650,000':'325,000')+'? (This just tells us whether inheritance tax is likely, which affects the work involved.)'; }, required:true, options:['Above','Below'] },
-    { key:'value', type:'number', label:'Roughly what is the estate worth? An estimate is fine (\u00a3).', required:true }
+
+  { id:'will', name:'The will', title:'Did they leave a will?', lead:'This decides how the estate is dealt with and who can apply.', showIf:function(s){ return s.about.hasDied==='Yes'; }, fields:[
+    { key:'hasWill', type:'radio', label:'Did they leave a will?', required:true, reflow:true, options:['Yes','No','Not sure'] },
+    { key:'hasOriginal', type:'radio', label:'Do you have the original signed will, rather than a copy?', required:true, options:['Yes','No','Not sure'], showIf:function(s){ return s.will.hasWill==='Yes'; } },
+    { key:'isExecutor', type:'radio', label:'Are you named in it as an executor?', required:true, options:['Yes','No','Not sure'], showIf:function(s){ return s.will.hasWill==='Yes'; } },
+    { key:'executorsAble', type:'radio', label:'Are all the executors named in the will still alive and willing to act?', required:true, options:['Yes','No','Not sure'], showIf:function(s){ return s.will.hasWill==='Yes'; } },
+    { key:'intestateNote', type:'note', text:'Without a will the estate is shared out under the intestacy rules, and only certain relatives can apply. We will talk you through where you stand.', showIf:function(s){ return s.will.hasWill==='No'; } }
   ]},
-  { id:'concerns', name:'Your concerns', title:'What matters most to you?', lead:'Tick everything that applies. This helps us advise you properly.', fields:[
-    { key:'mentalCapacity', type:'checkbox', label:'Losing mental capacity' },
-    { key:'careFees', type:'checkbox', label:'Losing your home to cover care home fees' },
-    { key:'divorceBankruptcy', type:'checkbox', label:'Protecting your estate against divorce or bankruptcy' },
-    { key:'remarriage', type:'checkbox', label:'Protecting your wealth should your partner remarry' },
-    { key:'iht', type:'checkbox', label:'Paying inheritance tax' },
-    { key:'other', type:'textarea', label:'Anything else on your mind?' }
+
+  { id:'property', name:'Property', title:'Did they own any property?', lead:'Property is usually the largest part of an estate and the biggest part of the work.', showIf:function(s){ return s.about.hasDied==='Yes'; }, fields:[
+    { key:'ownedHome', type:'radio', label:'Did they own a home?', required:true, reflow:true, options:['Yes','No','Not sure'] },
+    { key:'ownership', type:'radio', label:'How was it owned?', required:true, options:['In their sole name','Jointly with a spouse or partner','Jointly with someone else','Not sure'], showIf:function(s){ return s.property.ownedHome==='Yes'; } },
+    { key:'plan', type:'radio', label:'What is likely to happen to it?', required:true, options:['It will be sold','It will be transferred to someone who inherits','Not decided yet'], showIf:function(s){ return s.property.ownedHome==='Yes'; } },
+    { key:'otherProperty', type:'radio', label:'Did they own any other property or land, including abroad?', required:true, options:['Yes','No','Not sure'] }
   ]},
-  { id:'contact_details', name:'Your details', title:'Where should we send your quote?', lead:'We will be in touch with your fixed fee quote and next steps.', fields:[
+
+  { id:'estate', name:'Money and assets', title:'What did the estate consist of?', lead:'Rough answers are fine. This is what sets the amount of work involved.', showIf:function(s){ return s.about.hasDied==='Yes'; }, fields:[
+    { key:'accounts', type:'radio', label:'Roughly how many bank or building society accounts did they have?', required:true, options:['None','1 to 3','4 to 6','7 or more'] },
+    { key:'assetInvestments', type:'checkbox', label:'Investments or shares' },
+    { key:'assetIsas', type:'checkbox', label:'ISAs' },
+    { key:'assetPremiumBonds', type:'checkbox', label:'Premium Bonds or National Savings' },
+    { key:'assetPensions', type:'checkbox', label:'Pensions' },
+    { key:'assetLifeInsurance', type:'checkbox', label:'Life insurance' },
+    { key:'assetBusiness', type:'checkbox', label:'A business or company shares' },
+    { key:'assetForeign', type:'checkbox', label:'Assets outside the UK' },
+    { key:'assetDigital', type:'checkbox', label:'Cryptocurrency or other digital assets' },
+    { key:'value', type:'number', label:'Roughly what is the whole estate worth, before any debts? An estimate is fine (£).', required:true },
+    { key:'debts', type:'radio', label:'Were there debts other than a mortgage, such as loans, credit cards or unpaid care fees?', required:true, options:['Yes','No','Not sure'] }
+  ]},
+
+  { id:'tax', name:'Inheritance tax', title:'A few questions about tax', lead:'These decide whether a full inheritance tax return is needed, which makes a real difference to the work.', showIf:function(s){ return s.about.hasDied==='Yes'; }, fields:[
+    { key:'maritalStatus', type:'radio', label:'Were they married or in a civil partnership when they died?', required:true, reflow:true, options:['Yes','No','They were widowed'] },
+    { key:'spouseLeftAll', type:'radio', label:'When their husband, wife or civil partner died, did everything pass to them?', required:true, options:['Yes','No','Not sure'], showIf:function(s){ return s.tax.maritalStatus==='They were widowed'; } },
+    { key:'homeToChildren', type:'radio', label:'Is their home passing to their children or grandchildren?', required:true, options:['Yes','No','Not sure'] },
+    { key:'giftsSevenYears', type:'radio', label:'In the seven years before they died, did they give away more than £3,000 in any one year?', required:true, options:['Yes','No','Not sure'] },
+    { key:'charity', type:'radio', label:'Is anything being left to charity?', required:true, options:['Yes','No','Not sure'] },
+    { key:'trusts', type:'radio', label:'Were they involved in any trust, either one they set up or one they benefited from?', required:true, options:['Yes','No','Not sure'] }
+  ]},
+
+  { id:'complications', name:'Anything else', title:'Is there anything that could complicate things?', lead:'Better to know now than halfway through.', showIf:function(s){ return s.about.hasDied==='Yes'; }, fields:[
+    { key:'beneficiaries', type:'radio', label:'How many people inherit from the estate?', required:true, options:['1','2 to 4','5 to 10','More than 10','Not sure'] },
+    { key:'minorBeneficiaries', type:'radio', label:'Is anyone who inherits under 18?', required:true, options:['Yes','No','Not sure'] },
+    { key:'allContactable', type:'radio', label:'Are you able to contact everyone who inherits?', required:true, options:['Yes','No','Not sure'] },
+    { key:'disputeRisk', type:'radio', label:'Is anyone likely to challenge the will or make a claim against the estate?', required:true, options:['Yes','No','Not sure'] },
+    { key:'notes', type:'textarea', label:'Anything else we should know?' }
+  ]},
+
+  { id:'service', name:'What you need', title:'How would you like us to help?', lead:'You can change your mind later. This just tells us what to quote for.', showIf:function(s){ return s.about.hasDied==='Yes'; }, fields:[
+    { key:'serviceNeeded', type:'radio', label:'What would you like us to do?', required:true, options:['Just obtain the grant of probate, I will handle the rest','Handle the whole estate from start to finish','I am not sure, please advise me'] },
+    { key:'progress', type:'radio', label:'Where are you up to so far?', required:true, options:['Nothing yet','The death has been registered','I have started notifying banks and other organisations','I have already applied for the grant'] },
+    { key:'urgency', type:'radio', label:'How soon do you want to get started?', required:true, options:['As soon as possible','Within the next month','Just looking into it for now'] }
+  ]},
+
+  { id:'contact_details', name:'Your details', title:'Where should we send your quote?', lead:'We will be in touch with your quote and what happens next.', fields:[
     { type:'row', fields:[ {key:'firstName',type:'text',label:'First name',required:true}, {key:'lastName',type:'text',label:'Last name',required:true} ] },
     { type:'row', fields:[ {key:'email',type:'email',label:'Email',required:true}, {key:'phone',type:'tel',label:'Phone',required:true} ] },
-    { key:'declaration', type:'checkbox', label:'I confirm that I am aged 18 or over and that the information I have given is accurate.', required:true }
+    { key:'declaration', type:'checkbox', label:'I confirm the information I have given is accurate to the best of my knowledge.', required:true }
   ]},
+
   { id:'referral_done', name:'Your quote', kind:'quote', title:'', fields:[] }
 ];
 var FUNNEL = (function(){ var f=((window.AIWILLS_CONFIG&&window.AIWILLS_CONFIG.funnel)||window.AIWILLS_FUNNEL||'').toString().toLowerCase(); return f==='etb'?ETB_FUNNEL:(f==='lpa'?LPA_FUNNEL:((f==='probate'||f==='referral')?REFERRAL_FUNNEL:WILLS_FUNNEL)); })();
@@ -548,7 +594,7 @@ var FUNNEL_KEY = (function(){ var f=((window.AIWILLS_CONFIG&&window.AIWILLS_CONF
 
 var state, cur=0, maxCur=0;
 function flat(fields){ var r=[]; (fields||[]).forEach(function(f){ if(f.type==='row') r=r.concat(flat(f.fields)); else r.push(f); }); return r; }
-function initState(){ state={}; FUNNEL.forEach(function(s){ if(s.kind==='payment'){ state[s.id]={paid:false}; return; } state[s.id]={}; flat(s.fields).forEach(function(f){ state[s.id][f.key]= f.type==='repeater'?[]:''; }); }); if(window.AIWILLS_PREFILL){ var pf=window.AIWILLS_PREFILL; for(var k in pf){ if(state[k]&&pf[k]&&typeof pf[k]==='object'){ for(var kk in pf[k]){ var _v=pf[k][kk]; if(typeof _v==='string'&&_v.indexOf('{'+'{')>=0) continue; state[k][kk]=_v; } } } } }
+function initState(){ state={}; FUNNEL.forEach(function(s){ if(s.kind==='payment'){ state[s.id]={paid:false}; return; } state[s.id]={}; flat(s.fields).forEach(function(f){ if(!f.key) return; state[s.id][f.key]= f.type==='repeater'?[]:''; }); }); if(window.AIWILLS_PREFILL){ var pf=window.AIWILLS_PREFILL; for(var k in pf){ if(state[k]&&pf[k]&&typeof pf[k]==='object'){ for(var kk in pf[k]){ var _v=pf[k][kk]; if(typeof _v==='string'&&_v.indexOf('{'+'{')>=0) continue; state[k][kk]=_v; } } } } }
 function getP(p){ var a=p.split('.'),o=state,i; for(i=0;i<a.length;i++){ if(o==null) return ''; o=o[a[i]]; } return o==null?'':o; }
 function setP(p,v){ var a=p.split('.'),o=state,i; for(i=0;i<a.length-1;i++){ var k=a[i]; if(o[k]==null||typeof o[k]!=='object'){ o[k]=/^[0-9]+$/.test(a[i+1])?[]:{}; } o=o[k]; } o[a[a.length-1]]=v; }
 function blankItem(f){ var o={}; flat(f.fields).forEach(function(x){ o[x.key]= x.type==='repeater'?[]:''; }); return o; }
@@ -559,6 +605,7 @@ function fld(base,f){
   if(f.showIf && !f.showIf(state, base)) return '';
   if(f.type==='row') return '<div class="row">'+f.fields.map(function(c){ return fld(base,c); }).join('')+'</div>';
   if(f.type==='repeater') return repeater(base,f);
+  if(f.type==='note') return '<p class="note" style="margin:6px 0 14px">'+esc(f.text||'')+'</p>';
   var p=base+'.'+f.key, v=getP(p);
   var rf = f.reflow?' data-reflow="1"':'';
   var _flab=(typeof f.label==='function')?f.label(state):f.label;
@@ -746,6 +793,14 @@ function computeQuote(state){
   if(!rules||typeof rules!=='object') return null;
   var cur=rules.currency||'\u00a3';
   var flat={}; try{ Object.keys(state||{}).forEach(function(sec){ var o=state[sec]; if(o&&typeof o==='object'&&!Array.isArray(o)){ Object.keys(o).forEach(function(k){ flat[sec+'.'+k]=o[k]; flat[k]=o[k]; }); } }); }catch(e){}
+  // A firm can price the two probate routes differently: { grantOnly:{...}, fullAdmin:{...} }
+  var _svc=String((state&&state.service&&state.service.serviceNeeded)||'');
+  if(rules.grantOnly || rules.fullAdmin){
+    var pick = /^Just obtain/i.test(_svc) ? rules.grantOnly : (/^Handle the whole/i.test(_svc) ? rules.fullAdmin : null);
+    if(!pick) return null;                       // "not sure" = no automatic price, the firm quotes
+    pick=Object.assign({}, rules, pick); delete pick.grantOnly; delete pick.fullAdmin;
+    rules=pick;
+  }
   var mode=String(rules.mode||'fixed').toLowerCase();
   var fee, approx=false;
   if(mode==='percent'){
@@ -781,6 +836,7 @@ function collectVisible(){
 function need(base,fields,bad){
   (fields||[]).forEach(function(f){
     if(f.showIf && !f.showIf(state)) return;
+    if(f.type==='note' || !f.key) return;
     if(f.type==='row'){ need(base,f.fields,bad); return; }
     if(f.type==='repeater'){
       var lp=base+'.'+f.key, list=getP(lp)||[];
