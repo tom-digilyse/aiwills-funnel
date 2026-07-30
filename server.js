@@ -449,6 +449,29 @@ async function stripeReq(method, pathname, params, key){
   if (!r.ok) throw new Error('Stripe ' + pathname + ' -> ' + r.status + ' ' + text.slice(0,300));
   return j;
 }
+/* ---- Connect: which firms can actually be paid ----
+   A firm only receives money once its own Stripe onboarding is finished. Saving an
+   unfinished account against a location would make every checkout there fail with
+   insufficient_capabilities_for_transfer, so the tool lists accounts from Stripe and
+   the save refuses anything that is not ready. */
+function connectAcctName(a){
+  const bp = a.business_profile || {}, st = a.settings || {}, dash = st.dashboard || {}, ind = a.individual || {};
+  const person = [ind.first_name, ind.last_name].filter(Boolean).join(' ');
+  return String(bp.name || dash.display_name || person || a.email || a.id).trim();
+}
+function connectAcctReady(a){
+  const caps = a.capabilities || {};
+  return a.charges_enabled === true && caps.transfers === 'active';
+}
+async function connectAcctProblem(acct){
+  if (!/^acct_[A-Za-z0-9]+$/.test(acct)) return 'Stripe account not saved: it should look like acct_1A2b3C...';
+  if (!process.env.STRIPE_SECRET_KEY) return 'Stripe account not saved: Stripe is not configured on this server.';
+  try {
+    const a = await stripeReq('GET', '/v1/accounts/' + encodeURIComponent(acct), null, process.env.STRIPE_SECRET_KEY);
+    if (connectAcctReady(a)) return '';
+    return 'Stripe account not saved: ' + connectAcctName(a) + ' has not finished their Stripe onboarding, so payments to them would fail. Finish their Stripe setup first, then set this.';
+  } catch(e){ return 'Stripe account not saved: could not check it with Stripe (' + String(e.message).slice(0,120) + ')'; }
+}
 function verifyStripeSig(raw, sigHeader, secret){
   try {
     const parts = {}; (sigHeader || '').split(',').forEach(function(p){ const i = p.indexOf('='); if (i > 0) parts[p.slice(0,i)] = p.slice(i+1); });
@@ -1350,6 +1373,20 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="AI Wills onboarding"', 'Content-Type':'text/plain; charset=utf-8' });
       return res.end('Authentication required.');
     }
+    if (req.method === 'GET' && pathOnly === '/api/connect-accounts'){
+      // The firms connected to the Ai-Wills Stripe platform, so the tool can offer them
+      // by name instead of asking anyone to paste an acct_ id.
+      if (!process.env.STRIPE_SECRET_KEY) return send(res, 200, { accounts: [], error: 'Stripe is not configured on this server.' });
+      try {
+        const list = await stripeReq('GET', '/v1/accounts?limit=100', null, process.env.STRIPE_SECRET_KEY);
+        const accounts = (list.data || []).map(function(a){
+          const ready = connectAcctReady(a);
+          return { id: a.id, name: connectAcctName(a), ready: ready, reason: ready ? '' : 'Stripe onboarding not finished' };
+        });
+        accounts.sort(function(x, y){ return (y.ready - x.ready) || x.name.localeCompare(y.name); });
+        return send(res, 200, { accounts: accounts });
+      } catch(e){ return send(res, 200, { accounts: [], error: e.message }); }
+    }
     if (req.method === 'POST' && req.url === '/api/scrape'){
       const parsed = JSON.parse((await readBody(req)) || '{}');
       if (!parsed.url) return send(res, 400, { error: 'url required' });
@@ -1357,7 +1394,14 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'POST' && req.url === '/api/write'){
       const parsed = JSON.parse((await readBody(req)) || '{}');
-      return send(res, 200, { results: await handleWrite(parsed.locationId, parsed.values) });
+      const vals = parsed.values || {};
+      const warnings = [];
+      const acct = String(vals.stripe_account_id || '').trim();
+      if (acct){
+        const problem = await connectAcctProblem(acct);
+        if (problem){ delete vals.stripe_account_id; warnings.push(problem); }
+      }
+      return send(res, 200, { results: await handleWrite(parsed.locationId, vals), warnings: warnings });
     }
     if (req.method === 'GET' && pathOnly === '/api/funnels-debug'){
       try {

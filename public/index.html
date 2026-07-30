@@ -176,7 +176,7 @@ var FIELDS = [
   {k:'lpa_url', label:'LPA page link (auto-set - only fill in to override)', g:'pricing', adv:true},
   {k:'etb_url', label:'Executor Toolbox page link (auto-set - only fill in to override)', g:'pricing', adv:true},
   {k:'probate_url', label:'Probate page link (auto-set - only fill in to override)', g:'pricing', adv:true},
-  {k:'stripe_account_id', label:'Firm\'s Stripe account ID (acct_... from Connected accounts - payments then route to the firm with commission taken automatically)', g:'pricing'},
+  {k:'stripe_account_id', label:'Firm\'s Stripe account (payments go to them, commission comes out automatically)', acct:true, g:'pricing'},
   {k:'commission_flat', label:'Ai-Wills commission per will/LPA sale (\u00a3 flat, e.g. 10)', g:'pricing'},
   {k:'commission_percent', label:'Ai-Wills commission on Executor Toolbox (%, e.g. 20)', g:'pricing'},
   {k:'will_price', label:'Will price', g:'pricing'},
@@ -195,6 +195,10 @@ function fieldHtml(f){
     h += '<div class="menued" data-for="'+f.k+'"></div><button type="button" class="menuadd" data-menuadd="'+f.k+'">+ Add menu item</button><details style="margin-top:8px"><summary style="cursor:pointer;font-size:12px;color:#666">Advanced: edit as JSON</summary><textarea id="f_'+f.k+'" data-k="'+f.k+'" rows="4"></textarea></details>';
   } else if (f.select){
     h += '<select id="f_'+f.k+'" data-k="'+f.k+'"><option value=""></option>'+f.opts.map(function(o){return '<option>'+o+'</option>';}).join('')+'</select>';
+  } else if (f.acct){
+    h += '<select id="sel_'+f.k+'" data-acct="'+f.k+'"><option value="">Loading firms from Stripe...</option></select>'
+       + '<input type="text" id="f_'+f.k+'" data-k="'+f.k+'" style="display:none">'
+       + '<div data-accthint="'+f.k+'" style="font-size:12px;color:#666;margin-top:4px"></div>';
   } else if (f.rich){
     h += '<div class="richbox" data-rich="'+f.k+'" contenteditable="true"></div><textarea id="f_'+f.k+'" data-k="'+f.k+'" style="display:none"></textarea>';
   } else if (f.textarea){
@@ -266,6 +270,7 @@ function buildForm(){
 }
 function onChange(e){
   var t = e.target;
+  if (t.getAttribute && t.getAttribute('data-acct')){ var ak=t.getAttribute('data-acct'); var an=el('f_'+ak); if(an) an.value=t.value; }
   if (t.dataset && t.dataset.k){
     var c = document.querySelector('input[type=color][data-color="'+t.dataset.k+'"]');
     if (c && /^#[0-9a-fA-F]{6}$/.test(t.value)) c.value = t.value;
@@ -319,7 +324,41 @@ function setValues(v){
     if (c && /^#[0-9a-fA-F]{6}$/.test(val)) c.value = val;
   });
   renderMenuEditors();
+  try { loadConnectAccounts(); } catch(e){}
   updatePreview();
+}
+/* The Stripe account picker: firms come from our own Stripe platform, so nobody has to
+   paste an acct_ id, and firms who have not finished onboarding cannot be chosen. */
+var _acctCache = null;
+function renderAcctSelect(){
+  var sel = el('sel_stripe_account_id'), hint = document.querySelector('[data-accthint="stripe_account_id"]');
+  if (!sel) return;
+  var j = _acctCache || { accounts: [] };
+  var list = j.accounts || [];
+  var cur = ((el('f_stripe_account_id') || {}).value || '').trim();
+  var opts = '<option value="">Not set - payments stay with Ai-Wills</option>';
+  list.forEach(function(a){
+    opts += '<option value="' + escA(a.id) + '"' + (a.ready ? '' : ' disabled') + '>' + escA(a.name) + (a.ready ? '' : ' (' + escA(a.reason) + ')') + '</option>';
+  });
+  var known = list.some(function(a){ return a.id === cur; });
+  if (cur && !known) opts += '<option value="' + escA(cur) + '">' + escA(cur) + ' (not in this Stripe account)</option>';
+  sel.innerHTML = opts;
+  sel.value = cur;
+  if (hint){
+    if (j.error) hint.textContent = 'Could not load the Stripe list: ' + j.error + '. Payments for this firm stay with Ai-Wills until it is set.';
+    else {
+      var ready = list.filter(function(a){ return a.ready; }).length;
+      hint.textContent = ready + ' of ' + list.length + ' firm(s) ready to receive payments. Greyed-out firms still need to finish their own Stripe onboarding.';
+    }
+  }
+}
+async function loadConnectAccounts(force){
+  if (_acctCache && !force){ renderAcctSelect(); return; }
+  try {
+    var r = await fetch('/api/connect-accounts');
+    _acctCache = await r.json();
+  } catch(e){ _acctCache = { accounts: [], error: e.message }; }
+  renderAcctSelect();
 }
 var _pvTimer;
 function updatePreview(){ try{ renderSwatches(); }catch(e){} clearTimeout(_pvTimer); _pvTimer = setTimeout(buildPreview, 300); }
@@ -350,8 +389,10 @@ async function write(){
     if (j.error) throw new Error(j.error);
     var ok = j.results.filter(function(x){return x.action;}).length;
     var err = j.results.filter(function(x){return x.error;});
-    el('writeStatus').className = err.length ? 'status bad' : 'status ok';
-    el('writeStatus').textContent = ok + ' value(s) written' + (err.length ? (', ' + err.length + ' failed') : '') + '.';
+    var warn = j.warnings || [];
+    el('writeStatus').className = (err.length || warn.length) ? 'status bad' : 'status ok';
+    el('writeStatus').textContent = ok + ' value(s) written' + (err.length ? (', ' + err.length + ' failed') : '') + '.' + (warn.length ? (' ' + warn.join(' ')) : '');
+    if (warn.length) loadConnectAccounts(true);
     el('results').innerHTML = j.results.map(function(x){
       return '<div>' + x.name + ': ' + (x.action || (x.skipped?'skipped (empty)':('<span style="color:#c8100d">'+x.error+'</span>'))) + '</div>';
     }).join('');
@@ -585,6 +626,7 @@ function applyMeasured(){
   el('measureStatus').className='status ok'; el('measureStatus').textContent=n+' value(s) applied. Review them, then write to GHL.';
 }
 buildForm();
+loadConnectAccounts();
 el('scrapeBtn').addEventListener('click', scrape);
 el('writeBtn').addEventListener('click', write);
 async function loadCurrentBrand(){
