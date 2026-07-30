@@ -548,10 +548,11 @@ async function awEnsureField(token, loc, map, name, dataType){
 var AW_STAGE_MAP = {
   wills: { personal:'Your Details', partner:'Spouse/Partner', situation:'Spouse/Partner', children:'Your Children', guardian:'Guardians', executors:'Executors', gifts:'Gifts', mirrorGifts:'Gifts', residual:'Residual Estate', funeral:'Funeral Arrangements', mirrorFuneral:'Funeral Arrangements', review:'Pay Bill', payment:'Pay Bill', generate:'Pay Bill' },
   lpa: { your_details:'Donor Details', attorneys:'Attorneys', lpa_type:'LPA Type', decisions:'Decisions', treatment:'Decisions', preferences:'Preferences', usage:'Usage', notify:'Notification', provider:'Provider', registration:'Registration', exemption:'Exemption', declaration:'Declaration', review:'Pay Bill LPA', payment:'Pay Bill LPA', generate:'Pay Bill LPA' },
+  probate: { about:'New Lead', will:'New Lead', property:'Quote Requested', estate:'Quote Requested', tax:'Quote Requested', complications:'Quote Requested', service:'Quote Requested', contact_details:'Quote Requested', referral_done:'Quote Sent' },
   etb: { your_details:'Your Details', executors:'Executors', will:'Will', codicil:'Codicil', lpa:'LPA', property:'Property', insurance:'Insurance', bank_accounts:'Banks', pensions:'Pensions', investments:'Investments', business:'Business', debts:'Debts', digital_assets:'Digital', wishes:'Wishes & memories', review:'Payment', payment:'Payment', done:'Payment' }
 };
 function awStageFor(service, step){
-  if(service==='probate'||service==='referral') return 'New Lead';
+  if(service==='probate'||service==='referral') return AW_STAGE_MAP.probate[step] || 'New Lead';
   var m=AW_STAGE_MAP[service]; if(!m||!step) return '';
   return m[step]||'';
 }
@@ -588,14 +589,31 @@ function awNamedFields(service, state){
     add('LPA Registered By', (s.registration||{}).who);
     add('LPA Fee Status', (s.exemption||{}).status);
   } else if(service==='probate'||service==='referral'){
-    var ab=s.about||{}, es=s.estate||{}, co=s.concerns||{};
-    add('Probate Has Partner', ab.hasPartner);
-    add('Probate Has Children', ab.hasChildren);
-    add('Probate Estate Band', es.estateBand);
+    var ab=s.about||{}, wl=s.will||{}, pr=s.property||{}, es=s.estate||{}, tx=s.tax||{}, cx=s.complications||{}, sv=s.service||{};
+    add('Probate Deceased Name', [_v(ab.deceasedFirstName), _v(ab.deceasedLastName)].filter(Boolean).join(' '));
+    add('Probate Date of Death', ab.dateOfDeath);
+    add('Probate Jurisdiction', ab.jurisdiction);
+    add('Probate Relationship', ab.relationship);
+    add('Probate Has Will', wl.hasWill);
+    add('Probate Original Will Held', wl.hasOriginal);
+    add('Probate Named Executor', wl.isExecutor);
+    add('Probate Property Owned', pr.ownedHome);
+    add('Probate Property Ownership', pr.ownership);
+    add('Probate Property Plan', pr.plan);
+    add('Probate Bank Accounts', es.accounts);
+    var am={assetInvestments:'Investments/shares',assetIsas:'ISAs',assetPremiumBonds:'Premium Bonds',assetPensions:'Pensions',assetLifeInsurance:'Life insurance',assetBusiness:'Business',assetForeign:'Foreign assets',assetDigital:'Digital assets'};
+    var got=Object.keys(am).filter(function(k){ var v=es[k]; return v===true||v==='Yes'||v==='true'||v===1||v==='1'; }).map(function(k){ return am[k]; });
+    if(got.length) add('Probate Other Assets', got.join(', '));
     if(_v(es.value)!=='') add('Probate Estate Value', '\u00a3'+es.value);
-    var cm={mentalCapacity:'Mental capacity',careFees:'Care fees',divorceBankruptcy:'Divorce/bankruptcy',remarriage:'Remarriage',iht:'Inheritance tax'};
-    var picked=Object.keys(cm).filter(function(k){ var v=co[k]; return v===true||v==='Yes'||v==='true'||v===1||v==='1'; }).map(function(k){ return cm[k]; });
-    if(picked.length) add('Probate Concerns', picked.join(', '));
+    add('Probate Debts', es.debts);
+    add('Probate Marital Status', tx.maritalStatus);
+    add('Probate Lifetime Gifts', tx.giftsSevenYears);
+    add('Probate Trusts Involved', tx.trusts);
+    add('Probate Beneficiaries', cx.beneficiaries);
+    add('Probate Dispute Risk', cx.disputeRisk);
+    add('Probate Service Needed', sv.serviceNeeded);
+    add('Probate Progress', sv.progress);
+    add('Probate Urgency', sv.urgency);
   }
   return o;
 }
@@ -638,6 +656,23 @@ function deriveTags(service, state){
   if(est.assetsEW!=null && est.assetsEW!=='' && !_yes(est.assetsEW)) tags.push('aiw-property-abroad');
   if(String(est.estateBand||'').toLowerCase()==='above') tags.push('aiw-estate-over-iht');
   else if(String(est.estateBand||'').toLowerCase()==='below') tags.push('aiw-estate-under-iht');
+  // Probate (real question set): route the lead by what it actually is
+  if(svc==='probate'){
+    var pab=s.about||{}, pwl=s.will||{}, ppr=s.property||{}, pes=s.estate||{}, pcx=s.complications||{}, psv=s.service||{};
+    if(/^No/i.test(String(pab.hasDied||''))) tags.push('aiw-probate-planning-ahead'); // not a probate lead: nurture to wills
+    if(pab.jurisdiction && pab.jurisdiction!=='England or Wales') tags.push('aiw-probate-outside-ew');
+    if(pwl.hasWill==='No') tags.push('aiw-probate-intestate');
+    if(ppr.ownedHome==='Yes') tags.push('aiw-probate-property');
+    if(String(pes.accounts||'')==='7 or more') tags.push('aiw-probate-many-accounts');
+    if(pes.assetBusiness===true||pes.assetBusiness==='Yes') tags.push('aiw-owns-business');
+    if(pes.assetForeign===true||pes.assetForeign==='Yes') tags.push('aiw-property-abroad');
+    if(pcx.disputeRisk==='Yes') tags.push('aiw-probate-dispute-risk');
+    if(/^Just obtain/i.test(String(psv.serviceNeeded||''))) tags.push('aiw-probate-grant-only');
+    if(/^Handle the whole/i.test(String(psv.serviceNeeded||''))) tags.push('aiw-probate-full-admin');
+    if(/^As soon as possible/i.test(String(psv.urgency||''))) tags.push('aiw-probate-urgent');
+    var pv=parseFloat(String(pes.value||'').replace(/[^0-9.]/g,''));
+    if(pv>0){ var thr=(String((s.tax||{}).maritalStatus||'')==='They were widowed')?650000:325000; tags.push(pv>thr?'aiw-estate-over-iht':'aiw-estate-under-iht'); }
+  }
   // Probate concern checkboxes (Yes = ticked)
   if(_yes(con.careFees)) tags.push('aiw-concern-care-fees');
   if(_yes(con.iht)) tags.push('aiw-concern-iht');
