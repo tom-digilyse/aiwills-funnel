@@ -856,7 +856,7 @@ const server = http.createServer(async (req, res) => {
           cvs.forEach(function(cv){ byName[(cv.name||'').toLowerCase()] = cv.value; if(cv.name) seed[cv.name]=cv.value; });
           try{ if(Object.keys(seed).length) brandStorePut(locId, seed); }catch(e){}
         }
-        const MAP = {company_name:'company_name',logo_url:'client_logo_url',primary_color:'client_primary_color',heading_color:'client_heading_color',body_color:'client_body_color',icon_color:'client_icon_color',header_bg_color:'header_bg_color',page_bg_color:'page_bg_color',heading_font:'client_heading_font',body_font:'client_body_font',site_max_width:'site_max_width',footer_max_width:'footer_max_width',nav_font_size:'nav_font_size',body_font_size:'body_font_size',logo_height:'logo_height',phone:'footer_phone',email:'company_email',address:'company_address',facebook_url:'facebook_link',instagram_url:'instagram_link',privacy_url:'privacy_url',will_price:'will_price',lpa_price:'lpa_price',etb_price:'etb_price',legal_footer:'legal_footer',nav_menu_json:'nav_menu_json',footer_menu_json:'footer_menu_json',nav_text_color:'nav_text_color',heading_font_size:'heading_font_size',heading_weight:'heading_weight',nav_weight:'nav_weight',button_weight:'button_weight',button_color:'button_color',button_hover_color:'button_hover_color',button_text_color:'button_text_color',button_secondary_color:'button_secondary_color',button_secondary_text_color:'button_secondary_text_color',button_font:'button_font',button_radius:'button_radius',footer_bg_color:'footer_bg_color',footer_text_color:'footer_text_color',linkedin_url:'linkedin_link',twitter_url:'twitter_link',youtube_url:'youtube_link',tiktok_url:'tiktok_link',font_css_links:'font_css_links',wills_url:'wills_url',lpa_url:'lpa_url',etb_url:'etb_url',wills_title:'wills_title',wills_blurb:'wills_blurb',lpa_title:'lpa_title',lpa_blurb:'lpa_blurb',etb_title:'etb_title',etb_blurb:'etb_blurb',probate_url:'probate_url',probate_title:'probate_title',probate_blurb:'probate_blurb',plan_services:'plan_services',referral_lead_tag:'referral_lead_tag',referral_title:'referral_title',referral_thanks_title:'referral_thanks_title',referral_thanks_text:'referral_thanks_text',referral_submit_label:'referral_submit_label',probate_quote_rules_json:'probate_quote_rules_json',quote_title:'quote_title',quote_note:'quote_note',quote_cta_label:'quote_cta_label',quote_cta_url:'quote_cta_url'};
+        const MAP = {company_name:'company_name',logo_url:'client_logo_url',primary_color:'client_primary_color',heading_color:'client_heading_color',body_color:'client_body_color',icon_color:'client_icon_color',header_bg_color:'header_bg_color',page_bg_color:'page_bg_color',heading_font:'client_heading_font',body_font:'client_body_font',site_max_width:'site_max_width',footer_max_width:'footer_max_width',nav_font_size:'nav_font_size',body_font_size:'body_font_size',logo_height:'logo_height',phone:'footer_phone',email:'company_email',address:'company_address',facebook_url:'facebook_link',instagram_url:'instagram_link',privacy_url:'privacy_url',will_price:'will_price',lpa_price:'lpa_price',etb_price:'etb_price',stripe_account_id:'stripe_account_id',commission_flat:'commission_flat',commission_percent:'commission_percent',legal_footer:'legal_footer',nav_menu_json:'nav_menu_json',footer_menu_json:'footer_menu_json',nav_text_color:'nav_text_color',heading_font_size:'heading_font_size',heading_weight:'heading_weight',nav_weight:'nav_weight',button_weight:'button_weight',button_color:'button_color',button_hover_color:'button_hover_color',button_text_color:'button_text_color',button_secondary_color:'button_secondary_color',button_secondary_text_color:'button_secondary_text_color',button_font:'button_font',button_radius:'button_radius',footer_bg_color:'footer_bg_color',footer_text_color:'footer_text_color',linkedin_url:'linkedin_link',twitter_url:'twitter_link',youtube_url:'youtube_link',tiktok_url:'tiktok_link',font_css_links:'font_css_links',wills_url:'wills_url',lpa_url:'lpa_url',etb_url:'etb_url',wills_title:'wills_title',wills_blurb:'wills_blurb',lpa_title:'lpa_title',lpa_blurb:'lpa_blurb',etb_title:'etb_title',etb_blurb:'etb_blurb',probate_url:'probate_url',probate_title:'probate_title',probate_blurb:'probate_blurb',plan_services:'plan_services',referral_lead_tag:'referral_lead_tag',referral_title:'referral_title',referral_thanks_title:'referral_thanks_title',referral_thanks_text:'referral_thanks_text',referral_submit_label:'referral_submit_label',probate_quote_rules_json:'probate_quote_rules_json',quote_title:'quote_title',quote_note:'quote_note',quote_cta_label:'quote_cta_label',quote_cta_url:'quote_cta_url'};
         const brand = {}; Object.keys(MAP).forEach(function(k){ const v = byName[MAP[k].toLowerCase()]; if (v != null) brand[k] = v; });
         res.writeHead(200, { 'Content-Type':'application/json', 'Cache-Control':'public, max-age=60' }); return res.end(JSON.stringify(brand));
       } catch(e){ res.writeHead(200, { 'Content-Type':'application/json' }); const dbg=(new URL(req.url,'http://x')).searchParams.get('debug'); return res.end(dbg ? JSON.stringify({_err:String((e&&e.message)||e)}) : '{}'); }
@@ -974,8 +974,23 @@ const server = http.createServer(async (req, res) => {
           sparams['line_items[1][price_data][unit_amount]'] = lpP;
           sparams['line_items[1][price_data][product_data][name]'] = 'Lasting Power of Attorney (' + company + ')';
         }
+        // Connect payout split: when this firm has a connected Stripe account, the payment is made
+        // ON the firm's account (their name on the statement, money lands with them) and the
+        // Ai-Wills commission is taken automatically as a flat fee per document sold.
+        const cxAcct = String(cv['stripe_account_id'] || '').trim();
+        let cxRouted = false;
+        if (/^acct_[A-Za-z0-9]+$/.test(cxAcct)) {
+          const feePerDoc = Math.round((parseFloat(String(cv['commission_flat'] || '').replace(/[^0-9.]/g,'')) || 0) * 100);
+          let fee = feePerDoc * (willQty + lpaQty);
+          if (fee >= amount) fee = 0; // never let the fee eat the whole payment; misconfig = no fee, log it
+          if (feePerDoc > 0 && fee === 0) console.error('checkout: commission_flat >= amount for ' + loc + ', fee skipped');
+          sparams['payment_intent_data[transfer_data][destination]'] = cxAcct;
+          sparams['payment_intent_data[on_behalf_of]'] = cxAcct;
+          if (fee > 0) sparams['payment_intent_data[application_fee_amount]'] = fee;
+          cxRouted = true;
+        }
         const sess = await stripeReq('POST', '/v1/checkout/sessions', sparams, process.env.STRIPE_SECRET_KEY);
-        return send(res, 200, { url: sess.url, id: id });
+        return send(res, 200, { url: sess.url, id: id, routed: cxRouted });
       } catch(e){ return send(res, 200, { error: e.message }); }
     }
     // ----- payment: ETB subscription checkout (central AI Wills Stripe, subscription mode) -----
@@ -988,11 +1003,12 @@ const server = http.createServer(async (req, res) => {
         if (!loc) return send(res, 400, { error: 'locationId is required' });
         const token = await getWriteToken(loc);
         const cv = await getCustomValuesMap(loc, token);
-        // price resolution is config-not-code: per-location custom value, then server env, then a test-only default.
-        // GO-LIVE: set the custom value `etb_price_id` (or ETB_PRICE_ID env) to the LIVE Stripe price before switching to a live key.
-        const isTestKey = String(process.env.STRIPE_SECRET_KEY||'').indexOf('sk_test')===0;
-        const price = cv['etb_price_id'] || process.env.ETB_PRICE_ID || (isTestKey ? 'price_1Thoi4BixkcdGFjdX5gxYQZC' : '');
-        if (!price) return send(res, 400, { error: 'etb_price_id is not set for this location' });
+        // Price is config-not-code: etb_price_id (a real Stripe price) wins if set; otherwise the
+        // yearly subscription is built on the fly from the etb_price value (e.g. "19.99"), the same
+        // pattern as will_price. No hardcoded account-specific fallbacks.
+        const price = cv['etb_price_id'] || process.env.ETB_PRICE_ID || '';
+        const etbAmt = Math.round((parseFloat(String(cv['etb_price'] || '').replace(/[^0-9.]/g,'')) || 0) * 100);
+        if (!price && !(etbAmt >= 100)) return send(res, 400, { error: 'Set an Executor Toolbox price (etb_price) or etb_price_id for this location' });
         const person = cbody.contact || {};
         let contactId = cbody.contactId || '';
         try {
@@ -1001,11 +1017,10 @@ const server = http.createServer(async (req, res) => {
         } catch(e){ console.error('etb lead upsert', e.message); }
         const ret = cbody.returnUrl || ('https://' + (req.headers.host || 'aiwills.digilyse.co'));
         const sep = ret.indexOf('?') >= 0 ? '&' : '?';
-        const sess = await stripeReq('POST', '/v1/checkout/sessions', {
+        const eparams = {
           'mode': 'subscription',
           'success_url': ret + sep + 'aw_etb_paid=1',
           'cancel_url': ret + sep + 'aw_etb_paid=0',
-          'line_items[0][price]': price,
           'line_items[0][quantity]': 1,
           'metadata[kind]': 'etb',
           'metadata[locationId]': loc,
@@ -1014,8 +1029,27 @@ const server = http.createServer(async (req, res) => {
           'subscription_data[metadata][locationId]': loc,
           'subscription_data[metadata][contactId]': contactId,
           'customer_email': person.email || ''
-        }, process.env.STRIPE_SECRET_KEY);
-        return send(res, 200, { url: sess.url, contactId: contactId });
+        };
+        if (price) { eparams['line_items[0][price]'] = price; }
+        else {
+          eparams['line_items[0][price_data][currency]'] = 'gbp';
+          eparams['line_items[0][price_data][unit_amount]'] = etbAmt;
+          eparams['line_items[0][price_data][recurring][interval]'] = 'year';
+          eparams['line_items[0][price_data][product_data][name]'] = 'Executor Toolbox (' + (cv['company_name'] || 'AI Wills') + ')';
+        }
+        // Connect payout split: subscription revenue lands with the firm, the Ai-Wills commission
+        // is taken as a percentage of every renewal automatically.
+        const eAcct = String(cv['stripe_account_id'] || '').trim();
+        let eRouted = false;
+        if (/^acct_[A-Za-z0-9]+$/.test(eAcct)) {
+          const pct = parseFloat(String(cv['commission_percent'] || '').replace(/[^0-9.]/g,'')) || 0;
+          eparams['subscription_data[transfer_data][destination]'] = eAcct;
+          eparams['subscription_data[on_behalf_of]'] = eAcct;
+          if (pct > 0 && pct < 100) eparams['subscription_data[application_fee_percent]'] = pct;
+          eRouted = true;
+        }
+        const sess = await stripeReq('POST', '/v1/checkout/sessions', eparams, process.env.STRIPE_SECRET_KEY);
+        return send(res, 200, { url: sess.url, contactId: contactId, routed: eRouted });
       } catch(e){ return send(res, 200, { error: e.message }); }
     }
     // ----- payment: Stripe webhook (marks the will paid, tags the GHL contact) -----
