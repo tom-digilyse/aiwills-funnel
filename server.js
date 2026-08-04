@@ -383,6 +383,7 @@ async function etbSave(loc, state, contactId, status, opts){
   Object.keys(values).forEach(function(name){ var id = map[name.toLowerCase()]; if (id){ cf.push({ id: id, value: String(values[name]) }); written.push(name); } else { noField.push(name); } });
   try{ var _csf=await awCurrentStepCF(token, loc, map, 'ETB', 'etb', opts&&opts.step); if(_csf.length) cf=cf.concat(_csf); }catch(e){}
   try{ var _esid=await awEnsureField(token, loc, map, 'ETB Summary'); if(_esid) cf=cf.concat([{ id:_esid, value: awSummarise(state||{}) }]); }catch(e){}
+  try{ var _edf=await awDetailCF(token, loc, map, opts&&opts.detail); if(_edf.length) cf=cf.concat(_edf); }catch(e){}
   var base = { customFields: cf }; // GHL PUT rejects empty email, so only send personal fields that actually have a value
   var pmap = { firstName: pd.firstName, lastName: pd.lastName, email: pd.email, phone: pd.phone, address1: pd.address, city: pd.city, postalCode: pd.postcode };
   Object.keys(pmap).forEach(function(k){ if (pmap[k]!=null && String(pmap[k]).trim()!=='') base[k]=pmap[k]; });
@@ -548,7 +549,7 @@ async function awEnsureField(token, loc, map, name, dataType){
 var AW_STAGE_MAP = {
   wills: { personal:'Your Details', partner:'Spouse/Partner', situation:'Spouse/Partner', children:'Your Children', guardian:'Guardians', executors:'Executors', gifts:'Gifts', mirrorGifts:'Gifts', residual:'Residual Estate', funeral:'Funeral Arrangements', mirrorFuneral:'Funeral Arrangements', review:'Pay Bill', payment:'Pay Bill', generate:'Pay Bill' },
   lpa: { your_details:'Donor Details', attorneys:'Attorneys', lpa_type:'LPA Type', decisions:'Decisions', treatment:'Decisions', preferences:'Preferences', usage:'Usage', notify:'Notification', provider:'Provider', registration:'Registration', exemption:'Exemption', declaration:'Declaration', review:'Pay Bill LPA', payment:'Pay Bill LPA', generate:'Pay Bill LPA' },
-  probate: { about:'New Lead', will:'New Lead', property:'Quote Requested', estate:'Quote Requested', tax:'Quote Requested', complications:'Quote Requested', service:'Quote Requested', contact_details:'Quote Requested', referral_done:'Quote Sent' },
+  probate: { about:'New Lead', grant:'New Lead', will:'New Lead', estate:'Quote Requested', beneficiaries:'Quote Requested', contact_details:'Quote Requested', referral_done:'Quote Sent' },
   etb: { your_details:'Your Details', executors:'Executors', will:'Will', codicil:'Codicil', lpa:'LPA', property:'Property', insurance:'Insurance', bank_accounts:'Banks', pensions:'Pensions', investments:'Investments', business:'Business', debts:'Debts', digital_assets:'Digital', wishes:'Wishes & memories', review:'Payment', payment:'Payment', done:'Payment' }
 };
 function awStageFor(service, step){
@@ -589,33 +590,42 @@ function awNamedFields(service, state){
     add('LPA Registered By', (s.registration||{}).who);
     add('LPA Fee Status', (s.exemption||{}).status);
   } else if(service==='probate'||service==='referral'){
-    var ab=s.about||{}, wl=s.will||{}, pr=s.property||{}, es=s.estate||{}, tx=s.tax||{}, cx=s.complications||{}, sv=s.service||{};
-    add('Probate Deceased Name', [_v(ab.deceasedFirstName), _v(ab.deceasedLastName)].filter(Boolean).join(' '));
-    add('Probate Date of Death', ab.dateOfDeath);
-    add('Probate Jurisdiction', ab.jurisdiction);
-    add('Probate Relationship', ab.relationship);
+    var ab=s.about||{}, gr=s.grant||{}, wl=s.will||{}, es=s.estate||{}, bn=s.beneficiaries||{}, cd=s.contact_details||{};
+    add('Probate Lives In England Or Wales', ab.liveEW);
+    add('Probate Has Grant', ab.hasGrant);
+    add('Probate Named On Grant', gr.namedOnGrant);
     add('Probate Has Will', wl.hasWill);
-    add('Probate Original Will Held', wl.hasOriginal);
-    add('Probate Named Executor', wl.isExecutor);
-    add('Probate Property Owned', pr.ownedHome);
-    add('Probate Property Ownership', pr.ownership);
-    add('Probate Property Plan', pr.plan);
-    add('Probate Bank Accounts', es.accounts);
-    var am={assetInvestments:'Investments/shares',assetIsas:'ISAs',assetPremiumBonds:'Premium Bonds',assetPensions:'Pensions',assetLifeInsurance:'Life insurance',assetBusiness:'Business',assetForeign:'Foreign assets',assetDigital:'Digital assets'};
-    var got=Object.keys(am).filter(function(k){ var v=es[k]; return v===true||v==='Yes'||v==='true'||v===1||v==='1'; }).map(function(k){ return am[k]; });
-    if(got.length) add('Probate Other Assets', got.join(', '));
+    add('Probate Is Executor', wl.isExecutor);
+    add('Probate Executors Died Or Refused', wl.executorsGone || gr.executorsGone);
+    add('Probate Is Beneficiary', wl.isBeneficiary);
+    add('Probate Next Of Kin', wl.nextOfKin);
     if(_v(es.value)!=='') add('Probate Estate Value', '\u00a3'+es.value);
-    add('Probate Debts', es.debts);
-    add('Probate Marital Status', tx.maritalStatus);
-    add('Probate Lifetime Gifts', tx.giftsSevenYears);
-    add('Probate Trusts Involved', tx.trusts);
-    add('Probate Beneficiaries', cx.beneficiaries);
-    add('Probate Dispute Risk', cx.disputeRisk);
-    add('Probate Service Needed', sv.serviceNeeded);
-    add('Probate Progress', sv.progress);
-    add('Probate Urgency', sv.urgency);
+    add('Probate Has Property', es.hasProperty);
+    add('Probate Property Outside England Or Wales', es.propertyOutsideEW);
+    add('Probate Property Occupied', es.propertyOccupied);
+    add('Probate Number Of Beneficiaries', bn.count);
+    add('Probate Beneficiary Under 18', bn.anyUnder18);
+    add('Probate Contested', bn.contested);
+    add('Probate Postcode', cd.postcode);
   }
   return o;
+}
+/* Fields the engine derived from the questions themselves. Capped per save so the very first
+   submission on a new account cannot spend minutes creating fields; the rest are created on the
+   next save, and saves happen on every step. */
+async function awDetailCF(token, loc, map, detail){
+  var out=[], made=0;
+  if(!Array.isArray(detail)) return out;
+  for(var i=0;i<detail.length && i<300;i++){
+    var d=detail[i]||{};
+    var nm=String(d.name||'').replace(/[^A-Za-z0-9 £%&'(),.\/-]/g,' ').replace(/\s+/g,' ').trim().slice(0,100);
+    var vl=(d.value==null)?'':String(d.value).slice(0,2000);
+    if(!nm || vl==='') continue;
+    var known=!!map[nm.toLowerCase()];
+    if(!known && made>=25) continue;                 // create the rest next time round
+    try{ var fid=await awEnsureField(token, loc, map, nm, 'TEXT'); if(fid){ if(!known) made++; out.push({ id:fid, value:vl }); } }catch(e){}
+  }
+  return out;
 }
 async function awNamedFieldsCF(token, loc, map, service, state){
   var list=awNamedFields(service, state); var out=[];
@@ -658,20 +668,20 @@ function deriveTags(service, state){
   else if(String(est.estateBand||'').toLowerCase()==='below') tags.push('aiw-estate-under-iht');
   // Probate (real question set): route the lead by what it actually is
   if(svc==='probate'){
-    var pab=s.about||{}, pwl=s.will||{}, ppr=s.property||{}, pes=s.estate||{}, pcx=s.complications||{}, psv=s.service||{};
-    if(/^No/i.test(String(pab.hasDied||''))) tags.push('aiw-probate-planning-ahead'); // not a probate lead: nurture to wills
-    if(pab.jurisdiction && pab.jurisdiction!=='England or Wales') tags.push('aiw-probate-outside-ew');
+    var pab=s.about||{}, pgr=s.grant||{}, pwl=s.will||{}, pes=s.estate||{}, pbn=s.beneficiaries||{};
+    if(pab.liveEW==='No') tags.push('aiw-probate-outside-ew');
+    if(pab.hasGrant==='Yes') tags.push('aiw-probate-has-grant');       // admin only, the grant is done
+    if(pab.hasGrant==='No') tags.push('aiw-probate-needs-grant');      // the full job
     if(pwl.hasWill==='No') tags.push('aiw-probate-intestate');
-    if(ppr.ownedHome==='Yes') tags.push('aiw-probate-property');
-    if(String(pes.accounts||'')==='7 or more') tags.push('aiw-probate-many-accounts');
-    if(pes.assetBusiness===true||pes.assetBusiness==='Yes') tags.push('aiw-owns-business');
-    if(pes.assetForeign===true||pes.assetForeign==='Yes') tags.push('aiw-property-abroad');
-    if(pcx.disputeRisk==='Yes') tags.push('aiw-probate-dispute-risk');
-    if(/^Just obtain/i.test(String(psv.serviceNeeded||''))) tags.push('aiw-probate-grant-only');
-    if(/^Handle the whole/i.test(String(psv.serviceNeeded||''))) tags.push('aiw-probate-full-admin');
-    if(/^As soon as possible/i.test(String(psv.urgency||''))) tags.push('aiw-probate-urgent');
+    if(pwl.isExecutor==='Yes' || pgr.namedOnGrant==='Yes') tags.push('aiw-probate-can-apply');
+    if(pwl.executorsGone==='Yes' || pgr.executorsGone==='Yes') tags.push('aiw-probate-executors-renounced');
+    if(pes.hasProperty==='Yes') tags.push('aiw-probate-property');
+    if(pes.propertyOutsideEW==='Yes') tags.push('aiw-property-abroad');
+    if(pes.propertyOccupied==='Yes') tags.push('aiw-probate-property-occupied');
+    if(pbn.anyUnder18==='Yes') tags.push('aiw-probate-minor-beneficiary');
+    if(pbn.contested==='Yes') tags.push('aiw-probate-dispute-risk');
     var pv=parseFloat(String(pes.value||'').replace(/[^0-9.]/g,''));
-    if(pv>0){ var thr=(String((s.tax||{}).maritalStatus||'')==='They were widowed')?650000:325000; tags.push(pv>thr?'aiw-estate-over-iht':'aiw-estate-under-iht'); }
+    if(pv>0) tags.push(pv>325000?'aiw-estate-over-iht':'aiw-estate-under-iht');
   }
   // Probate concern checkboxes (Yes = ticked)
   if(_yes(con.careFees)) tags.push('aiw-concern-care-fees');
@@ -700,6 +710,7 @@ async function willSave(loc, state, contactId, opts){
   var _cf=await awStateAndSummaryCF(token, loc, map, 'Will', state); if(_cf.length) base.customFields=_cf;
   try{ var _csf=await awCurrentStepCF(token, loc, map, 'Will', 'wills', opts&&opts.step); if(_csf.length) base.customFields=(base.customFields||[]).concat(_csf); }catch(e){}
   try{ var _nf=await awNamedFieldsCF(token, loc, map, 'wills', state); if(_nf.length) base.customFields=(base.customFields||[]).concat(_nf); }catch(e){}
+  try{ var _df=await awDetailCF(token, loc, map, (opts&&opts.detail)); if(_df.length) base.customFields=(base.customFields||[]).concat(_df); }catch(e){}
   var up=await upsertOrUpdateContact(token, loc, contactId, base);
   var cid=(up.contact&&up.contact.id)||up.id||contactId||'';
   var pdfRes; if (opts && opts.pdf && cid) pdfRes = await storeGeneratedPdf(loc, cid, 'wills');
@@ -707,7 +718,7 @@ async function willSave(loc, state, contactId, opts){
   return { contactId: cid, saved: _cf.length>0, pdf: pdfRes };
 }
 /* Persist a referral-funnel state JSON onto the contact and tag the lead on submit (probate etc). */
-async function referralSave(loc, state, contactId, key, status, step){
+async function referralSave(loc, state, contactId, key, status, step, detail){
   if(!loc) throw new Error('locationId required');
   var k=String(key||'probate').replace(/[^a-z]/gi,'').toLowerCase()||'probate';
   var label=k.charAt(0).toUpperCase()+k.slice(1);
@@ -719,6 +730,7 @@ async function referralSave(loc, state, contactId, key, status, step){
   var _rcf=await awStateAndSummaryCF(token, loc, map, label, state); if(_rcf.length) base.customFields=_rcf;
   try{ var _csf=await awCurrentStepCF(token, loc, map, label, k, step); if(_csf.length) base.customFields=(base.customFields||[]).concat(_csf); }catch(e){}
   try{ var _nf=await awNamedFieldsCF(token, loc, map, k, state); if(_nf.length) base.customFields=(base.customFields||[]).concat(_nf); }catch(e){}
+  try{ var _df=await awDetailCF(token, loc, map, detail); if(_df.length) base.customFields=(base.customFields||[]).concat(_df); }catch(e){}
   var up=await upsertOrUpdateContact(token, loc, contactId, base);
   var cid=(up.contact&&up.contact.id)||up.id||contactId||'';
   if(status==='submitted' && cid){
@@ -741,6 +753,7 @@ async function lpaSave(loc, state, contactId, opts){
   if(_lcf.length){ base.customFields=_lcf; }
   try{ var _csf=await awCurrentStepCF(token, loc, map, 'LPA', 'lpa', opts&&opts.step); if(_csf.length) base.customFields=(base.customFields||[]).concat(_csf); }catch(e){}
   try{ var _nf=await awNamedFieldsCF(token, loc, map, 'lpa', state); if(_nf.length) base.customFields=(base.customFields||[]).concat(_nf); }catch(e){}
+  try{ var _df=await awDetailCF(token, loc, map, (opts&&opts.detail)); if(_df.length) base.customFields=(base.customFields||[]).concat(_df); }catch(e){}
   var up=await upsertOrUpdateContact(token, loc, contactId, base);
   var cid=(up.contact&&up.contact.id)||up.id||contactId||'';
   var pdfRes; if (opts && opts.pdf && cid) pdfRes = await storeGeneratedPdf(loc, cid, 'lpa');
@@ -1248,7 +1261,7 @@ const server = http.createServer(async (req, res) => {
       try {
         const b = JSON.parse((await readBody(req)) || '{}');
         const loc = (b.locationId||'').replace(/[^A-Za-z0-9]/g,'');
-        return send(res, 200, await referralSave(loc, b.state||{}, b.contactId||'', b.key||'probate', b.status||'started', b.step||''));
+        return send(res, 200, await referralSave(loc, b.state||{}, b.contactId||'', b.key||'probate', b.status||'started', b.step||'', b.detail));
       } catch(e){ return send(res, 200, { error: e.message }); }
     }
     if (req.method === 'POST' && pathOnly === '/api/etb-save'){
@@ -1256,7 +1269,7 @@ const server = http.createServer(async (req, res) => {
       try {
         const b = JSON.parse((await readBody(req)) || '{}');
         const loc = (b.locationId||'').replace(/[^A-Za-z0-9]/g,'');
-        return send(res, 200, await etbSave(loc, b.state||{}, b.contactId||'', b.status||'started', { pdf: !!b.pdf, step: b.step||'' }));
+        return send(res, 200, await etbSave(loc, b.state||{}, b.contactId||'', b.status||'started', { pdf: !!b.pdf, step: b.step||'', detail: b.detail }));
       } catch(e){ return send(res, 200, { error: e.message }); }
     }
     if (req.method === 'POST' && pathOnly === '/api/etb-upload'){
@@ -1284,7 +1297,7 @@ const server = http.createServer(async (req, res) => {
       try {
         const b = JSON.parse((await readBody(req)) || '{}');
         const loc = (b.locationId||'').replace(/[^A-Za-z0-9]/g,'');
-        const _wr = await willSave(loc, b.state||{}, b.contactId||'', { pdf: !!b.pdf, step: b.step||'' });
+        const _wr = await willSave(loc, b.state||{}, b.contactId||'', { pdf: !!b.pdf, step: b.step||'', detail: b.detail });
         if(_wr && _wr.contactId){ try{ _wr.token = signEdit({ loc:loc, cid:_wr.contactId, exp:Date.now()+1000*60*60*24*30 }); }catch(e){} }
         return send(res, 200, _wr);
       } catch(e){ return send(res, 200, { error: e.message }); }
@@ -1294,7 +1307,7 @@ const server = http.createServer(async (req, res) => {
       try {
         const b = JSON.parse((await readBody(req)) || '{}');
         const loc = (b.locationId||'').replace(/[^A-Za-z0-9]/g,'');
-        const _lr = await lpaSave(loc, b.state||{}, b.contactId||'', { pdf: !!b.pdf, step: b.step||'' });
+        const _lr = await lpaSave(loc, b.state||{}, b.contactId||'', { pdf: !!b.pdf, step: b.step||'', detail: b.detail });
         if(_lr && _lr.contactId){ try{ _lr.token = signEdit({ loc:loc, cid:_lr.contactId, exp:Date.now()+1000*60*60*24*30 }); }catch(e){} }
         return send(res, 200, _lr);
       } catch(e){ return send(res, 200, { error: e.message }); }
