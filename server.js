@@ -1134,9 +1134,18 @@ const server = http.createServer(async (req, res) => {
         const md = (evt.data && evt.data.object && evt.data.object.metadata) || {};
         if (md.aw_id){ const rec = willStoreGet(md.aw_id); if (rec){ rec.paid = true; rec.paidAt = Date.now(); willStorePut(md.aw_id, rec); } }
         if (md.locationId && md.contactId){
-          const tagName = (md.kind === 'etb') ? 'etb-active' : 'ai-will-paid';
+          // Tag what they actually bought. A will and an LPA can be in the same basket, so one
+          // shared "paid" tag would leave the firm unable to tell the two jobs apart.
+          const tags = [];
+          if (md.kind === 'etb') tags.push('etb-active');
+          else {
+            const wq = parseInt(md.will_qty, 10), lq = parseInt(md.lpa_qty, 10);
+            if (wq > 0) tags.push('ai-will-paid');
+            if (lq > 0) tags.push('ai-lpa-paid');
+            if (!tags.length) tags.push('ai-will-paid');   // older sessions carry no quantities
+          }
           (async function(){
-            try { const t = await getWriteToken(md.locationId); await ghl('POST', '/contacts/' + md.contactId + '/tags', t, { tags: [tagName] }); }
+            try { const t = await getWriteToken(md.locationId); await ghl('POST', '/contacts/' + md.contactId + '/tags', t, { tags: tags }); }
             catch(e){ console.error('paid tag', e.message); }
           })();
         }
