@@ -81,10 +81,17 @@ var CFG = window.AIWILLS_CONFIG || {}; (function(){ var _m='{'+'{'; for(var _k i
       document.getElementById('awgateclose').onclick=function(){ try{ m.parentNode.removeChild(m); }catch(e){} };
       m.onclick=function(ev){ if(ev.target===m){ try{ m.parentNode.removeChild(m); }catch(e){} } };
     }
+    function awGateConsentText(){
+      var C=window.AIWILLS_CONFIG||{};
+      if(C.gate_consent_label) return esc(C.gate_consent_label);
+      var firm=esc(C.company_name||'this firm');
+      var lnk=function(u,t){ return u ? ('<a href="'+esc(u)+'" target="_blank" rel="noopener" style="color:var(--primary);text-decoration:underline">'+esc(t)+'</a>') : esc(t); };
+      return 'I am happy for '+firm+' to contact me about my enquiry, and I accept their '+lnk(C.privacy_url,'privacy notice')+'.';
+    }
     function awGateNew(m,url,svcKey){
       // Capture name + contact details up front so the firm can stay in touch even if the visitor
       // does not finish the form, then carry the details into the service pre-filled.
-      m.innerHTML='<div style="background:#fff;max-width:420px;width:100%;border-radius:16px;padding:26px 24px;box-shadow:0 10px 40px rgba(0,0,0,.2)"><h2 style="font-family:var(--hf,Georgia,serif);color:var(--heading);margin:0 0 6px;font-size:21px">First, a few details</h2><p style="color:var(--muted);font-size:14px;line-height:1.5;margin:0 0 16px">So we can save your progress and keep in touch as you go.</p><input id="awgfn" placeholder="First name" autocomplete="given-name" style="width:100%;box-sizing:border-box;padding:12px 14px;border:1px solid var(--line);border-radius:10px;font-size:15px;font-family:var(--bf);margin-bottom:10px"><input id="awgem" type="email" placeholder="Email" autocomplete="email" style="width:100%;box-sizing:border-box;padding:12px 14px;border:1px solid var(--line);border-radius:10px;font-size:15px;font-family:var(--bf);margin-bottom:10px"><input id="awgph" type="tel" placeholder="Mobile number" autocomplete="tel" style="width:100%;box-sizing:border-box;padding:12px 14px;border:1px solid var(--line);border-radius:10px;font-size:15px;font-family:var(--bf)"><div id="awgmsg" style="font-size:13px;margin-top:10px;min-height:18px;color:#c8100d"></div><button type="button" id="awgo" style="width:100%;margin-top:6px;background:var(--btn-bg,var(--primary));color:#fff;border:none;border-radius:var(--btn-radius,10px);padding:13px;font-weight:600;cursor:pointer;font-family:var(--bf)">Continue</button><button type="button" id="awgback" style="width:100%;margin-top:6px;background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px">Back</button></div>';
+      m.innerHTML='<div style="background:#fff;max-width:420px;width:100%;border-radius:16px;padding:26px 24px;box-shadow:0 10px 40px rgba(0,0,0,.2)"><h2 style="font-family:var(--hf,Georgia,serif);color:var(--heading);margin:0 0 6px;font-size:21px">First, a few details</h2><p style="color:var(--muted);font-size:14px;line-height:1.5;margin:0 0 16px">So we can save your progress and keep in touch as you go.</p><input id="awgfn" placeholder="First name" autocomplete="given-name" style="width:100%;box-sizing:border-box;padding:12px 14px;border:1px solid var(--line);border-radius:10px;font-size:15px;font-family:var(--bf);margin-bottom:10px"><input id="awgem" type="email" placeholder="Email" autocomplete="email" style="width:100%;box-sizing:border-box;padding:12px 14px;border:1px solid var(--line);border-radius:10px;font-size:15px;font-family:var(--bf);margin-bottom:10px"><input id="awgph" type="tel" placeholder="Mobile number" autocomplete="tel" style="width:100%;box-sizing:border-box;padding:12px 14px;border:1px solid var(--line);border-radius:10px;font-size:15px;font-family:var(--bf)"><div id="awgmsg" style="font-size:13px;margin-top:10px;min-height:18px;color:#c8100d"></div><button type="button" id="awgo" style="width:100%;margin-top:6px;background:var(--btn-bg,var(--primary));color:#fff;border:none;border-radius:var(--btn-radius,10px);padding:13px;font-weight:600;cursor:pointer;font-family:var(--bf)">Continue</button><div style="margin:14px 0 2px;text-align:left"><label style="display:flex;gap:9px;align-items:flex-start;cursor:pointer;font-size:13px;line-height:1.45;color:var(--body)"><input type="checkbox" id="awgc1" style="margin-top:2px;flex:0 0 auto"><span>'+awGateConsentText()+'</span></label><label style="display:flex;gap:9px;align-items:flex-start;cursor:pointer;font-size:13px;line-height:1.45;color:var(--muted);margin-top:7px"><input type="checkbox" id="awgc2" style="margin-top:2px;flex:0 0 auto"><span>'+esc((window.AIWILLS_CONFIG||{}).marketing_label||'I would also like helpful updates and offers by email or text.')+'</span></label></div><button type="button" id="awgback" style="width:100%;margin-top:6px;background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px">Back</button></div>';
       document.getElementById('awgback').onclick=function(){ awGate(url,svcKey); };
       document.getElementById('awgo').onclick=function(){
         var fn=(document.getElementById('awgfn').value||'').trim();
@@ -94,19 +101,28 @@ var CFG = window.AIWILLS_CONFIG || {}; (function(){ var _m='{'+'{'; for(var _k i
         if(!fn){ msg.textContent='Please enter your first name.'; return; }
         if(!/.+@.+\..+/.test(em)){ msg.textContent='Please enter a valid email.'; return; }
         if(ph.replace(/[^0-9]/g,'').length<7){ msg.textContent='Please enter a valid mobile number.'; return; }
+        var c1=document.getElementById('awgc1'), c2=document.getElementById('awgc2');
+        if(c1 && !c1.checked){ msg.style.color='#c8100d'; msg.textContent='Please tick the box so we know we can contact you.'; return; }
         var btn=document.getElementById('awgo'); btn.disabled=true; msg.style.color='var(--muted)'; msg.textContent='One moment...';
         var section=(svcKey==='wills')?'personal':((svcKey==='probate')?'contact_details':'your_details');
         var details={ firstName:fn, email:em, phone:ph };
+        var _cAt=new Date().toISOString(), _cMkt=(c2&&c2.checked)?'Yes':'No';
+        var consent={ contact:'Yes', at:_cAt, marketing:_cMkt, firm:((window.AIWILLS_CONFIG||{}).company_name||'') };
+        var consentDetail=[
+          { name:'Consent - Happy to be contacted', value:'Yes' },
+          { name:'Consent - Given at', value:_cAt },
+          { name:'Consent - Marketing opt-in', value:_cMkt }
+        ];
         // Pre-fill the first step of the service on this device.
         try{ var d={}; d[section]=details; localStorage.setItem('aw_draft_'+svcKey+'_'+loc, JSON.stringify(d)); }catch(e){}
         // Create the contact now so the firm can follow up even if they stop here.
         var ep, body;
-        var st={}; st[section]=details;
-        if(svcKey==='lpa'){ ep='/api/lpa-save'; body={locationId:loc,contactId:'',state:st,step:'gate'}; }
-        else if(svcKey==='etb'){ ep='/api/etb-save'; body={locationId:loc,contactId:'',state:st,status:'started',step:'gate'}; }
-        else if(svcKey==='probate'){ ep='/api/referral-save'; body={locationId:loc,contactId:'',state:st,key:'probate',step:'gate',status:'started'}; }
-        else { ep='/api/will-save'; body={locationId:loc,contactId:'',state:st,step:'gate'}; }
-        var goNext=function(cid){ try{ localStorage.setItem('aw_ident_'+loc, JSON.stringify({ firstName:fn, email:em, phone:ph, cid:cid||'' })); }catch(e){} var u=url||''; if(u&&cid) u+= (u.indexOf('?')>=0?'&':'?')+'aw_c='+enc(cid); try{ m.parentNode.removeChild(m); }catch(e){} if(u) window.top.location.href=u; };
+        var st={}; st[section]=details; st.consent=consent;
+        if(svcKey==='lpa'){ ep='/api/lpa-save'; body={locationId:loc,contactId:'',state:st,detail:consentDetail,step:'gate'}; }
+        else if(svcKey==='etb'){ ep='/api/etb-save'; body={locationId:loc,contactId:'',state:st,detail:consentDetail,status:'started',step:'gate'}; }
+        else if(svcKey==='probate'){ ep='/api/referral-save'; body={locationId:loc,contactId:'',state:st,detail:consentDetail,key:'probate',step:'gate',status:'started'}; }
+        else { ep='/api/will-save'; body={locationId:loc,contactId:'',state:st,detail:consentDetail,step:'gate'}; }
+        var goNext=function(cid){ try{ localStorage.setItem('aw_ident_'+loc, JSON.stringify({ firstName:fn, email:em, phone:ph, cid:cid||'', consent:consent })); }catch(e){} var u=url||''; if(u&&cid) u+= (u.indexOf('?')>=0?'&':'?')+'aw_c='+enc(cid); try{ m.parentNode.removeChild(m); }catch(e){} if(u) window.top.location.href=u; };
         fetch(API+ep,{method:'POST',body:JSON.stringify(body)}).then(function(r){return r.json();}).then(function(j){ goNext((j&&j.contactId)||''); }).catch(function(){ goNext(''); });
       };
     }
@@ -164,19 +180,19 @@ function awLink(url, label){ return url ? ('<a href="'+esc(url)+'" target="_blan
 function awConsentHtml(){
   var firm=esc(CFG.company_name||'the firm');
   var terms=awLink(CFG.terms_url,'terms of business'), priv=awLink(CFG.privacy_url,'privacy notice');
+  var privLine='<div style="font-size:13px;color:var(--muted);margin-top:8px">See our '+priv+'.</div>';
   var accepted=(getP('consent.accepted')==='Yes'), mkt=(getP('consent.marketing')==='Yes');
-  var custom=CFG.consent_label ? esc(CFG.consent_label) : ('I accept '+firm+"'s "+terms+' and '+priv+'.');
+  var custom=CFG.consent_label ? esc(CFG.consent_label) : ('I accept '+firm+"'s "+terms+'.');
   return '<div class="awconsent" style="text-align:left;margin:16px 0 4px">'
     + '<label style="display:flex;gap:10px;align-items:flex-start;cursor:pointer;font-size:14px;line-height:1.5;color:var(--body)">'
     +   '<input type="checkbox" id="awcterms"'+(accepted?' checked':'')+' style="margin-top:3px;flex:0 0 auto"><span>'+custom+'</span></label>'
-    + '<label style="display:flex;gap:10px;align-items:flex-start;cursor:pointer;font-size:14px;line-height:1.5;color:var(--muted);margin-top:8px">'
-    +   '<input type="checkbox" id="awcmkt"'+(mkt?' checked':'')+' style="margin-top:3px;flex:0 0 auto"><span>'+esc(CFG.marketing_label||'Keep me updated by email.')+'</span></label>'
+    + privLine
     + '<div id="awcerr" style="color:#c8100d;font-size:13px;margin-top:8px;display:none">Please accept the terms to continue.</div></div>';
 }
 function awConsentOk(){
   var box=el('awcterms'); if(!box) return true;                     // no tick shown = nothing to enforce
   var mk=el('awcmkt');
-  setP('consent.marketing', (mk&&mk.checked)?'Yes':'No');
+  if(mk) setP('consent.marketing', mk.checked?'Yes':'No');
   if(!box.checked){ var er=el('awcerr'); if(er) er.style.display='block'; try{ box.focus(); }catch(e){} return false; }
   if(getP('consent.accepted')!=='Yes'){
     setP('consent.accepted','Yes');
