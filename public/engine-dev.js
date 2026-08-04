@@ -155,6 +155,39 @@ function wt(s){return {Light:'300',Normal:'400',Medium:'500',Semibold:'600',Bold
 function el(id){ return document.getElementById(id); }
 function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
 function awSafeHtml(html){ try{ var d=document.createElement('div'); d.innerHTML=String(html||''); var AL={A:1,B:1,STRONG:1,I:1,EM:1,U:1,SPAN:1,P:1,BR:1,DIV:1,UL:1,OL:1,LI:1}, RM={SCRIPT:1,STYLE:1,IFRAME:1,OBJECT:1,EMBED:1,LINK:1,META:1,SVG:1,NOSCRIPT:1}, AT={href:1,target:1,rel:1}; (function w(node){ [].slice.call(node.children).forEach(function(n){ if(RM[n.tagName]){ n.parentNode.removeChild(n); return; } w(n); if(!AL[n.tagName]){ var f=document.createDocumentFragment(); while(n.firstChild) f.appendChild(n.firstChild); n.parentNode.replaceChild(f,n); return; } [].slice.call(n.attributes).forEach(function(a){ var nm=a.name.toLowerCase(); if(!AT[nm]){ n.removeAttribute(a.name); return; } if(nm==='href'&&/^\s*javascript:/i.test(a.value)) n.removeAttribute('href'); }); if(n.tagName==='A'&&n.getAttribute('href')){ n.setAttribute('target','_blank'); n.setAttribute('rel','noopener'); } }); })(d); return d.innerHTML; }catch(e){ return ''; } }
+/* ---- Acceptance ----
+   Two ticks, straight above the button that commits them. The wording links out to the firm's
+   own terms and privacy notice, so we never host or author legal text. Marketing is a separate
+   optional tick because bundling it with the terms would invalidate it. The moment they tick is
+   stamped on the contact, which is the part that is any use if it is ever questioned. */
+function awLink(url, label){ return url ? ('<a href="'+esc(url)+'" target="_blank" rel="noopener" style="color:var(--primary);text-decoration:underline">'+esc(label)+'</a>') : esc(label); }
+function awConsentHtml(){
+  var firm=esc(CFG.company_name||'the firm');
+  var terms=awLink(CFG.terms_url,'terms of business'), priv=awLink(CFG.privacy_url,'privacy notice');
+  var accepted=(getP('consent.accepted')==='Yes'), mkt=(getP('consent.marketing')==='Yes');
+  var custom=CFG.consent_label ? esc(CFG.consent_label) : ('I accept '+firm+"'s "+terms+' and '+priv+'.');
+  return '<div class="awconsent" style="text-align:left;margin:16px 0 4px">'
+    + '<label style="display:flex;gap:10px;align-items:flex-start;cursor:pointer;font-size:14px;line-height:1.5;color:var(--body)">'
+    +   '<input type="checkbox" id="awcterms"'+(accepted?' checked':'')+' style="margin-top:3px;flex:0 0 auto"><span>'+custom+'</span></label>'
+    + '<label style="display:flex;gap:10px;align-items:flex-start;cursor:pointer;font-size:14px;line-height:1.5;color:var(--muted);margin-top:8px">'
+    +   '<input type="checkbox" id="awcmkt"'+(mkt?' checked':'')+' style="margin-top:3px;flex:0 0 auto"><span>'+esc(CFG.marketing_label||'Keep me updated by email.')+'</span></label>'
+    + '<div id="awcerr" style="color:#c8100d;font-size:13px;margin-top:8px;display:none">Please accept the terms to continue.</div></div>';
+}
+function awConsentOk(){
+  var box=el('awcterms'); if(!box) return true;                     // no tick shown = nothing to enforce
+  var mk=el('awcmkt');
+  setP('consent.marketing', (mk&&mk.checked)?'Yes':'No');
+  if(!box.checked){ var er=el('awcerr'); if(er) er.style.display='block'; try{ box.focus(); }catch(e){} return false; }
+  if(getP('consent.accepted')!=='Yes'){
+    setP('consent.accepted','Yes');
+    setP('consent.at', new Date().toISOString());
+    setP('consent.terms', CFG.terms_url||'');
+    setP('consent.privacy', CFG.privacy_url||'');
+    setP('consent.firm', CFG.company_name||'');
+  }
+  try{ saveLocal(); }catch(e){}
+  return true;
+}
 function fmtPrice(p){ p=String(p==null?'':p).trim(); if(!p) return p; return /^[0-9]+([.][0-9]{1,2})?$/.test(p)?('\u00a3'+p):p; }
 var AWFAQ=null, _awfaqTried=false;
 function loadFaq(){ if(_awfaqTried) return; _awfaqTried=true; try{ fetch(API+'/api/faq').then(function(r){return r.json();}).then(function(j){ AWFAQ=(j&&j.faq)?j.faq:{}; try{ paintFaq(); }catch(e){} }).catch(function(){}); }catch(e){} }
@@ -517,7 +550,7 @@ var REFERRAL_FUNNEL = [
   // Probate quote. Mirrors the probatecompare.co.uk/survey flow: it establishes whether this
   // person can actually apply, then sizes the job. Short on purpose - it is a quote request,
   // not a client interview.
-  { id:'about', name:'The estate', title:(window.AIWILLS_CONFIG&&window.AIWILLS_CONFIG.referral_title)||'Compare probate quotes in minutes', lead:'A few quick questions and we will come back with a fixed fee quote. It takes about two minutes.', fields:[
+  { id:'about', name:'Getting started', title:(window.AIWILLS_CONFIG&&window.AIWILLS_CONFIG.referral_title)||'Compare probate quotes in minutes', lead:'A few quick questions and we will come back with a fixed fee quote. It takes about two minutes.', fields:[
     { key:'liveEW', type:'radio', label:'Did the deceased usually live in England or Wales?', required:true, reflow:true, options:['Yes','No'] },
     { key:'outsideNote', type:'note', text:'Estates outside England and Wales follow a different process. Leave your details and we will tell you how we can help.', showIf:function(s){ return s.about.liveEW==='No'; } },
     { key:'hasGrant', type:'radio', label:'Do you already have a Grant allowing you to deal with the Estate?', required:true, reflow:true, options:['Yes','No'] }
@@ -556,7 +589,7 @@ var REFERRAL_FUNNEL = [
     { key:'postcode', type:'text', label:'What is your postcode?', required:true },
     { type:'row', fields:[ {key:'firstName',type:'text',label:'First name',required:true}, {key:'lastName',type:'text',label:'Last name',required:true} ] },
     { type:'row', fields:[ {key:'email',type:'email',label:'Email',required:true}, {key:'phone',type:'tel',label:'Phone',required:true} ] },
-    { key:'declaration', type:'checkbox', label:'I agree to be contacted about my probate enquiry.', required:true }
+    { key:'consentBlock', type:'consent' }
   ]},
 
   { id:'referral_done', name:'Your quote', kind:'quote', title:'', fields:[] }
@@ -583,12 +616,25 @@ function awdVal(v){
 function awDetailFields(){
   var out=[], pfx=AWD_PREFIX[String(FUNNEL_KEY||'').toLowerCase()]||'Form';
   try{
+    if(getP('consent.accepted')==='Yes'){
+      out.push({ name: awdClean(pfx+' Acceptance - Terms and privacy accepted'), value:'Yes' });
+      out.push({ name: awdClean(pfx+' Acceptance - Accepted at'), value: String(getP('consent.at')||'') });
+      out.push({ name: awdClean(pfx+' Acceptance - Marketing opt-in'), value: String(getP('consent.marketing')||'No') });
+    }
     FUNNEL.forEach(function(st){
       if(!st || !st.fields || !st.fields.length) return;
       if(st.kind==='review'||st.kind==='payment'||st.kind==='generate'||st.kind==='done'||st.kind==='quote') return;
       if(st.showIf && !st.showIf(state)) return;                   // a branch they never saw
       var sec=st.name||st.id;
       flat(st.fields).forEach(function(f){
+        if(f.type==='consent'){
+          if(getP('consent.accepted')==='Yes'){
+            out.push({ name: awdClean(pfx+' Acceptance - Terms and privacy accepted'), value:'Yes' });
+            out.push({ name: awdClean(pfx+' Acceptance - Accepted at'), value: String(getP('consent.at')||'') });
+            out.push({ name: awdClean(pfx+' Acceptance - Marketing opt-in'), value: String(getP('consent.marketing')||'No') });
+          }
+          return;
+        }
         if(!f.key || f.type==='note') return;
         if(f.type==='repeater'){
           var list=getP(st.id+'.'+f.key); if(!Array.isArray(list)) return;
@@ -624,6 +670,7 @@ function fld(base,f){
   if(f.type==='row') return '<div class="row">'+f.fields.map(function(c){ return fld(base,c); }).join('')+'</div>';
   if(f.type==='repeater') return repeater(base,f);
   if(f.type==='note') return '<p class="note" style="margin:6px 0 14px">'+esc(f.text||'')+'</p>';
+  if(f.type==='consent') return awConsentHtml();
   var p=base+'.'+f.key, v=getP(p);
   var rf = f.reflow?' data-reflow="1"':'';
   var _flab=(typeof f.label==='function')?f.label(state):f.label;
@@ -735,15 +782,15 @@ function render(){
       html += '<div class="mock"><div class="tick">✓</div><h3>'+(_isEtb?'Subscription active':'Payment received')+'</h3><p class="note">'+(_isEtb?'Your Executor Toolbox is now active.':'Continue to download your will.')+'</p></div>';
     } else if(_isEtb){
       var _ep=esc(fmtPrice(CFG.etb_price)||'£19.99 / year');
-      html += '<div class="mock"><p>Executor Toolbox</p><div class="price">'+_ep+'</div><button class="btn wide" id="pay" type="button">Subscribe</button><p class="note">Secure card payment. Your subscription keeps your Toolbox stored and available to your executors. You can cancel any time.</p></div>';
+      html += '<div class="mock"><p>Executor Toolbox</p><div class="price">'+_ep+'</div>'+awConsentHtml()+'<button class="btn wide" id="pay" type="button">Subscribe</button><p class="note">Secure card payment. Your subscription keeps your Toolbox stored and available to your executors. You can cancel any time.</p></div>';
     } else if(FUNNEL===WILLS_FUNNEL){
       var _b=willBundle(state); var _m=function(n){ return fmtPrice(String(Math.round(n*100)/100)); }; var _rows='';
       _rows+='<div class="srow"><span class="k">'+(_b.wills>1?'Mirror wills (x'+_b.wills+')':'Will')+'</span><span class="v">'+esc(_m(_b.wills*_b.wp))+'</span></div>';
       if(_b.lpas>0){ _rows+='<div class="srow"><span class="k">Lasting Power of Attorney (x'+_b.lpas+')</span><span class="v">'+esc(_m(_b.lpas*_b.lp))+'</span></div>'; }
-      html += '<div class="mock"><p>Your order</p><div class="sum" style="text-align:left;margin:0 0 14px">'+_rows+'<div class="srow" style="border-top:2px solid var(--line);font-weight:700"><span class="k" style="color:var(--heading)">Total</span><span class="v">'+esc(_m(_b.total))+'</span></div></div><button class="btn wide" id="pay" type="button">Pay '+esc(_m(_b.total))+'</button><p class="note">Secure card payment. You will be returned here to download your will'+(_b.lpas>0?'. Your LPA'+(_b.lpas>1?'s':'')+' will be prepared separately and we will be in touch to complete '+(_b.lpas>1?'them':'it')+'.':'.')+'</p></div>';
+      html += '<div class="mock"><p>Your order</p><div class="sum" style="text-align:left;margin:0 0 14px">'+_rows+'<div class="srow" style="border-top:2px solid var(--line);font-weight:700"><span class="k" style="color:var(--heading)">Total</span><span class="v">'+esc(_m(_b.total))+'</span></div></div>'+awConsentHtml()+'<button class="btn wide" id="pay" type="button">Pay '+esc(_m(_b.total))+'</button><p class="note">Secure card payment. You will be returned here to download your will'+(_b.lpas>0?'. Your LPA'+(_b.lpas>1?'s':'')+' will be prepared separately and we will be in touch to complete '+(_b.lpas>1?'them':'it')+'.':'.')+'</p></div>';
     } else {
       var _svcp=(FUNNEL===LPA_FUNNEL)?(CFG.lpa_price||CFG.will_price):CFG.will_price;
-      html += '<div class="mock"><p>'+esc(FUNNEL===LPA_FUNNEL?'Your LPA document':(FUNNEL===ETB_FUNNEL?'Your Executor Toolbox':'Your will document'))+'</p><div class="price">'+esc(fmtPrice(_svcp))+'</div><button class="btn wide" id="pay" type="button">Pay '+esc(fmtPrice(_svcp))+'</button><p class="note">Secure card payment. You will be returned here to download your will.</p></div>';
+      html += '<div class="mock"><p>'+esc(FUNNEL===LPA_FUNNEL?'Your LPA document':(FUNNEL===ETB_FUNNEL?'Your Executor Toolbox':'Your will document'))+'</p><div class="price">'+esc(fmtPrice(_svcp))+'</div>'+awConsentHtml()+'<button class="btn wide" id="pay" type="button">Pay '+esc(fmtPrice(_svcp))+'</button><p class="note">Secure card payment. You will be returned here to download your will.</p></div>';
     }
   } else if(s.kind==='done'){
     html += '<div class="mock"><div class="tick">✓</div><h3>Your Executor Toolbox is active</h3><p class="note">Your details and any documents you uploaded are securely stored. Your executors will be able to access what they need, when the time comes.</p><div style="text-align:left;margin-top:22px;padding-top:18px;border-top:1px solid #e7e7e7"><p style="font-weight:600;margin:0 0 8px">What happens next</p><ol style="margin:0;padding-left:20px;line-height:1.7"><li>Tell your executors that your Toolbox exists.</li><li>You can come back any time to add or update documents.</li><li>Keep your contact details current so we can reach you.</li></ol></div></div>';
@@ -788,7 +835,7 @@ function render(){
   el('back').textContent=_ed?'Back to summary':'Back';
   el('back').style.visibility=_ed?(s.kind==='review'?'hidden':'visible'):(cur===0?'hidden':'visible');
   var next=el('next'); if(_ed){ next.style.display=(s.kind==='review')?'none':''; next.textContent='Save'; } else { next.style.display=(s.kind==='generate'||s.kind==='done'||s.kind==='quote')?'none':''; next.textContent=(s.kind==='review')?((FUNNEL===ETB_FUNNEL)?'Continue to activate':'Continue to payment'):((FUNNEL===REFERRAL_FUNNEL&&vis[cur+1]&&vis[cur+1].kind==='quote')?(CFG.referral_submit_label||'Get my quote'):'Continue'); }
-  var pay=el('pay'); if(pay) pay.addEventListener('click',function(){ try{ collectVisible(); }catch(e){} if(FUNNEL===LPA_FUNNEL){ var _lv=visible(); for(var _lg=0;_lg<_lv.length;_lg++){ if(_lv[_lg].kind==='generate'){ cur=_lg; render(); try{scrollTop();}catch(e){} return; } } } var _isEtb=(FUNNEL===ETB_FUNNEL); var _wb=(FUNNEL===WILLS_FUNNEL)?willBundle(state):null; var _lbl=_isEtb?'Subscribe':('Pay '+esc(fmtPrice(String(_wb?(Math.round(_wb.total*100)/100):CFG.will_price)))); pay.disabled=true; pay.textContent='Redirecting to secure payment...'; var _url=_isEtb?(API+'/api/etb-checkout'):(API+'/api/checkout'); var _body=_isEtb?{locationId:loc,contactId:(window.AIWILLS_ETB_CID||''),contact:(state.your_details||{}),returnUrl:_retUrl()}:{locationId:loc,willJson:state,returnUrl:_retUrl(),pricingV:2}; fetch(_url,{method:'POST',body:JSON.stringify(_body)}).then(function(r){return r.json();}).then(function(j){ if(j&&j.url){ window.location.href=j.url; } else { pay.disabled=false; pay.textContent=_lbl; alert('Could not start payment: '+((j&&j.error)||'unknown')); } }).catch(function(e){ pay.disabled=false; pay.textContent=_lbl; alert('Payment error: '+e.message); }); });
+  var pay=el('pay'); if(pay) pay.addEventListener('click',function(){ try{ collectVisible(); }catch(e){} if(!awConsentOk()) return; if(FUNNEL===LPA_FUNNEL){ var _lv=visible(); for(var _lg=0;_lg<_lv.length;_lg++){ if(_lv[_lg].kind==='generate'){ cur=_lg; render(); try{scrollTop();}catch(e){} return; } } } var _isEtb=(FUNNEL===ETB_FUNNEL); var _wb=(FUNNEL===WILLS_FUNNEL)?willBundle(state):null; var _lbl=_isEtb?'Subscribe':('Pay '+esc(fmtPrice(String(_wb?(Math.round(_wb.total*100)/100):CFG.will_price)))); pay.disabled=true; pay.textContent='Redirecting to secure payment...'; var _url=_isEtb?(API+'/api/etb-checkout'):(API+'/api/checkout'); var _body=_isEtb?{locationId:loc,contactId:(window.AIWILLS_ETB_CID||''),contact:(state.your_details||{}),returnUrl:_retUrl()}:{locationId:loc,willJson:state,returnUrl:_retUrl(),pricingV:2}; fetch(_url,{method:'POST',body:JSON.stringify(_body)}).then(function(r){return r.json();}).then(function(j){ if(j&&j.url){ window.location.href=j.url; } else { pay.disabled=false; pay.textContent=_lbl; alert('Could not start payment: '+((j&&j.error)||'unknown')); } }).catch(function(e){ pay.disabled=false; pay.textContent=_lbl; alert('Payment error: '+e.message); }); });
   var _dlp=el('dlp'); if(_dlp) _dlp.addEventListener('click',function(){ try{ window.print(); }catch(e){} });
   // payment redirects out to Stripe and returns to the generate step (see aw_paid handling on load); no auto-advance, no demo download.
   el('step').querySelectorAll('[data-goto]').forEach(function(b){ b.addEventListener('click',function(){ jumpTo(b.getAttribute('data-goto')); }); });
@@ -855,6 +902,7 @@ function collectVisible(){
 function need(base,fields,bad){
   (fields||[]).forEach(function(f){
     if(f.showIf && !f.showIf(state)) return;
+    if(f.type==='consent'){ if(!awConsentOk()) bad.push('MSG:Please accept the terms to continue.'); return; }
     if(f.type==='note' || !f.key) return;
     if(f.type==='row'){ need(base,f.fields,bad); return; }
     if(f.type==='repeater'){
@@ -953,7 +1001,7 @@ window.addEventListener('load', closeGaps);
 setTimeout(closeGaps,400); setTimeout(closeGaps,1200);
 
   }
-  try{ if(rootEl){ var _KEYS=['company_name','logo_url','primary_color','heading_color','body_color','header_bg_color','page_bg_color','nav_text_color','heading_font','body_font','site_max_width','footer_max_width','nav_font_size','nav_weight','body_font_size','logo_height','heading_font_size','heading_weight','button_weight','phone','email','address','privacy_url','legal_footer','nav_menu_json','footer_menu_json','font_css_links','wills_url','lpa_url','etb_url','wills_title','wills_blurb','lpa_title','lpa_blurb','etb_title','etb_blurb','will_price','button_color','button_hover_color','button_text_color','button_secondary_color','button_secondary_text_color','button_font','button_radius','footer_bg_color','footer_text_color','facebook_url','instagram_url','linkedin_url','twitter_url','youtube_url','tiktok_url']; var _pc={}, _mm='{'+'{'; _KEYS.forEach(function(k){ var v=rootEl.getAttribute('data-'+k); if(v!=null && v!=='' && v.indexOf(_mm)<0) _pc[k]=v; }); if(Object.keys(_pc).length) window.AIWILLS_CONFIG=Object.assign({}, window.AIWILLS_CONFIG||{}, _pc); } }catch(e){}
+  try{ if(rootEl){ var _KEYS=['company_name','logo_url','primary_color','heading_color','body_color','header_bg_color','page_bg_color','nav_text_color','heading_font','body_font','site_max_width','footer_max_width','nav_font_size','nav_weight','body_font_size','logo_height','heading_font_size','heading_weight','button_weight','phone','email','address','privacy_url','terms_url','consent_label','marketing_label','legal_footer','nav_menu_json','footer_menu_json','font_css_links','wills_url','lpa_url','etb_url','wills_title','wills_blurb','lpa_title','lpa_blurb','etb_title','etb_blurb','will_price','button_color','button_hover_color','button_text_color','button_secondary_color','button_secondary_text_color','button_font','button_radius','footer_bg_color','footer_text_color','facebook_url','instagram_url','linkedin_url','twitter_url','youtube_url','tiktok_url']; var _pc={}, _mm='{'+'{'; _KEYS.forEach(function(k){ var v=rootEl.getAttribute('data-'+k); if(v!=null && v!=='' && v.indexOf(_mm)<0) _pc[k]=v; }); if(Object.keys(_pc).length) window.AIWILLS_CONFIG=Object.assign({}, window.AIWILLS_CONFIG||{}, _pc); } }catch(e){}
   (function(){
     var _pcfg = window.AIWILLS_CONFIG || {};
     var _brandKeys = Object.keys(_pcfg).filter(function(k){ return k!=='funnel'; });
