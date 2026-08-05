@@ -1002,19 +1002,25 @@ const server = http.createServer(async (req, res) => {
         if (!loc) return send(res, 400, { error: 'locationId is required' });
         const token = await getWriteToken(loc);
         const cv = await getCustomValuesMap(loc, token);
-        const wpP = Math.round(parseFloat(String(cv['will_price'] || '').replace(/[^0-9.]/g,'')) * 100);
-        if (!wpP || wpP < 100) return send(res, 400, { error: 'will_price is not set for this location' });
+        // The LPA funnel sells LPAs on their own, so it is priced off lpa_price and never needs a will price.
+        const kind = String(cbody.kind || 'wills').toLowerCase();
+        const isLpaOnly = (kind === 'lpa');
+        const wpP = Math.round(parseFloat(String(cv['will_price'] || '').replace(/[^0-9.]/g,'')) * 100) || 0;
         const lpP = Math.round(parseFloat(String(cv['lpa_price'] || '').replace(/[^0-9.]/g,'')) * 100) || 0;
+        if (isLpaOnly){ if (!lpP || lpP < 100) return send(res, 400, { error: 'lpa_price is not set for this location' }); }
+        else if (!wpP || wpP < 100) return send(res, 400, { error: 'will_price is not set for this location' });
         // Bundle pricing only when the funnel opts in (pricingV>=2). Legacy engines get single-will pricing, so stable clients are unaffected until promoted.
         const wj = cbody.willJson || {};
         const pt = wj.partner || {}, al = wj.addlpa || {};
         const bundleOn = Number(cbody.pricingV || 0) >= 2;
-        const willQty = (bundleOn && pt.hasPartner === 'Yes' && pt.mirrorWill === 'Yes') ? 2 : 1;
+        const willQty = isLpaOnly ? 0 : ((bundleOn && pt.hasPartner === 'Yes' && pt.mirrorWill === 'Yes') ? 2 : 1);
         let lpaTypes = 0; if (bundleOn) { const want = String(al.want || ''); lpaTypes = /both/i.test(want) ? 2 : (/financial|property|welfare|health/i.test(want) ? 1 : 0); }
-        const lpaQty = (bundleOn && lpP > 0) ? (lpaTypes * willQty) : 0;
+        const lpaQty = isLpaOnly
+          ? (/both/i.test(String((wj.lpa_type || {}).type || '')) ? 2 : 1)
+          : ((bundleOn && lpP > 0) ? (lpaTypes * willQty) : 0);
         const amount = wpP * willQty + lpP * lpaQty;
         const company = cv['company_name'] || 'AI Wills';
-        const person = (cbody.willJson && cbody.willJson.personal) || cbody.contact || {};
+        const person = (cbody.willJson && (isLpaOnly ? cbody.willJson.your_details : cbody.willJson.personal)) || cbody.contact || {};
         let contactId = cbody.contactId || '';
         try {
           const up = await ghl('POST', '/contacts/upsert', token, { locationId: loc, firstName: person.firstName || '', lastName: person.lastName || '', email: person.email || '', phone: person.phone || '' });
@@ -1028,10 +1034,10 @@ const server = http.createServer(async (req, res) => {
           'mode': 'payment',
           'success_url': ret + sep + 'aw_paid=1&aw_id=' + id,
           'cancel_url': ret + sep + 'aw_paid=0',
-          'line_items[0][quantity]': willQty,
+          'line_items[0][quantity]': isLpaOnly ? lpaQty : willQty,
           'line_items[0][price_data][currency]': 'gbp',
-          'line_items[0][price_data][unit_amount]': wpP,
-          'line_items[0][price_data][product_data][name]': (willQty > 1 ? 'Mirror wills' : 'Will document') + ' (' + company + ')',
+          'line_items[0][price_data][unit_amount]': isLpaOnly ? lpP : wpP,
+          'line_items[0][price_data][product_data][name]': (isLpaOnly ? 'Lasting Power of Attorney' : (willQty > 1 ? 'Mirror wills' : 'Will document')) + ' (' + company + ')',
           'metadata[aw_id]': id,
           'metadata[locationId]': loc,
           'metadata[contactId]': contactId,
@@ -1039,7 +1045,7 @@ const server = http.createServer(async (req, res) => {
           'metadata[lpa_qty]': String(lpaQty),
           'customer_email': person.email || ''
         };
-        if (lpaQty > 0) {
+        if (lpaQty > 0 && !isLpaOnly) {
           sparams['line_items[1][quantity]'] = lpaQty;
           sparams['line_items[1][price_data][currency]'] = 'gbp';
           sparams['line_items[1][price_data][unit_amount]'] = lpP;
