@@ -442,6 +442,24 @@ function brandStorePut(loc, obj){ try { fs.mkdirSync(BRAND_DIR, { recursive: tru
 function brandStoreGet(loc){ try { return JSON.parse(fs.readFileSync(path.join(BRAND_DIR, String(loc).replace(/[^A-Za-z0-9]/g,'') + '.json'), 'utf8')); } catch(e){ return null; } }
 
 function formEncode(obj){ const out = []; for (const k in obj){ const v = obj[k]; if (v === undefined || v === null || v === '') continue; out.push(encodeURIComponent(k) + '=' + encodeURIComponent(v)); } return out.join('&'); }
+/* Prices come from whatever a firm typed, or a scrape, or a GHL custom value. A blank or a
+   "£99 per will" parses to NaN, and NaN survives arithmetic silently - multiply it by a zero
+   quantity and the whole total is still NaN. Every price goes through here instead. */
+function pence(v){
+  // Strip only what people legitimately type around a number. Anything else - words, a minus
+  // sign, a stray note like "99 per will" - is not a price and must not become one.
+  var raw = String(v == null ? '' : v).trim().replace(/[\u00a3$\u20ac,\s]/g, '');
+  if (!/^[0-9]+(\.[0-9]{1,2})?$/.test(raw)) return 0;
+  var n = parseFloat(raw);
+  if (!isFinite(n) || n <= 0) return 0;
+  return Math.round(n * 100);
+}
+function num(v){
+  var raw = String(v == null ? '' : v).trim().replace(/[%\u00a3$\u20ac,\s]/g, '');
+  if (!/^[0-9]+(\.[0-9]+)?$/.test(raw)) return 0;
+  var n = parseFloat(raw);
+  return isFinite(n) ? n : 0;
+}
 async function stripeReq(method, pathname, params, key){
   const opts = { method: method, headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/x-www-form-urlencoded' } };
   if (params) opts.body = formEncode(params);
@@ -1005,8 +1023,8 @@ const server = http.createServer(async (req, res) => {
         // The LPA funnel sells LPAs on their own, so it is priced off lpa_price and never needs a will price.
         const kind = String(cbody.kind || 'wills').toLowerCase();
         const isLpaOnly = (kind === 'lpa');
-        const wpP = Math.round(parseFloat(String(cv['will_price'] || '').replace(/[^0-9.]/g,'')) * 100) || 0;
-        const lpP = Math.round(parseFloat(String(cv['lpa_price'] || '').replace(/[^0-9.]/g,'')) * 100) || 0;
+        const wpP = pence(cv['will_price']);
+        const lpP = pence(cv['lpa_price']);
         if (isLpaOnly){ if (!lpP || lpP < 100) return send(res, 400, { error: 'lpa_price is not set for this location' }); }
         else if (!wpP || wpP < 100) return send(res, 400, { error: 'will_price is not set for this location' });
         // Bundle pricing only when the funnel opts in (pricingV>=2). Legacy engines get single-will pricing, so stable clients are unaffected until promoted.
@@ -1019,6 +1037,12 @@ const server = http.createServer(async (req, res) => {
           ? (/both/i.test(String((wj.lpa_type || {}).type || '')) ? 2 : 1)
           : ((bundleOn && lpP > 0) ? (lpaTypes * willQty) : 0);
         const amount = wpP * willQty + lpP * lpaQty;
+        // Last gate before money: refuse anything that is not a positive whole number of pence,
+        // and say which firm and which setting, rather than sending Stripe a nonsense figure.
+        if (!Number.isInteger(amount) || amount < 100){
+          console.error('checkout: bad amount for ' + loc + ' (will_price=' + JSON.stringify(cv['will_price']) + ', lpa_price=' + JSON.stringify(cv['lpa_price']) + ', willQty=' + willQty + ', lpaQty=' + lpaQty + ')');
+          return send(res, 400, { error: 'The prices for this firm are not set correctly, so payment cannot start. Please check the will and LPA prices.' });
+        }
         const company = cv['company_name'] || 'AI Wills';
         const person = (cbody.willJson && (isLpaOnly ? cbody.willJson.your_details : cbody.willJson.personal)) || cbody.contact || {};
         let contactId = cbody.contactId || '';
@@ -1057,7 +1081,7 @@ const server = http.createServer(async (req, res) => {
         const cxAcct = String(cv['stripe_account_id'] || '').trim();
         let cxRouted = false;
         if (/^acct_[A-Za-z0-9]+$/.test(cxAcct)) {
-          const feePerDoc = Math.round((parseFloat(String(cv['commission_flat'] || '').replace(/[^0-9.]/g,'')) || 0) * 100);
+          const feePerDoc = pence(cv['commission_flat']);
           let fee = feePerDoc * (willQty + lpaQty);
           if (fee >= amount) fee = 0; // never let the fee eat the whole payment; misconfig = no fee, log it
           if (feePerDoc > 0 && fee === 0) console.error('checkout: commission_flat >= amount for ' + loc + ', fee skipped');
@@ -1084,7 +1108,11 @@ const server = http.createServer(async (req, res) => {
         // yearly subscription is built on the fly from the etb_price value (e.g. "19.99"), the same
         // pattern as will_price. No hardcoded account-specific fallbacks.
         const price = cv['etb_price_id'] || process.env.ETB_PRICE_ID || '';
-        const etbAmt = Math.round((parseFloat(String(cv['etb_price'] || '').replace(/[^0-9.]/g,'')) || 0) * 100);
+        const etbAmt = pence(cv['etb_price']);
+        if (!Number.isInteger(etbAmt) || etbAmt < 100){
+          console.error('etb-checkout: bad amount for ' + loc + ' (etb_price=' + JSON.stringify(cv['etb_price']) + ')');
+          return send(res, 400, { error: 'The Executor Toolbox price for this firm is not set correctly, so payment cannot start.' });
+        }
         if (!price && !(etbAmt >= 100)) return send(res, 400, { error: 'Set an Executor Toolbox price (etb_price) or etb_price_id for this location' });
         const person = cbody.contact || {};
         let contactId = cbody.contactId || '';
@@ -1119,7 +1147,7 @@ const server = http.createServer(async (req, res) => {
         const eAcct = String(cv['stripe_account_id'] || '').trim();
         let eRouted = false;
         if (/^acct_[A-Za-z0-9]+$/.test(eAcct)) {
-          const pct = parseFloat(String(cv['commission_percent'] || '').replace(/[^0-9.]/g,'')) || 0;
+          const pct = num(cv['commission_percent']);
           eparams['subscription_data[transfer_data][destination]'] = eAcct;
           eparams['subscription_data[on_behalf_of]'] = eAcct;
           if (pct > 0 && pct < 100) eparams['subscription_data[application_fee_percent]'] = pct;
