@@ -964,8 +964,12 @@ const server = http.createServer(async (req, res) => {
         const rhost = ru.hostname.toLowerCase();
         // Never record our own test harness, and only trust hosts we recognise as funnel hosts.
         if (rhost === 'engine.aiwills.co.uk' || rhost === 'aiwills.digilyse.co') return send(res, 200, { ok:true, stored:false, reason:'own domain' });
-        if (!/(^|\.)aiwills\.co\.uk$/.test(rhost)) { console.error('register-url: host not allowlisted ' + rhost + ' loc=' + rloc + ' key=' + rkey); return send(res, 200, { ok:true, stored:false, reason:'host not allowlisted' }); }
+        // Firms publish on their own domain as often as on a subdomain of ours, so the host is no
+        // longer restricted to aiwills.co.uk - that refused a live client's own pages. The control
+        // that matters is below: this only ever fills a gap and can never overwrite a real URL.
+        if (/^(localhost|127\.|0\.|10\.|192\.168\.|169\.254\.)/.test(rhost) || rhost.indexOf('.') < 0) return send(res, 200, { ok:true, stored:false, reason:'not a public host' });
         if (/\/(preview|page-builder|funnel-builder)\//i.test(ru.pathname)) return send(res, 200, { ok:true, stored:false, reason:'builder or preview url' });
+        if (/-test\.html$/i.test(ru.pathname)) return send(res, 200, { ok:true, stored:false, reason:'test harness page' });
         // Only ever fill a gap, and never create a partial store: /api/brand treats a non-empty store as
         // the whole config, so writing one stray key would wipe that account's branding.
         const rcur = brandStoreGet(rloc);
@@ -982,8 +986,9 @@ const server = http.createServer(async (req, res) => {
         const rclean = ru.origin + ru.pathname;
         if (rexisting === rclean) return send(res, 200, { ok:true, stored:false, reason:'unchanged' });
         rcur[rfield] = rclean;
+        rcur[rfield + '_source'] = rhost + ' @ ' + new Date().toISOString();
         brandStorePut(rloc, rcur);
-        console.error('register-url: stored ' + rfield + '=' + rclean + ' for ' + rloc);
+        console.error('register-url: stored ' + rfield + '=' + rclean + ' for ' + rloc + ' from ' + rhost);
         return send(res, 200, { ok:true, stored:true, url:rclean });
       } catch(e){ return send(res, 200, { error: e.message }); }
     }
