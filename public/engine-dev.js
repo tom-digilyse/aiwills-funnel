@@ -42,7 +42,20 @@ var CFG = window.AIWILLS_CONFIG || {}; (function(){ var _m='{'+'{'; for(var _k i
     try{ var _ps=String(CFG.plan_services||'').toLowerCase().split(',').map(function(x){return x.trim();}).filter(Boolean); if(_ps.length){ SVC=SVC.filter(function(s){ return _ps.indexOf(s.key)>=0; }); } else { SVC=SVC.filter(function(s){ return s.key!=='probate' || !!CFG.probate_url; }); } }catch(e){}
     mount.innerHTML='<header id="hdr" class="hdr"></header><main class="main"><div class="hubwrap"><h1 class="hubh1">Your documents</h1><p class="lead">Choose a service to get started, or open one you have already begun.</p><div id="awlogin" style="margin:2px 0 4px;font-size:14px"></div><div class="hubgrid" id="hubgrid"></div></div></main><footer id="ftr" class="ftr"></footer>';
     try{ applyBrand(); }catch(e){} try{var _sm=parseInt(getComputedStyle(document.documentElement).getPropertyValue('--site-max'))||1200; if(_sm<1120) document.documentElement.style.setProperty('--site-max','1120px');}catch(e){} try{ closeGaps(); }catch(e){} try{ window.addEventListener('load',function(){try{closeGaps();}catch(e){}}); setTimeout(function(){try{closeGaps();}catch(e){}},300); setTimeout(function(){try{closeGaps();}catch(e){}},1000); }catch(e){}
-    var contact=(rootEl&&rootEl.getAttribute('data-contact'))||''; if(!contact||contact.indexOf('{'+'{')>=0) contact=qp('aw_c')||window.AIWILLS_CONTACT_ID||''; function withId(u){ if(!u) return u; var q=[]; if(loc)q.push('aw_loc='+enc(loc)); if(contact)q.push('aw_c='+enc(contact)); var _tk=qp('aw_t')||window.AIWILLS_TOKEN||''; if(_tk)q.push('aw_t='+enc(_tk)); if(!q.length) return u; return u+(u.indexOf('?')>=0?'&':'?')+q.join('&'); }
+    var contact=(rootEl&&rootEl.getAttribute('data-contact'))||''; if(!contact||contact.indexOf('{'+'{')>=0) contact=qp('aw_c')||window.AIWILLS_CONTACT_ID||''; function awSetParams(u, p){
+      // Set rather than append. A stored URL can already carry aw_loc or aw_c, and blindly
+      // sticking another copy on the end gave links with the location and contact twice.
+      if(!u) return u;
+      try{
+        var _u = new URL(u, location.href);
+        Object.keys(p).forEach(function(k){ var v=p[k]; if(v) _u.searchParams.set(k, v); else _u.searchParams.delete(k); });
+        return _u.href;
+      }catch(err){
+        var q=[]; Object.keys(p).forEach(function(k){ if(p[k]) q.push(k+'='+enc(p[k])); });
+        return q.length ? (u+(u.indexOf('?')>=0?'&':'?')+q.join('&')) : u;
+      }
+    }
+    function withId(u){ if(!u) return u; return awSetParams(u, { aw_loc: loc, aw_c: contact, aw_t: (qp('aw_t')||window.AIWILLS_TOKEN||'') }); }
     function card(s,st){
       var done=st&&(st.paid||st.started);
       var btn;
@@ -122,7 +135,7 @@ var CFG = window.AIWILLS_CONFIG || {}; (function(){ var _m='{'+'{'; for(var _k i
         else if(svcKey==='etb'){ ep='/api/etb-save'; body={locationId:loc,contactId:'',state:st,detail:consentDetail,status:'started',step:'gate'}; }
         else if(svcKey==='probate'){ ep='/api/referral-save'; body={locationId:loc,contactId:'',state:st,detail:consentDetail,key:'probate',step:'gate',status:'started'}; }
         else { ep='/api/will-save'; body={locationId:loc,contactId:'',state:st,detail:consentDetail,step:'gate'}; }
-        var goNext=function(cid){ try{ localStorage.setItem('aw_ident_'+loc, JSON.stringify({ firstName:fn, email:em, phone:ph, cid:cid||'', consent:consent })); }catch(e){} var u=url||''; if(u&&cid) u+= (u.indexOf('?')>=0?'&':'?')+'aw_c='+enc(cid); try{ m.parentNode.removeChild(m); }catch(e){} if(u) window.top.location.href=u; };
+        var goNext=function(cid){ try{ localStorage.setItem('aw_ident_'+loc, JSON.stringify({ firstName:fn, email:em, phone:ph, cid:cid||'', consent:consent })); }catch(e){} var u=url||''; if(u&&cid) u=awSetParams(u, { aw_c: cid }); try{ m.parentNode.removeChild(m); }catch(e){} if(u) window.top.location.href=u; };
         fetch(API+ep,{method:'POST',body:JSON.stringify(body)}).then(function(r){return r.json();}).then(function(j){ goNext((j&&j.contactId)||''); }).catch(function(){ goNext(''); });
       };
     }

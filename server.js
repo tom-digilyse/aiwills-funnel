@@ -283,14 +283,37 @@ async function ghl(method, pathname, token, body){
   return json;
 }
 
+/* A service URL is shared by every customer of that firm, so it must be the firm's own page and
+   must not carry anyone's identifiers. Pasting a link straight out of the address bar is the
+   obvious thing to do and picks up aw_loc/aw_c, which would pin every visitor to one contact. */
+var AW_SERVICE_URL_KEYS = ['wills_url','lpa_url','etb_url','probate_url'];
+function cleanServiceUrl(v){
+  var raw = String(v == null ? '' : v).trim();
+  if (!raw) return { value: '' };
+  var u; try { u = new URL(raw); } catch(e){ return { value:'', error:'that does not look like a full web address' }; }
+  if (u.protocol !== 'https:') return { value:'', error:'it needs to start with https' };
+  var host = u.hostname.toLowerCase();
+  if (host === 'engine.aiwills.co.uk' || host === 'aiwills.digilyse.co') return { value:'', error:'that is one of our own pages, not the firm\'s. Use the funnel page on their domain' };
+  if (/-test\.html$/i.test(u.pathname)) return { value:'', error:'that is a test page, not a live funnel page' };
+  if (/\/(preview|page-builder|funnel-builder)\//i.test(u.pathname)) return { value:'', error:'that is a builder or preview link, not the live page' };
+  ['aw_loc','aw_c','aw_t','aw_paid','aw_id'].forEach(function(k){ u.searchParams.delete(k); });
+  return { value: u.origin + u.pathname + (u.searchParams.toString() ? ('?' + u.searchParams.toString()) : '') };
+}
 async function handleWrite(locationId, values){
   if (!locationId) throw new Error('locationId is required.');
   // Brand/config now lives in OUR per-location store, NOT GHL custom values, so a snapshot push
   // from Demo can never overwrite a paying client's bespoke brand. Features push via the snapshot; brand does not.
   const cur = brandStoreGet(locationId) || {};
   const results = [];
+  const urlProblems = [];
   for (const name of Object.keys(values)){
-    const value = values[name];
+    let value = values[name];
+    if (AW_SERVICE_URL_KEYS.indexOf(name) >= 0 && String(value||'').trim()){
+      const chk = cleanServiceUrl(value);
+      if (chk.error){ urlProblems.push(name.replace(/_/g,' ') + ': ' + chk.error); continue; }
+      value = chk.value;
+      values[name] = value;
+    }
     if (value === '' || value == null){
       if (name in cur){ delete cur[name]; results.push({ name: name, action: 'cleared' }); }
       else { results.push({ name: name, skipped: true }); }
@@ -299,6 +322,7 @@ async function handleWrite(locationId, values){
     cur[name] = value; results.push({ name: name, action: 'saved' });
   }
   brandStorePut(locationId, cur);
+  if (urlProblems.length) results.push({ name: 'Service page links', error: urlProblems.join('; ') });
   return results;
 }
 
