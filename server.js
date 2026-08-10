@@ -849,7 +849,27 @@ async function storeGeneratedPdf(loc, contactId, funnel){
 }
 // GHL /contacts/upsert rejects an `id` (422 "property id should not exist"). Update a KNOWN contact with PUT /contacts/{id}; only upsert (match by email) when creating.
 async function upsertOrUpdateContact(token, loc, contactId, base){
-  if (contactId){ return await ghl('PUT', '/contacts/' + contactId, token, base); }
+  if (contactId){
+    try {
+      return await ghl('PUT', '/contacts/' + contactId, token, base);
+    } catch(e){
+      // Sub-accounts can be set to refuse duplicate contacts. Someone who starts anonymously gets a
+      // contact of their own, then types an email that already belongs to an older record, and GHL
+      // rejects the update outright - which lost the whole save, including the document. The email is
+      // the person, so adopt the record it points at and carry on with that one.
+      const msg = String(e && e.message || '');
+      if (!/duplicat/i.test(msg)) throw e;
+      let existing = '';
+      try { const m = msg.match(/"contactId"\s*:\s*"([A-Za-z0-9]+)"/); if (m) existing = m[1]; } catch(_){}
+      if (!existing || existing === contactId) throw e;
+      console.error('upsert: ' + contactId + ' clashed on a duplicate, continuing on ' + existing);
+      const merged = Object.assign({}, base);
+      // Do not try to move identity fields onto the record we are adopting; they are already its own.
+      delete merged.email; delete merged.phone;
+      const r = await ghl('PUT', '/contacts/' + existing, token, merged);
+      return (r && (r.contact || r.id)) ? r : { contact: { id: existing } };
+    }
+  }
   return await ghl('POST', '/contacts/upsert', token, Object.assign({ locationId: loc }, base));
 }
 async function findContactByEmail(loc, email){
