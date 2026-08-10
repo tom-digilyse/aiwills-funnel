@@ -870,7 +870,25 @@ async function upsertOrUpdateContact(token, loc, contactId, base){
       return (r && (r.contact || r.id)) ? r : { contact: { id: existing } };
     }
   }
-  return await ghl('POST', '/contacts/upsert', token, Object.assign({ locationId: loc }, base));
+  const email = String(base.email || '').trim();
+  if (!email){
+    // No email means no way to tell this person from anyone else, so do not try to match.
+    return await ghl('POST', '/contacts/upsert', token, Object.assign({ locationId: loc }, base));
+  }
+  const ident = Object.assign({ locationId: loc }, base);
+  delete ident.phone;
+  const created = await ghl('POST', '/contacts/upsert', token, ident);
+  const newId = (created && created.contact && created.contact.id) || (created && created.id) || '';
+  const phone = String(base.phone || '').trim();
+  if (newId && phone){
+    try { await ghl('PUT', '/contacts/' + newId, token, { phone: phone }); }
+    catch(err){
+      // The phone is already someone else's. Their record is not ours to take, so the
+      // answers stay on this contact and the number simply is not copied across.
+      console.error('contact ' + newId + ': kept the phone off, it belongs to another contact (' + String(err && err.message || '').slice(0, 120) + ')');
+    }
+  }
+  return created;
 }
 async function findContactByEmail(loc, email){
   try {

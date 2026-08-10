@@ -131,10 +131,10 @@ var CFG = window.AIWILLS_CONFIG || {}; (function(){ var _m='{'+'{'; for(var _k i
         // Create the contact now so the firm can follow up even if they stop here.
         var ep, body;
         var st={}; st[section]=details; st.consent=consent;
-        if(svcKey==='lpa'){ ep='/api/lpa-save'; body={locationId:loc,contactId:'',state:st,detail:consentDetail,step:'gate'}; }
-        else if(svcKey==='etb'){ ep='/api/etb-save'; body={locationId:loc,contactId:'',state:st,detail:consentDetail,status:'started',step:'gate'}; }
-        else if(svcKey==='probate'){ ep='/api/referral-save'; body={locationId:loc,contactId:'',state:st,detail:consentDetail,key:'probate',step:'gate',status:'started'}; }
-        else { ep='/api/will-save'; body={locationId:loc,contactId:'',state:st,detail:consentDetail,step:'gate'}; }
+        if(svcKey==='lpa'){ ep='/api/lpa-save'; body={locationId:loc,contactId:_awCid(),state:st,detail:consentDetail,step:'gate'}; }
+        else if(svcKey==='etb'){ ep='/api/etb-save'; body={locationId:loc,contactId:_awCidEtb(),state:st,detail:consentDetail,status:'started',step:'gate'}; }
+        else if(svcKey==='probate'){ ep='/api/referral-save'; body={locationId:loc,contactId:_awCid(),state:st,detail:consentDetail,key:'probate',step:'gate',status:'started'}; }
+        else { ep='/api/will-save'; body={locationId:loc,contactId:_awCid(),state:st,detail:consentDetail,step:'gate'}; }
         var goNext=function(cid){ try{ localStorage.setItem('aw_ident_'+loc, JSON.stringify({ firstName:fn, email:em, phone:ph, cid:cid||'', consent:consent })); }catch(e){} var u=url||''; if(u&&cid) u=awSetParams(u, { aw_c: cid }); try{ m.parentNode.removeChild(m); }catch(e){} if(u) window.top.location.href=u; };
         fetch(API+ep,{method:'POST',body:JSON.stringify(body)}).then(function(r){return r.json();}).then(function(j){ goNext((j&&j.contactId)||''); }).catch(function(){ goNext(''); });
       };
@@ -235,7 +235,7 @@ function paintFaq(){
   }catch(e){}
 }
 function age(d){ if(!d) return null; var t=new Date(d); if(isNaN(t)) return null; var n=new Date(), a=n.getFullYear()-t.getFullYear(), m=n.getMonth()-t.getMonth(); if(m<0||(m===0&&n.getDate()<t.getDate())) a--; return a; }
-function saveToGhl(state, opts){ var _pdf=!!(opts&&opts.pdf); var _sid=''; try{ var _vv=visible(); _sid=(_vv[cur]&&_vv[cur].id)||''; }catch(e){} try{ if(FUNNEL===REFERRAL_FUNNEL){ if(!loc) return; try{ fetch(API+'/api/referral-save',{method:'POST',body:JSON.stringify({locationId:loc,detail:awDetailFields(),contactId:(window.AIWILLS_CONTACT_ID||''),state:state,key:FUNNEL_KEY,step:_sid,status:((opts&&opts.submitted)?'submitted':'started')})}).then(function(r){return r.json();}).then(function(j){ if(j&&j.contactId) window.AIWILLS_CONTACT_ID=j.contactId; }).catch(function(){}); }catch(e){} return; } }catch(e){} try{ if(FUNNEL===ETB_FUNNEL){ if(!loc) return; var st=(state.payment&&state.payment.paid)?'paid':'started'; try{ fetch(API+'/api/etb-save',{method:'POST',body:JSON.stringify({locationId:loc,state:state,status:st,detail:awDetailFields(),contactId:(window.AIWILLS_ETB_CID||''),step:_sid,pdf:_pdf})}).then(function(r){return r.json();}).then(function(j){ if(j&&j.contactId) window.AIWILLS_ETB_CID=j.contactId; }).catch(function(){}); }catch(e){} return; } }catch(e){} try{ if(FUNNEL===LPA_FUNNEL){ if(!loc) return; try{ fetch(API+'/api/lpa-save',{method:'POST',body:JSON.stringify({locationId:loc,detail:awDetailFields(),contactId:(window.AIWILLS_CONTACT_ID||''),state:state,step:_sid,pdf:_pdf})}).then(function(r){return r.json();}).then(function(j){ if(j&&j.contactId) window.AIWILLS_CONTACT_ID=j.contactId; }).catch(function(){}); }catch(e){} return; } }catch(e){} var p=state.personal||{}; if(loc){ try{ fetch(API+'/api/will-save',{method:'POST',body:JSON.stringify({locationId:loc,detail:awDetailFields(),contactId:(window.AIWILLS_CONTACT_ID||''),state:state,step:_sid,pdf:_pdf})}).then(function(r){return r.json();}).then(function(j){ if(j&&j.contactId) window.AIWILLS_CONTACT_ID=j.contactId; }).catch(function(){}); }catch(e){} } var url=CFG.will_save_webhook_url; if(url){ try{ fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contactId:(window.AIWILLS_CONTACT_ID||''),email:p.email||'',firstName:p.firstName||'',lastName:p.lastName||'',phone:p.phone||'',status:(state.payment&&state.payment.paid)?'paid':'started',willJson:JSON.stringify(state)})}); }catch(e){} } }
+function saveToGhl(state, opts){ var _pdf=!!(opts&&opts.pdf); var _sid=''; try{ var _vv=visible(); _sid=(_vv[cur]&&_vv[cur].id)||''; }catch(e){} try{ if(FUNNEL===REFERRAL_FUNNEL){ if(!loc) return; try{ fetch(API+'/api/referral-save',{method:'POST',body:JSON.stringify({locationId:loc,detail:awDetailFields(),contactId:(window.AIWILLS_CONTACT_ID||''),state:state,key:FUNNEL_KEY,step:_sid,status:((opts&&opts.submitted)?'submitted':'started')})}).then(function(r){return r.json();}).then(awAdopt('AIWILLS_CONTACT_ID')).catch(function(){}); }catch(e){} return; } }catch(e){} try{ if(FUNNEL===ETB_FUNNEL){ if(!loc) return; var st=(state.payment&&state.payment.paid)?'paid':'started'; try{ fetch(API+'/api/etb-save',{method:'POST',body:JSON.stringify({locationId:loc,state:state,status:st,detail:awDetailFields(),contactId:(window.AIWILLS_ETB_CID||''),step:_sid,pdf:_pdf})}).then(function(r){return r.json();}).then(awAdopt('AIWILLS_ETB_CID')).catch(function(){}); }catch(e){} return; } }catch(e){} try{ if(FUNNEL===LPA_FUNNEL){ if(!loc) return; try{ fetch(API+'/api/lpa-save',{method:'POST',body:JSON.stringify({locationId:loc,detail:awDetailFields(),contactId:(window.AIWILLS_CONTACT_ID||''),state:state,step:_sid,pdf:_pdf})}).then(function(r){return r.json();}).then(awAdopt('AIWILLS_CONTACT_ID')).catch(function(){}); }catch(e){} return; } }catch(e){} var p=state.personal||{}; if(loc){ try{ fetch(API+'/api/will-save',{method:'POST',body:JSON.stringify({locationId:loc,detail:awDetailFields(),contactId:(window.AIWILLS_CONTACT_ID||''),state:state,step:_sid,pdf:_pdf})}).then(function(r){return r.json();}).then(awAdopt('AIWILLS_CONTACT_ID')).catch(function(){}); }catch(e){} } var url=CFG.will_save_webhook_url; if(url){ try{ fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contactId:(window.AIWILLS_CONTACT_ID||''),email:p.email||'',firstName:p.firstName||'',lastName:p.lastName||'',phone:p.phone||'',status:(state.payment&&state.payment.paid)?'paid':'started',willJson:JSON.stringify(state)})}); }catch(e){} } }
 
 var REL_DEFAULT=['Spouse','Civil Partner','Partner','Son','Daughter','Stepchild','Grandchild','Parent','Grandparent','Brother','Sister','Aunt','Uncle','Niece','Nephew','Cousin','Friend'];
 function relOpts(){ try{ var c=JSON.parse((window.AIWILLS_CONFIG||{}).relationship_options_json||'null'); if(Array.isArray(c)&&c.length) return c; }catch(e){} return REL_DEFAULT; }
@@ -644,7 +644,19 @@ function awdVal(v){
   if(Array.isArray(v)) return '';
   return String(v).trim();
 }
-function awDetailFields(){
+var _awSeq=0, _awApplied=0;
+    function awAdopt(key){
+      var mine = ++_awSeq;
+      return function(j){
+        if(!(j && j.contactId)) return;
+        if(mine < _awApplied) return;   // a slower, older save answering after a newer one
+        _awApplied = mine;
+        window[key] = j.contactId;
+      };
+    }
+    function _awCid(){ return window.AIWILLS_CONTACT_ID || ''; }
+    function _awCidEtb(){ return window.AIWILLS_ETB_CID || ''; }
+    function awDetailFields(){
   var out=[], pfx=AWD_PREFIX[String(FUNNEL_KEY||'').toLowerCase()]||'Form';
   try{
     if(getP('consent.accepted')==='Yes'){
@@ -846,7 +858,7 @@ function render(){
     var _wcid=(rootEl&&rootEl.getAttribute('data-contact'))||qp('aw_c')||window.AIWILLS_CONTACT_ID||'';
     setTimeout(function(){ try{
       fetch(API+'/api/will-preview',{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({locationId:loc,state:state})}).then(function(r){ if(!r.ok) throw new Error('pdf'); return r.blob(); }).then(function(bl){ if(bl.type&&bl.type.indexOf('pdf')<0) throw new Error('notpdf'); var u=URL.createObjectURL(bl); var w=el('willpdfwrap'); if(w) w.innerHTML='<iframe src="'+u+'" style="width:100%;height:560px;border:1px solid #e0e0e0;border-radius:10px;margin-top:16px;background:#fff" title="Your will"></iframe><div style="margin-top:12px"><a class="btn wide" href="'+u+'" download="your-will.pdf">Download your will (PDF)</a></div>'; }).catch(function(){ var w=el('willpdfwrap'); if(w) w.innerHTML='<p class="note">Could not generate the will document.</p>'; });
-      try{ fetch(API+'/api/will-save',{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({locationId:loc,contactId:_wcid,state:state,pdf:false})}).then(function(r){return r.json();}).then(function(j){ if(j&&j.contactId) window.AIWILLS_CONTACT_ID=j.contactId; }).catch(function(){}); }catch(e){}
+      try{ fetch(API+'/api/will-save',{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({locationId:loc,contactId:_wcid,state:state,pdf:false})}).then(function(r){return r.json();}).then(awAdopt('AIWILLS_CONTACT_ID')).catch(function(){}); }catch(e){}
     }catch(e){} },60);
     html += '<div class="mock"><div class="tick">✓</div><h3>Your will is ready</h3><p class="note">Payment received. Your will is shown below.</p><div id="willpdfwrap"><p class="note">Preparing your will document…</p></div><div style="text-align:left;margin-top:22px;padding-top:18px;border-top:1px solid #e7e7e7"><p style="font-weight:600;margin:0 0 8px">To make your will legally valid</p><ol style="margin:0;padding-left:20px;line-height:1.7"><li>Print the document.</li><li>Sign it in front of two independent adult witnesses (not your beneficiaries, or their husbands or wives).</li><li>Have both witnesses sign while you are watching.</li><li>Store it safely and tell your executors where it is.</li></ol></div></div>';
     }
