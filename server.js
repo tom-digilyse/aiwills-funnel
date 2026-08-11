@@ -638,6 +638,23 @@ var AW_STAGE_MAP = {
      keystroke.
    - Stages only ever move forward. Someone going back to edit step one should not drag their
      opportunity back to the start of the board. */
+/* Matching a stage by its NAME means a firm renaming "Gifts" to "Gifts & legacies" silently stops
+   their cards moving. So the first time we work a stage out by name we write the id down, and from
+   then on we use the id. Renaming, reordering and re-wording all become harmless. The saved map also
+   gives the onboarding tool something a human can see and correct without a developer. */
+function awMapGet(loc){
+  try { var b = brandStoreGet(loc) || {}; var m = b.pipeline_map; if (typeof m === 'string') m = JSON.parse(m); return m || {}; }
+  catch(e){ return {}; }
+}
+function awMapPut(loc, map){
+  try { var cur = brandStoreGet(loc) || {}; cur.pipeline_map = map; brandStorePut(loc, cur); }
+  catch(e){ console.error('awMapPut', e.message); }
+}
+/* Every distinct stage a service can ask for, in the order the customer meets them. */
+function awStepsFor(service){
+  var m = AW_STAGE_MAP[service] || {};
+  return Object.keys(m).map(function(step){ return { step: step, stage: m[step] }; });
+}
 var AW_PIPELINE_NAMES = { wills:'Online Wills', lpa:'Online LPAs', etb:'Executor Toolbox', probate:'Probate Quotes & Referrals' };
 var _awPipeCache = {};      // locationId -> { at, pipelines }
 var _awPipeFail  = {};      // locationId -> retry-after timestamp
@@ -684,6 +701,31 @@ function awOppName(service, state){
   var label = { wills:'Will', lpa:'LPA', etb:'Executor Toolbox', probate:'Probate' }[service] || 'Enquiry';
   return (who ? who + ' - ' : '') + label;
 }
+/* Work out the board and the stage for one funnel step, preferring what has been saved.
+   Returns how it got there so the tool can show it honestly rather than just "ok". */
+function awResolve(pipelines, saved, service, step, cv){
+  var out = { pipeline:null, stageId:'', stageName:'', via:'', problem:'' };
+  var wantName = awStageFor(service, step);
+  if (!wantName){ out.problem = 'this step is not tracked on the board'; return out; }
+  out.stageName = wantName;
+
+  var byId = saved && saved.pipelineId ? pipelines.filter(function(p){ return String(p.id) === String(saved.pipelineId); })[0] : null;
+  out.pipeline = byId || awPickPipeline(pipelines, service, cv);
+  out.via = byId ? 'saved' : 'name';
+  if (!out.pipeline){ out.problem = 'no matching pipeline on this account'; return out; }
+
+  var savedStage = saved && saved.stages ? saved.stages[step] : '';
+  if (savedStage){
+    var still = (out.pipeline.stages || []).filter(function(st){ return String(st.id) === String(savedStage); })[0];
+    if (still){ out.stageId = still.id; out.stageName = still.name; out.via = 'saved'; return out; }
+    out.via = 'name';   // the saved stage was deleted; fall back and re-learn
+  }
+  var idx = awStageIndex(out.pipeline, wantName);
+  if (idx < 0){ out.problem = 'no stage called "' + wantName + '" on ' + out.pipeline.name; return out; }
+  out.stageId = out.pipeline.stages[idx].id;
+  out.stageName = out.pipeline.stages[idx].name;
+  return out;
+}
 /* Put this person on the right board at the right stage. Returns quietly on any problem. */
 async function awSyncOpportunity(token, loc, contactId, service, step, state){
   try {
@@ -693,11 +735,17 @@ async function awSyncOpportunity(token, loc, contactId, service, step, state){
     var pipelines = await awPipelines(token, loc);
     if (!pipelines) return;
     var cv = {}; try { cv = await getCustomValuesMap(loc, token); } catch(_){}
-    var pipeline = awPickPipeline(pipelines, service, cv);
-    if (!pipeline){ console.error('opportunities: no ' + service + ' pipeline on ' + loc); return; }
-    var wantIdx = awStageIndex(pipeline, stageName);
-    if (wantIdx < 0){ console.error('opportunities: ' + loc + ' has no "' + stageName + '" stage on ' + pipeline.name); return; }
-    var wantStageId = pipeline.stages[wantIdx].id;
+    var wholeMap = awMapGet(loc);
+    var r = awResolve(pipelines, wholeMap[service], service, step, cv);
+    if (r.problem){ console.error('opportunities: ' + loc + ' ' + service + '/' + step + ': ' + r.problem); return; }
+    var pipeline = r.pipeline, wantStageId = r.stageId;
+    // Learn it once so a later rename cannot break this step.
+    if (r.via === 'name'){
+      var entry = wholeMap[service] || { pipelineId:'', stages:{} };
+      entry.pipelineId = pipeline.id; entry.stages = entry.stages || {}; entry.stages[step] = wantStageId;
+      wholeMap[service] = entry; awMapPut(loc, wholeMap);
+    }
+    var wantIdx = awStageIndex(pipeline, r.stageName);
 
     var existing = null;
     try {
@@ -1720,6 +1768,58 @@ const server = http.createServer(async (req, res) => {
         if (problem){ delete vals.stripe_account_id; warnings.push(problem); }
       }
       return send(res, 200, { results: await handleWrite(parsed.locationId, vals), warnings: warnings });
+    }
+    /* One call powers both the health check and the mapping editor, so what the tool shows is
+       exactly what the engine would do rather than a second opinion. */
+    if (req.method === 'GET' && pathOnly === '/api/pipeline-map'){
+      res.setHeader('Access-Control-Allow-Origin','*');
+      try {
+        const mu = new URL(req.url,'http://x');
+        const mloc = (mu.searchParams.get('locationId')||'').replace(/[^A-Za-z0-9]/g,'');
+        if(!mloc) return send(res,400,{error:'locationId required'});
+        const mtok = await getWriteToken(mloc);
+        const pls = await awPipelines(mtok, mloc);
+        if (!pls) return send(res,200,{ ok:false, reason:'no-access', message:'This account has not granted us access to its pipelines yet. Authorise it at /oauth/start and pick this sub-account.' });
+        let mcv = {}; try { mcv = await getCustomValuesMap(mloc, mtok); } catch(_){}
+        const saved = awMapGet(mloc);
+        const services = {};
+        Object.keys(AW_STAGE_MAP).forEach(function(svc){
+          const rows = awStepsFor(svc).map(function(row){
+            const rr = awResolve(pls, saved[svc], svc, row.step, mcv);
+            return { step: row.step, wants: row.stage, stageId: rr.stageId, stageName: rr.stageName, via: rr.via, problem: rr.problem };
+          });
+          const pl = awResolve(pls, saved[svc], svc, (awStepsFor(svc)[0]||{}).step, mcv).pipeline;
+          services[svc] = {
+            pipelineId: pl ? pl.id : '', pipelineName: pl ? pl.name : '',
+            stages: pl ? (pl.stages||[]).map(function(st){ return { id: st.id, name: st.name }; }) : [],
+            rows: rows,
+            broken: rows.filter(function(x){ return !!x.problem; }).length
+          };
+        });
+        return send(res,200,{ ok:true, services: services, pipelines: pls.map(function(p){ return { id:p.id, name:p.name, stages:(p.stages||[]).map(function(st){ return { id:st.id, name:st.name }; }) }; }) });
+      } catch(e){ return send(res, 200, { ok:false, error: e.message }); }
+    }
+    /* Save a human's choices. Stored as ids, so renaming a stage afterwards changes nothing. */
+    if (req.method === 'POST' && pathOnly === '/api/pipeline-map'){
+      res.setHeader('Access-Control-Allow-Origin','*');
+      try {
+        const b = JSON.parse((await readBody(req)) || '{}');
+        const bloc = String(b.locationId||'').replace(/[^A-Za-z0-9]/g,'');
+        if(!bloc) return send(res,400,{error:'locationId required'});
+        const incoming = b.map || {};
+        const clean = {};
+        Object.keys(incoming).forEach(function(svc){
+          if (!AW_STAGE_MAP[svc]) return;
+          const e = incoming[svc] || {};
+          const stages = {};
+          Object.keys(e.stages || {}).forEach(function(step){
+            if (AW_STAGE_MAP[svc][step] && e.stages[step]) stages[step] = String(e.stages[step]);
+          });
+          clean[svc] = { pipelineId: String(e.pipelineId || ''), stages: stages };
+        });
+        awMapPut(bloc, clean);
+        return send(res,200,{ ok:true, saved: Object.keys(clean).length });
+      } catch(e){ return send(res, 200, { ok:false, error: e.message }); }
     }
     if (req.method === 'GET' && pathOnly === '/api/pipelines-debug'){
       res.setHeader('Access-Control-Allow-Origin','*');

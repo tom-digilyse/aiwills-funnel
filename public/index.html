@@ -98,6 +98,8 @@ details.measure summary{cursor:pointer;font-weight:600;font-size:13px}
       <button class="btn-go" id="writeBtn" style="margin-top:2px">Save to client</button>
       <button class="btn-go" id="readyBtn" style="margin-top:8px;background:#fff;color:#1B3D2E;border:1px solid #cfd6dc">Can this client take payments?</button>
       <div id="readyOut" style="margin-top:8px;font-size:13px;line-height:1.6"></div>
+      <button class="btn-go" id="pipeBtn" style="margin-top:8px;background:#fff;color:#1B3D2E;border:1px solid #cfd6dc">Check the sales pipelines</button>
+      <div id="pipeOut" style="margin-top:8px;font-size:13px;line-height:1.6"></div>
       <div class="status" id="writeStatus"></div>
       <div class="results" id="results"></div>
     </div>
@@ -690,6 +692,94 @@ async function readiness(){
   }catch(e){ out.innerHTML='<span style="color:#c8100d">Check failed: '+e.message+'</span>'; }
 }
 el('readyBtn').addEventListener('click', readiness);
+
+/* ---------- Sales pipelines ----------
+   The funnel steps and the firm's pipeline stages are two separate lists. This screen shows how
+   they are joined right now, flags anything that would leave a card stuck, and lets whoever is
+   looking after the account repoint a step at a different stage without needing a developer.
+   Choices are saved as stage ids, so renaming a stage afterwards changes nothing. */
+var AW_SERVICE_LABEL = { wills:'Wills', lpa:'LPA', etb:'Executor Toolbox', probate:'Probate' };
+var _pipeData = null;
+
+function pipeStepLabel(step){
+  return String(step).replace(/[_-]+/g,' ').replace(/([a-z])([A-Z])/g,'$1 $2').replace(/^./, function(c){ return c.toUpperCase(); });
+}
+async function pipeLoad(){
+  var out = el('pipeOut'), loc = el('locationId').value.trim();
+  if (!loc){ out.innerHTML = '<span style="color:#c8100d">Enter the GHL location ID first.</span>'; return; }
+  out.textContent = 'Checking...';
+  try {
+    var j = await fetch('/api/pipeline-map?locationId=' + encodeURIComponent(loc) + '&cb=' + Date.now()).then(function(r){ return r.json(); });
+    if (!j.ok){
+      out.innerHTML = '<span style="color:#c8100d">' + (j.message || j.error || 'Could not read this account\'s pipelines.') + '</span>';
+      return;
+    }
+    _pipeData = j;
+    pipeRender();
+  } catch(e){ out.innerHTML = '<span style="color:#c8100d">Check failed: ' + e.message + '</span>'; }
+}
+function pipeRender(){
+  var j = _pipeData, out = el('pipeOut'), html = '';
+  var totalBroken = 0;
+  Object.keys(j.services).forEach(function(svc){ totalBroken += j.services[svc].broken; });
+
+  html += '<div style="margin:6px 0 12px;font-weight:600;color:' + (totalBroken ? '#c8100d' : '#1a7f47') + '">'
+       + (totalBroken ? totalBroken + ' funnel step(s) have nowhere to go. Cards will stop moving at those points.'
+                      : 'All four services are wired up correctly. Nothing will get stuck.') + '</div>';
+
+  Object.keys(j.services).forEach(function(svc){
+    var S = j.services[svc];
+    html += '<div style="border:1px solid #e6e6e6;border-radius:10px;padding:12px;margin-bottom:10px">';
+    html += '<div style="font-weight:600;margin-bottom:2px">' + (AW_SERVICE_LABEL[svc] || svc) + '</div>';
+    if (!S.pipelineName){
+      html += '<div style="color:#c8100d">No matching board on this account. Create one, or rename an existing board, then check again.</div></div>';
+      return;
+    }
+    html += '<div style="color:#6b6e72;margin-bottom:8px">Board: <strong>' + S.pipelineName + '</strong></div>';
+    html += '<table style="width:100%;border-collapse:collapse;font-size:13px">';
+    html += '<tr style="text-align:left;color:#6b6e72"><th style="padding:4px 6px;font-weight:600">Funnel step</th><th style="padding:4px 6px;font-weight:600">Goes to stage</th><th style="padding:4px 6px;font-weight:600"></th></tr>';
+    S.rows.forEach(function(row){
+      var id = 'pm_' + svc + '_' + row.step;
+      html += '<tr>';
+      html += '<td style="padding:4px 6px">' + pipeStepLabel(row.step) + '</td>';
+      html += '<td style="padding:4px 6px"><select id="' + id + '" data-svc="' + svc + '" data-step="' + row.step + '" style="width:100%;padding:5px;border:1px solid #cfd6dc;border-radius:6px">';
+      html += '<option value="">(do not move the card)</option>';
+      S.stages.forEach(function(st){
+        var sel = (String(st.id) === String(row.stageId)) ? ' selected' : '';
+        html += '<option value="' + st.id + '"' + sel + '>' + st.name + '</option>';
+      });
+      html += '</select></td>';
+      html += '<td style="padding:4px 6px;white-space:nowrap">'
+           + (row.problem ? '<span style="color:#c8100d">' + row.problem + '</span>'
+                          : '<span style="color:#6b6e72">' + (row.via === 'saved' ? 'locked in' : 'matched by name') + '</span>')
+           + '</td>';
+      html += '</tr>';
+    });
+    html += '</table></div>';
+  });
+  html += '<button class="btn-go" id="pipeSaveBtn" style="background:#1B3D2E;color:#fff">Save pipeline setup</button>'
+       + '<span id="pipeSaveMsg" style="margin-left:10px;color:#6b6e72"></span>'
+       + '<div style="color:#6b6e72;margin-top:8px">Saving locks each step to a stage. After that you can rename or reorder your stages freely and nothing breaks. "Matched by name" means it is still guessing from the stage name and would break if you renamed it, so it is worth saving.</div>';
+  out.innerHTML = html;
+  el('pipeSaveBtn').addEventListener('click', pipeSave);
+}
+async function pipeSave(){
+  var loc = el('locationId').value.trim(), msg = el('pipeSaveMsg');
+  var map = {};
+  document.querySelectorAll('select[id^="pm_"]').forEach(function(sel){
+    var svc = sel.getAttribute('data-svc'), step = sel.getAttribute('data-step');
+    if (!map[svc]) map[svc] = { pipelineId: (_pipeData.services[svc] || {}).pipelineId || '', stages: {} };
+    if (sel.value) map[svc].stages[step] = sel.value;
+  });
+  msg.textContent = 'Saving...';
+  try {
+    var j = await fetch('/api/pipeline-map', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ locationId: loc, map: map }) }).then(function(r){ return r.json(); });
+    msg.innerHTML = j.ok ? '<span style="color:#1a7f47">Saved. Renaming stages is safe now.</span>'
+                         : '<span style="color:#c8100d">' + (j.error || 'Save failed') + '</span>';
+    if (j.ok) setTimeout(pipeLoad, 600);
+  } catch(e){ msg.innerHTML = '<span style="color:#c8100d">Save failed: ' + e.message + '</span>'; }
+}
+el('pipeBtn').addEventListener('click', pipeLoad);
 async function loadCurrentBrand(){
   var loc=el('locationId').value.trim();
   if(!loc){ el('writeStatus').className='status bad'; el('writeStatus').textContent='Enter the GHL location ID above first.'; return; }
