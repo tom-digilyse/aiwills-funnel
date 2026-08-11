@@ -425,6 +425,7 @@ async function etbSave(loc, state, contactId, status, opts){
   if (cid){ try { var got = await ghl('GET', '/contacts/' + cid, token); var c = got.contact || got; var byId={}; (c.customFields||c.customField||[]).forEach(function(f){ byId[f.id]=(f.value!=null?f.value:f.fieldValue); }); readback = { id: cid, fieldCount: Object.keys(byId).length }; } catch(e){ readback = { id: cid, err: e.message }; } }
   var pdfRes; if (opts && opts.pdf && cid) pdfRes = await storeGeneratedPdf(loc, cid, 'etb'); // keep the summary PDF on the contact
   await applyTags(token, loc, cid, 'etb', state);
+  await awSyncOpportunity(token, loc, cid, 'etb', (opts && opts.step) || '', state);
   return { contactId: cid, writtenCount: written.length, noFieldCount: noField.length, noFieldSample: noField.slice(0,10), readback: readback, pdf: pdfRes };
 }
 // Stream an uploaded document straight into a GHL FILE_UPLOAD custom field on the contact.
@@ -626,6 +627,101 @@ var AW_STAGE_MAP = {
   probate: { about:'New Probate Lead', grant:'New Probate Lead', will:'New Probate Lead', estate:'Contacted', beneficiaries:'Contacted', contact_details:'Contacted', referral_done:'Proposal Sent' },
   etb: { your_details:'Your Details', executors:'Executors', will:'Will', codicil:'Codicil', lpa:'LPA', property:'Property', insurance:'Insurance', bank_accounts:'Banks', pensions:'Pensions', investments:'Investments', business:'Business', debts:'Debts', digital_assets:'Digital', wishes:'Wishes & memories', review:'Review', payment:'Payment', done:'Complete' }
 };
+/* ---------- Opportunities ----------
+   Chris built the pipelines but nothing ever put anything on them, because the funnels only touch
+   contacts. So the engine does it: create the opportunity when someone starts, move it as they go.
+   Rules that matter here:
+   - It must NEVER break a save. A will is worth more than a sales board, so every failure is caught
+     and logged, and the customer's answers are already written by the time we get here.
+   - Only Demo currently holds the opportunities scope. Client accounts mint from the agency token
+     and will 401, so a failure per location is remembered for a while rather than retried on every
+     keystroke.
+   - Stages only ever move forward. Someone going back to edit step one should not drag their
+     opportunity back to the start of the board. */
+var AW_PIPELINE_NAMES = { wills:'Online Wills', lpa:'Online LPAs', etb:'Executor Toolbox', probate:'Probate Quotes & Referrals' };
+var _awPipeCache = {};      // locationId -> { at, pipelines }
+var _awPipeFail  = {};      // locationId -> retry-after timestamp
+var AW_PIPE_TTL_MS   = 10 * 60 * 1000;
+var AW_PIPE_QUIET_MS = 15 * 60 * 1000;
+
+async function awPipelines(token, loc){
+  var now = Date.now();
+  var hit = _awPipeCache[loc];
+  if (hit && (now - hit.at) < AW_PIPE_TTL_MS) return hit.pipelines;
+  if (_awPipeFail[loc] && now < _awPipeFail[loc]) return null;   // known to be unavailable, stay quiet
+  try {
+    var r = await ghl('GET', '/opportunities/pipelines?locationId=' + loc, token);
+    var list = r.pipelines || r.data || [];
+    _awPipeCache[loc] = { at: now, pipelines: list };
+    delete _awPipeFail[loc];
+    return list;
+  } catch(e){
+    _awPipeFail[loc] = now + AW_PIPE_QUIET_MS;
+    console.error('opportunities: no pipeline access for ' + loc + ' (' + String(e && e.message || '').slice(0, 90) + ')');
+    return null;
+  }
+}
+function awPickPipeline(pipelines, service, cv){
+  if (!pipelines || !pipelines.length) return null;
+  var want = String((cv && (cv[service + '_pipeline'] || '')) || AW_PIPELINE_NAMES[service] || '').trim().toLowerCase();
+  var byId = pipelines.filter(function(p){ return String(p.id) === String((cv && cv[service + '_pipeline']) || ''); })[0];
+  if (byId) return byId;
+  var exact = pipelines.filter(function(p){ return String(p.name || '').trim().toLowerCase() === want; })[0];
+  if (exact) return exact;
+  // A firm may have renamed the board. Fall back to the obvious word rather than giving up.
+  var hint = { wills:'will', lpa:'lpa', etb:'toolbox', probate:'probate' }[service] || '';
+  return hint ? (pipelines.filter(function(p){ return String(p.name || '').toLowerCase().indexOf(hint) >= 0; })[0] || null) : null;
+}
+function awStageIndex(pipeline, stageName){
+  var want = String(stageName || '').trim().toLowerCase();
+  var stages = (pipeline && pipeline.stages) || [];
+  for (var i = 0; i < stages.length; i++){ if (String(stages[i].name || '').trim().toLowerCase() === want) return i; }
+  return -1;
+}
+function awOppName(service, state){
+  var p = (state && (state.personal || state.your_details || state.contact_details)) || {};
+  var who = [p.firstName, p.lastName].filter(Boolean).join(' ').trim();
+  var label = { wills:'Will', lpa:'LPA', etb:'Executor Toolbox', probate:'Probate' }[service] || 'Enquiry';
+  return (who ? who + ' - ' : '') + label;
+}
+/* Put this person on the right board at the right stage. Returns quietly on any problem. */
+async function awSyncOpportunity(token, loc, contactId, service, step, state){
+  try {
+    if (!loc || !contactId) return;
+    var stageName = awStageFor(service, step);
+    if (!stageName) return;                       // a step we deliberately do not track
+    var pipelines = await awPipelines(token, loc);
+    if (!pipelines) return;
+    var cv = {}; try { cv = await getCustomValuesMap(loc, token); } catch(_){}
+    var pipeline = awPickPipeline(pipelines, service, cv);
+    if (!pipeline){ console.error('opportunities: no ' + service + ' pipeline on ' + loc); return; }
+    var wantIdx = awStageIndex(pipeline, stageName);
+    if (wantIdx < 0){ console.error('opportunities: ' + loc + ' has no "' + stageName + '" stage on ' + pipeline.name); return; }
+    var wantStageId = pipeline.stages[wantIdx].id;
+
+    var existing = null;
+    try {
+      var found = await ghl('GET', '/opportunities/search?location_id=' + loc + '&contact_id=' + contactId, token);
+      var opps = found.opportunities || found.data || [];
+      existing = opps.filter(function(o){ return String(o.pipelineId) === String(pipeline.id); })[0] || null;
+    } catch(e){ /* treat as none and let the create decide */ }
+
+    if (!existing){
+      await ghl('POST', '/opportunities/', token, {
+        pipelineId: pipeline.id, locationId: loc, contactId: contactId,
+        pipelineStageId: wantStageId, name: awOppName(service, state), status: 'open'
+      });
+      return;
+    }
+    // Forward only. Going back to change an answer should not undo their progress on the board.
+    var haveIdx = -1;
+    for (var i = 0; i < pipeline.stages.length; i++){ if (String(pipeline.stages[i].id) === String(existing.pipelineStageId)) { haveIdx = i; break; } }
+    if (haveIdx >= wantIdx) return;
+    await ghl('PUT', '/opportunities/' + existing.id, token, { pipelineStageId: wantStageId });
+  } catch(e){
+    console.error('awSyncOpportunity ' + service + ' ' + loc + ': ' + String(e && e.message || '').slice(0, 140));
+  }
+}
 function awStageFor(service, step){
   if(service==='probate'||service==='referral') return AW_STAGE_MAP.probate[step] || 'New Probate Lead';
   var m=AW_STAGE_MAP[service]; if(!m||!step) return '';
@@ -789,6 +885,7 @@ async function willSave(loc, state, contactId, opts){
   var cid=(up.contact&&up.contact.id)||up.id||contactId||'';
   var pdfRes; if (opts && opts.pdf && cid) pdfRes = await storeGeneratedPdf(loc, cid, 'wills');
   await applyTags(token, loc, cid, 'wills', state);
+  await awSyncOpportunity(token, loc, cid, 'wills', (opts && opts.step) || '', state);
   return { contactId: cid, saved: _cf.length>0, pdf: pdfRes };
 }
 /* Persist a referral-funnel state JSON onto the contact and tag the lead on submit (probate etc). */
@@ -813,6 +910,7 @@ async function referralSave(loc, state, contactId, key, status, step, detail){
     try{ await ghl('POST','/contacts/'+cid+'/tags', token, { tags:[tag] }); }catch(e){ console.error('referral tag', e.message); }
   }
   await applyTags(token, loc, cid, k, state);
+  await awSyncOpportunity(token, loc, cid, k, step || '', state);
   return { contactId: cid, saved: _rcf.length>0 };
 }
 /* Persist the LPA funnel state JSON onto the contact (capture flow; PDF fill added later). */
@@ -832,6 +930,7 @@ async function lpaSave(loc, state, contactId, opts){
   var cid=(up.contact&&up.contact.id)||up.id||contactId||'';
   var pdfRes; if (opts && opts.pdf && cid) pdfRes = await storeGeneratedPdf(loc, cid, 'lpa');
   await applyTags(token, loc, cid, 'lpa', state);
+  await awSyncOpportunity(token, loc, cid, 'lpa', (opts && opts.step) || '', state);
   return { contactId: cid, saved: _lcf.length>0, pdf: pdfRes };
 }
 // Generate the funnel's PDF (will or toolbox summary) from the contact's saved state and store it onto a FILE_UPLOAD field so the advisor sees it in GHL.
