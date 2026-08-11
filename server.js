@@ -25,7 +25,10 @@ const GHL_VERSION = process.env.GHL_API_VERSION || '2021-07-28';
    write to ANY client sub-account with no per-client token. See
    AiWills_ghl-agency-oauth-spec_v1.md. */
 const REDIRECT_URI = process.env.GHL_REDIRECT_URI || 'https://aiwills.digilyse.co/oauth/callback';
-const GHL_SCOPES = 'locations/customValues.readonly locations/customValues.write locations/customFields.readonly locations/customFields.write contacts.readonly contacts.write';
+// The app is allowed opportunities in the marketplace, but consent only ever grants what we ask
+// for here, so the tokens came back without it and every pipeline call 401'd. Adding them means
+// one fresh agency authorisation, after which minted location tokens carry the new scope too.
+const GHL_SCOPES = 'locations/customValues.readonly locations/customValues.write locations/customFields.readonly locations/customFields.write contacts.readonly contacts.write opportunities.readonly opportunities.write';
 const TOKENS_FILE = path.join(__dirname, 'ghl_tokens.json');
 /* Sub-Account app model: each sub-account authorises the app once and we store ITS
    own Location token, keyed by locationId. Custom values are sub-account data, so a
