@@ -55,7 +55,13 @@ var CFG = window.AIWILLS_CONFIG || {}; (function(){ var _m='{'+'{'; for(var _k i
         return q.length ? (u+(u.indexOf('?')>=0?'&':'?')+q.join('&')) : u;
       }
     }
-    function withId(u){ if(!u) return u; return awSetParams(u, { aw_loc: loc, aw_c: contact, aw_t: (qp('aw_t')||window.AIWILLS_TOKEN||'') }); }
+    function awSessKey(){ return 'aw_sess_' + (loc || ''); }
+    function awSessGet(){ try{ return sessionStorage.getItem(awSessKey()) || ''; }catch(err){ return ''; } }
+    function awSessSet(t){ try{ sessionStorage.setItem(awSessKey(), t); }catch(err){} window.AIWILLS_TOKEN = t; }
+    function awSessClear(){ try{ sessionStorage.removeItem(awSessKey()); }catch(err){} window.AIWILLS_TOKEN = ''; }
+    // The session never travels in a URL. Putting it in a link would write it into browser history
+    // and into any page the customer is sent on to, which is the hole we are closing.
+    function withId(u){ if(!u) return u; return awSetParams(u, { aw_loc: loc, aw_c: contact }); }
     function card(s,st){
       var done=st&&(st.paid||st.started);
       var btn;
@@ -980,6 +986,14 @@ function go(dir){
 function lsKey(){ try{ var fn=((window.AIWILLS_CONFIG&&window.AIWILLS_CONFIG.funnel)||'wills'); return 'aw_draft_'+fn+'_'+(loc||''); }catch(e){ return ''; } }
 function saveLocal(){ try{ if(window.AIWILLS_EDIT===true) return; var k=lsKey(); if(k){ localStorage.setItem(k, JSON.stringify(state)); try{ localStorage.setItem(k+'_pos', JSON.stringify({c:cur,m:maxCur})); }catch(e2){} try{ document.cookie=k.replace('aw_draft_','aw_s_')+'=1;domain=.aiwills.co.uk;path=/;max-age=31536000;SameSite=Lax'; }catch(e3){} } }catch(e){} }
 function awLogout(reason){
+  // Tell the server first, so the session is dead even if this browser keeps a copy of the page.
+  try{
+    var _s=(window.AIWILLS_TOKEN||'');
+    try{ var _k='aw_sess_'+((window.AIWILLS_LOC)||''); if(!_s) _s=sessionStorage.getItem(_k)||''; sessionStorage.removeItem(_k); }catch(e2){}
+    if(_s) fetch(API+'/api/session-end',{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({s:_s})}).catch(function(){});
+  }catch(e){}
+  // Drafts are per browser, so on a shared computer they would show the next person the answers.
+  try{ Object.keys(localStorage).forEach(function(k){ if(k.indexOf('aw_draft_')===0) localStorage.removeItem(k); }); }catch(e){}
   try{ window.AIWILLS_EDIT=false; window.AIWILLS_TOKEN=''; window.AIWILLS_PREFILL=null; }catch(e){}
   try{ var u=new URL(location.href); u.searchParams.delete('aw_t'); history.replaceState(null,'',u.pathname+(u.search||'')+(u.hash||'')); }catch(e){}
   try{ var ov=document.getElementById('aw-logout'); if(!ov){ ov=document.createElement('div'); ov.id='aw-logout'; document.body.appendChild(ov); }
@@ -1052,12 +1066,40 @@ setTimeout(closeGaps,400); setTimeout(closeGaps,1200);
       if(loc){ fetch(API+'/api/brand?locationId='+encodeURIComponent(loc)).then(function(r){return r.json();}).then(function(c){ window.AIWILLS_CONFIG=Object.assign({}, (c&&!c._err)?c:{}, _pcfg); run(); }).catch(function(){ run(); }); } // always fill brand from GHL so a blank/partial page loader never falls back to default; loader data-* still overrides
       else { run(); }
     }
-    var _tok=null; try{ _tok=new URLSearchParams(location.search).get('aw_t'); }catch(e){}
-    if(_tok){ // edit mode: load this contact's saved answers (token-gated), prefill, then render
-      window.AIWILLS_TOKEN=_tok;
-      fetch(API+'/api/state-load?t='+encodeURIComponent(_tok)+'&funnel='+encodeURIComponent(String((window.AIWILLS_CONFIG||{}).funnel||''))).then(function(r){return r.json();}).then(function(j){
-        if(j&&j.ok){ window.AIWILLS_EDIT=true; window.AIWILLS_FILES=j.files||[]; if(j.state) window.AIWILLS_PREFILL=j.state; if(j.funnel==='wills'||j.funnel==='lpa'){ window.AIWILLS_CONTACT_ID=j.contactId; } else { window.AIWILLS_ETB_CID=j.contactId; } }
-      }).catch(function(){}).then(_runBranded);
+    var _tok=null, _qloc='';
+    try{ var _q=new URLSearchParams(location.search); _tok=_q.get('aw_t'); _qloc=_q.get('aw_loc')||''; }catch(e){}
+    try{ window.AIWILLS_LOC=_qloc; }catch(e){}
+    var _sk='aw_sess_'+_qloc;
+    function _awStripToken(){ try{ var u=new URL(location.href); u.searchParams.delete('aw_t'); history.replaceState(null,'',u.pathname+(u.search||'')+(u.hash||'')); }catch(e){} }
+    function _awLinkDead(msg){
+      try{
+        var host=document.getElementById('aiwills-funnel')||document.body;
+        var d=document.createElement('div');
+        d.style.cssText='max-width:460px;margin:48px auto;padding:30px 26px;border:1px solid #e6e6e6;border-radius:16px;text-align:center;font-family:Arial,Helvetica,sans-serif;background:#fff';
+        d.innerHTML='<h2 style="margin:0 0 10px;font-size:21px">This link has expired</h2><p style="color:#6b6e72;line-height:1.55;margin:0">'+(msg||'Sign-in links last one hour and can only be used once, to keep your details safe. Please request a new one.')+'</p>';
+        host.innerHTML=''; host.appendChild(d);
+      }catch(e){}
+    }
+    function _awLoadState(sess){
+      return fetch(API+'/api/state-load?t='+encodeURIComponent(sess)+'&funnel='+encodeURIComponent(String((window.AIWILLS_CONFIG||{}).funnel||'')))
+        .then(function(r){return r.json();}).then(function(j){
+          if(j&&j.ok){ window.AIWILLS_EDIT=true; window.AIWILLS_FILES=j.files||[]; if(j.state) window.AIWILLS_PREFILL=j.state; if(j.funnel==='wills'||j.funnel==='lpa'){ window.AIWILLS_CONTACT_ID=j.contactId; } else { window.AIWILLS_ETB_CID=j.contactId; } }
+          else { try{ sessionStorage.removeItem(_sk); }catch(e){} }
+        }).catch(function(){});
+    }
+    var _sess=''; try{ _sess=sessionStorage.getItem(_sk)||''; }catch(e){}
+    if(_tok){
+      // Swap the emailed link for a session, then take it out of the address bar so the back
+      // button and the browser history cannot sign the next person in.
+      fetch(API+'/api/session-start',{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({t:_tok})})
+        .then(function(r){return r.json();}).then(function(j){
+          _awStripToken();
+          if(j&&j.ok&&j.session){ try{ sessionStorage.setItem(_sk,j.session); }catch(e){} window.AIWILLS_TOKEN=j.session; return _awLoadState(j.session).then(_runBranded); }
+          _runBranded(); _awLinkDead(j&&j.message);
+        }).catch(function(){ _awStripToken(); _runBranded(); });
+    } else if(_sess){
+      window.AIWILLS_TOKEN=_sess;
+      _awLoadState(_sess).then(_runBranded);
     } else { _runBranded(); }
   })();
 })();

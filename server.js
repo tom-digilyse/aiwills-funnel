@@ -530,6 +530,30 @@ function b64u(s){ return Buffer.from(s).toString('base64').replace(/\+/g,'-').re
 function b64ud(s){ s=String(s).replace(/-/g,'+').replace(/_/g,'/'); while(s.length%4)s+='='; return Buffer.from(s,'base64').toString('utf8'); }
 function signEdit(payload){ var sec=editSecret(); if(!sec) return ''; var p=b64u(JSON.stringify(payload)); var h=crypto.createHmac('sha256',sec).update(p).digest('hex').slice(0,32); return p+'.'+h; }
 function verifyEdit(token){ try{ var sec=editSecret(); if(!sec||!token) return null; var parts=String(token).split('.'); if(parts.length!==2) return null; var exp=crypto.createHmac('sha256',sec).update(parts[0]).digest('hex').slice(0,32); var a=Buffer.from(exp),b=Buffer.from(parts[1]); if(a.length!==b.length||!crypto.timingSafeEqual(a,b)) return null; var obj=JSON.parse(b64ud(parts[0])); if(obj.exp && Date.now()>obj.exp) return null; return obj; }catch(e){ return null; } }
+/* A link that sits in an inbox for thirty days is a password anyone with the inbox can reuse,
+   and there was no way to take it back. An emailed link now lasts an hour and works once. It is
+   traded for a session that lives in the tab, so closing the tab or signing out really does end it. */
+const AUTH_DIR = path.join(__dirname, 'auth_data');
+const AUTH_USED = path.join(AUTH_DIR, 'used.json');
+const AW_LINK_TTL_MS = 60 * 60 * 1000;
+const AW_SESSION_TTL_MS = 60 * 60 * 1000;
+function authUsedAll(){ try { return JSON.parse(fs.readFileSync(AUTH_USED, 'utf8')) || {}; } catch(e){ return {}; } }
+function authUsedPut(map){ try { fs.mkdirSync(AUTH_DIR, { recursive: true }); fs.writeFileSync(AUTH_USED, JSON.stringify(map)); } catch(e){ console.error('authUsedPut', e.message); } }
+/* One list covers both jobs: a link that has been spent, and a session that has been signed out.
+   Entries are dropped once the token they refer to would have expired anyway, so it stays small. */
+function authSpend(jti, exp){
+  if (!jti) return false;
+  const now = Date.now(), map = authUsedAll(), fresh = {};
+  Object.keys(map).forEach(function(k){ if (map[k] > now) fresh[k] = map[k]; });
+  if (fresh[jti]) return false;
+  fresh[jti] = exp || (now + AW_LINK_TTL_MS);
+  authUsedPut(fresh);
+  return true;
+}
+function authIsSpent(jti){ if (!jti) return false; const m = authUsedAll(); return !!(m[jti] && m[jti] > Date.now()); }
+function awJti(){ return crypto.randomBytes(12).toString('hex'); }
+function signLink(loc, cid, funnel){ return signEdit({ loc: loc, cid: cid, funnel: funnel, kind: 'link', jti: awJti(), exp: Date.now() + AW_LINK_TTL_MS }); }
+function signSession(loc, cid, funnel){ return signEdit({ loc: loc, cid: cid, funnel: funnel, kind: 'session', jti: awJti(), exp: Date.now() + AW_SESSION_TTL_MS }); }
 /* Read a saved funnel state JSON off a contact. funnel = 'etb' | 'wills'. */
 async function loadState(loc, contactId, funnel){
   var token = await getWriteToken(loc);
@@ -1431,12 +1455,37 @@ const server = http.createServer(async (req, res) => {
         const need=process.env.HUBLINK_SECRET||'';
         if(!need || key!==need) return send(res,403,{error:'bad key'});
         if(!loc||!cid) return send(res,400,{error:'locationId and contactId required'});
-        const tok=signEdit({loc:loc,cid:cid,exp:Date.now()+1000*60*60*24*90});
+        const tok=signLink(loc, cid, '');
         if(!tok) return send(res,500,{error:'signing unavailable'});
         const base=(process.env.PUBLIC_BASE||'https://aiwills.digilyse.co');
         const link=base+'/hub.html?aw_loc='+encodeURIComponent(loc)+'&aw_c='+encodeURIComponent(cid)+'&aw_t='+encodeURIComponent(tok);
         return send(res,200,{ ok:true, link:link, token:tok });
       } catch(e){ return send(res, 200, { error: e.message }); }
+    }
+    // Trade a one-time emailed link for a session. The link dies here whether or not the rest works,
+    // so a forwarded or shoulder-surfed link is worth nothing the second time it is opened.
+    if (req.method === 'POST' && pathOnly === '/api/session-start'){
+      res.setHeader('Access-Control-Allow-Origin','*');
+      try {
+        const b = JSON.parse((await readBody(req)) || '{}');
+        const claims = verifyEdit(b.t || '');
+        if (!claims || !claims.loc || !claims.cid) return send(res, 403, { error: 'expired', message: 'That link has expired. Sign-in links last an hour for your security.' });
+        if (claims.kind === 'session') return send(res, 403, { error: 'expired', message: 'That is not a sign-in link.' });
+        if (!claims.jti || !authSpend(claims.jti, claims.exp)) return send(res, 403, { error: 'used', message: 'That link has already been used. Sign-in links work once, so please request a new one.' });
+        const session = signSession(claims.loc, claims.cid, claims.funnel || '');
+        if (!session) return send(res, 500, { error: 'signing unavailable' });
+        return send(res, 200, { ok: true, session: session, contactId: claims.cid, funnel: claims.funnel || '', expiresInMs: AW_SESSION_TTL_MS });
+      } catch(e){ return send(res, 200, { error: e.message }); }
+    }
+    // Signing out has to mean something on the server, not just in the browser.
+    if (req.method === 'POST' && pathOnly === '/api/session-end'){
+      res.setHeader('Access-Control-Allow-Origin','*');
+      try {
+        const b = JSON.parse((await readBody(req)) || '{}');
+        const claims = verifyEdit(b.s || '');
+        if (claims && claims.jti) authSpend(claims.jti, claims.exp);
+        return send(res, 200, { ok: true });   // an unreadable or already dead session is still signed out
+      } catch(e){ return send(res, 200, { ok: true }); }
     }
     // Load a saved funnel state for editing. Token-gated so a bare contactId can't read someone's data.
     if (req.method === 'GET' && pathOnly === '/api/state-load'){
@@ -1445,6 +1494,10 @@ const server = http.createServer(async (req, res) => {
         const tok=(new URL(req.url,'http://x')).searchParams.get('t')||'';
         const claims=verifyEdit(tok);
         if(!claims||!claims.loc||!claims.cid) return send(res,403,{error:'invalid or expired link'});
+        // Only a live session may read someone's answers. A raw link has to be exchanged first,
+        // which is what makes signing out and single use actually bite.
+        if(claims.kind!=='session') return send(res,403,{error:'no session',message:'Please open your sign-in link again.'});
+        if(authIsSpent(claims.jti)) return send(res,403,{error:'signed out',message:'You have been signed out. Please request a new link.'});
         const _qf=(new URL(req.url,'http://x')).searchParams.get('funnel'); const _uf=_qf||claims.funnel||'etb'; const out=await loadState(claims.loc, claims.cid, _uf);
         return send(res,200,{ ok:true, funnel:_uf, contactId:claims.cid, state:out.state, contact:out.contact, found:out.found, files:out.files||[], filesRaw:out.filesRaw||[] });
       } catch(e){ return send(res, 200, { error: e.message }); }
@@ -1463,7 +1516,7 @@ const server = http.createServer(async (req, res) => {
         const funnel = (['wills','lpa','etb'].indexOf(b.funnel)>=0)?b.funnel:'etb';
         if (!loc || !cid) return send(res, 400, { error: 'locationId and contactId required' });
         const ttl = Math.min(parseInt(b.ttlDays||30,10)||30, 90);
-        const token = signEdit({ loc:loc, cid:cid, funnel:funnel, exp: Date.now()+ttl*24*3600*1000 });
+        const token = signLink(loc, cid, funnel);
         if (!token) return send(res, 500, { error: 'EDIT_SECRET not set on server' });
         const base = b.returnBase || '';
         const url = base ? (base + (base.indexOf('?')>=0?'&':'?') + 'aw_t=' + encodeURIComponent(token)) : '';
@@ -1486,7 +1539,7 @@ const server = http.createServer(async (req, res) => {
           try {
             const c = email ? await findContactByEmail(loc, email) : await findContactByPhone(loc, phone);
             if (!c || !c.id) return;
-            const token = signEdit({ loc:loc, cid:c.id, funnel:funnel, exp: Date.now()+30*24*3600*1000 });
+            const token = signLink(loc, c.id, funnel);
             if (!token) return;
             const url = base ? (base + (base.indexOf('?')>=0?'&':'?') + 'aw_t=' + encodeURIComponent(token)) : '';
             const wtoken = await getWriteToken(loc);
