@@ -615,11 +615,11 @@ async function awEnsureField(token, loc, map, name, dataType){
 var AW_STAGE_MAP = {
   wills: { personal:'Your Details', partner:'Spouse/Partner', situation:'Spouse/Partner', children:'Your Children', guardian:'Guardians', executors:'Executors', gifts:'Gifts', mirrorGifts:'Gifts', residual:'Residual Estate', funeral:'Funeral Arrangements', mirrorFuneral:'Funeral Arrangements', review:'Pay Bill', payment:'Pay Bill', generate:'Pay Bill' },
   lpa: { your_details:'Donor Details', attorneys:'Attorneys', lpa_type:'LPA Type', decisions:'Decisions', treatment:'Decisions', preferences:'Preferences', usage:'Usage', notify:'Notification', provider:'Provider', registration:'Registration', exemption:'Exemption', declaration:'Declaration', review:'Pay Bill LPA', payment:'Pay Bill LPA', generate:'Pay Bill LPA' },
-  probate: { about:'New Lead', grant:'New Lead', will:'New Lead', estate:'Quote Requested', beneficiaries:'Quote Requested', contact_details:'Quote Requested', referral_done:'Quote Sent' },
+  probate: { about:'New Probate Lead', grant:'New Probate Lead', will:'New Probate Lead', estate:'Contacted', beneficiaries:'Contacted', contact_details:'Contacted', referral_done:'Proposal Sent' },
   etb: { your_details:'Your Details', executors:'Executors', will:'Will', codicil:'Codicil', lpa:'LPA', property:'Property', insurance:'Insurance', bank_accounts:'Banks', pensions:'Pensions', investments:'Investments', business:'Business', debts:'Debts', digital_assets:'Digital', wishes:'Wishes & memories', review:'Payment', payment:'Payment', done:'Payment' }
 };
 function awStageFor(service, step){
-  if(service==='probate'||service==='referral') return AW_STAGE_MAP.probate[step] || 'New Lead';
+  if(service==='probate'||service==='referral') return AW_STAGE_MAP.probate[step] || 'New Probate Lead';
   var m=AW_STAGE_MAP[service]; if(!m||!step) return '';
   return m[step]||'';
 }
@@ -1613,6 +1613,39 @@ const server = http.createServer(async (req, res) => {
         if (problem){ delete vals.stripe_account_id; warnings.push(problem); }
       }
       return send(res, 200, { results: await handleWrite(parsed.locationId, vals), warnings: warnings });
+    }
+    if (req.method === 'GET' && pathOnly === '/api/pipelines-debug'){
+      res.setHeader('Access-Control-Allow-Origin','*');
+      try {
+        const pu = new URL(req.url,'http://x');
+        const ploc = (pu.searchParams.get('locationId')||'').replace(/[^A-Za-z0-9]/g,'');
+        if(!ploc) return send(res,400,{error:'locationId required'});
+        const ptok = await getWriteToken(ploc);
+        const pl = await ghl('GET','/opportunities/pipelines?locationId='+ploc, ptok);
+        const pipelines = (pl.pipelines || pl.data || []).map(function(p){
+          return { id: p.id, name: p.name, stages: (p.stages||[]).map(function(st){ return { id: st.id, name: st.name, position: st.position }; }) };
+        });
+        // What the engine would need to match, next to what is actually on the board.
+        const wanted = { wills: 'Online Wills', lpa: 'Online LPAs', etb: 'Executor Toolbox', probate: 'Probate Quotes & Referrals' };
+        const expected = {};
+        Object.keys(AW_STAGE_MAP).forEach(function(k){
+          const seen = {}; const out = [];
+          Object.keys(AW_STAGE_MAP[k]).forEach(function(step){ const v = AW_STAGE_MAP[k][step]; if(!seen[v]){ seen[v]=1; out.push(v); } });
+          expected[k] = out;
+        });
+        const check = {};
+        Object.keys(wanted).forEach(function(svc){
+          const p = pipelines.filter(function(x){ return String(x.name||'').toLowerCase() === wanted[svc].toLowerCase(); })[0];
+          if(!p){ check[svc] = { pipeline: wanted[svc], found: false }; return; }
+          const names = p.stages.map(function(st){ return String(st.name||'').toLowerCase(); });
+          check[svc] = {
+            pipeline: p.name, found: true, pipelineId: p.id,
+            missingStages: expected[svc].filter(function(n){ return names.indexOf(String(n).toLowerCase()) < 0; }),
+            unusedStages: p.stages.map(function(st){ return st.name; }).filter(function(n){ return expected[svc].map(function(x){ return String(x).toLowerCase(); }).indexOf(String(n).toLowerCase()) < 0; })
+          };
+        });
+        return send(res,200,{ ok:true, count: pipelines.length, pipelines: pipelines, check: check });
+      } catch(e){ return send(res, 200, { error: e.message }); }
     }
     if (req.method === 'GET' && pathOnly === '/api/funnels-debug'){
       try {
