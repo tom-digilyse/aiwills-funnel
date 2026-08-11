@@ -25,10 +25,15 @@ const GHL_VERSION = process.env.GHL_API_VERSION || '2021-07-28';
    write to ANY client sub-account with no per-client token. See
    AiWills_ghl-agency-oauth-spec_v1.md. */
 const REDIRECT_URI = process.env.GHL_REDIRECT_URI || 'https://aiwills.digilyse.co/oauth/callback';
-// The app is allowed opportunities in the marketplace, but consent only ever grants what we ask
-// for here, so the tokens came back without it and every pipeline call 401'd. Adding them means
-// one fresh agency authorisation, after which minted location tokens carry the new scope too.
-const GHL_SCOPES = 'locations/customValues.readonly locations/customValues.write locations/customFields.readonly locations/customFields.write contacts.readonly contacts.write opportunities.readonly opportunities.write';
+/* Two scope sets on purpose, learned the hard way on 11 Aug.
+   Opportunities are Sub-Account scopes. Put them on the AGENCY consent and the company token can no
+   longer do the /oauth/locationToken exchange at all - every account stops minting, which is far
+   worse than not having pipelines. So the agency install keeps the six that mint reliably, and a
+   per-location install carries the wider set. getStoredLocationToken already prefers a stored
+   per-location token over minting, so installing a location directly simply upgrades that account. */
+const GHL_SCOPES_CORE = 'locations/customValues.readonly locations/customValues.write locations/customFields.readonly locations/customFields.write contacts.readonly contacts.write';
+const GHL_SCOPES = GHL_SCOPES_CORE;                                              // agency install: mint-safe
+const GHL_SCOPES_LOCATION = GHL_SCOPES_CORE + ' opportunities.readonly opportunities.write';   // per-location install: adds pipelines
 const TOKENS_FILE = path.join(__dirname, 'ghl_tokens.json');
 /* Sub-Account app model: each sub-account authorises the app once and we store ITS
    own Location token, keyed by locationId. Custom values are sub-account data, so a
@@ -963,7 +968,7 @@ const server = http.createServer(async (req, res) => {
     const pathOnly = req.url.split('?')[0];
     if (req.method === 'GET' && pathOnly === '/oauth/start'){
       if (!process.env.GHL_CLIENT_ID) return send(res, 400, { error: 'GHL_CLIENT_ID not set' });
-      const u = 'https://marketplace.gohighlevel.com/oauth/chooselocation?response_type=code&redirect_uri=' + encodeURIComponent(REDIRECT_URI) + '&client_id=' + encodeURIComponent(process.env.GHL_CLIENT_ID) + '&scope=' + encodeURIComponent(GHL_SCOPES);
+      const u = 'https://marketplace.gohighlevel.com/oauth/chooselocation?response_type=code&redirect_uri=' + encodeURIComponent(REDIRECT_URI) + '&client_id=' + encodeURIComponent(process.env.GHL_CLIENT_ID) + '&scope=' + encodeURIComponent(GHL_SCOPES_LOCATION);
       res.writeHead(302, { Location: u }); return res.end();
     }
     if (req.method === 'GET' && pathOnly === '/oauth/start-agency'){
