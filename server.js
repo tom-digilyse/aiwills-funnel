@@ -307,13 +307,22 @@ function cleanServiceUrl(v){
   ['aw_loc','aw_c','aw_t','aw_paid','aw_id'].forEach(function(k){ u.searchParams.delete(k); });
   return { value: u.origin + u.pathname + (u.searchParams.toString() ? ('?' + u.searchParams.toString()) : '') };
 }
-async function handleWrite(locationId, values){
+/* An empty box used to mean "delete this setting". The tool posts all 56 fields on every save,
+   so opening it fresh, typing a location id and one phone number wiped everything else on that
+   account. Blank now means "leave it alone". Deleting a setting is a deliberate act: the caller
+   has to have loaded the account first (allowClear), and wiping several at once needs confirming
+   on top of that. Losing a firm's brand to a mistyped save is far worse than an extra click. */
+const AW_CLEAR_WARN_AT = 5;
+async function handleWrite(locationId, values, opts){
   if (!locationId) throw new Error('locationId is required.');
+  const allowClear = !!(opts && opts.allowClear);
+  const confirmClear = !!(opts && opts.confirmClear);
   // Brand/config now lives in OUR per-location store, NOT GHL custom values, so a snapshot push
   // from Demo can never overwrite a paying client's bespoke brand. Features push via the snapshot; brand does not.
   const cur = brandStoreGet(locationId) || {};
   const results = [];
   const urlProblems = [];
+  const wouldClear = [];
   for (const name of Object.keys(values)){
     let value = values[name];
     if (AW_SERVICE_URL_KEYS.indexOf(name) >= 0 && String(value||'').trim()){
@@ -323,12 +332,19 @@ async function handleWrite(locationId, values){
       values[name] = value;
     }
     if (value === '' || value == null){
-      if (name in cur){ delete cur[name]; results.push({ name: name, action: 'cleared' }); }
-      else { results.push({ name: name, skipped: true }); }
+      if (!(name in cur)){ results.push({ name: name, skipped: true }); continue; }
+      if (!allowClear){ results.push({ name: name, action: 'left as it was' }); continue; }
+      wouldClear.push(name);
       continue;
     }
     cur[name] = value; results.push({ name: name, action: 'saved' });
   }
+  // Clearing a handful is normal editing. Clearing a pile of them is almost always a blank form.
+  if (wouldClear.length > AW_CLEAR_WARN_AT && !confirmClear){
+    results.push({ name: 'Nothing was deleted', error: 'This would have removed ' + wouldClear.length + ' existing settings (' + wouldClear.slice(0, 6).join(', ') + (wouldClear.length > 6 ? ', ...' : '') + '). Load the client first so the boxes are filled in, or confirm if you really did mean to clear them.' });
+    wouldClear.length = 0;
+  }
+  wouldClear.forEach(function(name){ delete cur[name]; results.push({ name: name, action: 'cleared' }); });
   brandStorePut(locationId, cur);
   if (urlProblems.length) results.push({ name: 'Service page links', error: urlProblems.join('; ') });
   return results;
@@ -1767,7 +1783,7 @@ const server = http.createServer(async (req, res) => {
         const problem = await connectAcctProblem(acct);
         if (problem){ delete vals.stripe_account_id; warnings.push(problem); }
       }
-      return send(res, 200, { results: await handleWrite(parsed.locationId, vals), warnings: warnings });
+      return send(res, 200, { results: await handleWrite(parsed.locationId, vals, { allowClear: !!parsed.allowClear, confirmClear: !!parsed.confirmClear }), warnings: warnings });
     }
     /* One call powers both the health check and the mapping editor, so what the tool shows is
        exactly what the engine would do rather than a second opinion. */

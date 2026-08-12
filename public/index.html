@@ -398,6 +398,9 @@ function badPrices(){
   });
   return bad;
 }
+/* Only a form that was filled in FROM an account may clear that account's settings. A fresh page
+   has 56 empty boxes and means nothing by them. */
+var _loadedLoc = '';
 async function write(){
   var locationId = el('locationId').value.trim();
   if (!locationId){ el('writeStatus').className='status bad'; el('writeStatus').textContent='Enter the GHL location ID.'; return; }
@@ -410,7 +413,7 @@ async function write(){
   }
   el('writeBtn').disabled = true; el('writeStatus').className='status'; el('writeStatus').textContent='Writing to GHL ...'; el('results').innerHTML='';
   try {
-    var r = await fetch('/api/write', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ locationId: locationId, values: getValues() }) });
+    var r = await fetch('/api/write', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ locationId: locationId, values: getValues(), allowClear: (_loadedLoc === locationId) }) });
     var j = await r.json();
     if (j.error) throw new Error(j.error);
     var ok = j.results.filter(function(x){return x.action;}).length;
@@ -420,7 +423,7 @@ async function write(){
     el('writeStatus').textContent = ok + ' value(s) written' + (err.length ? (', ' + err.length + ' failed') : '') + '.' + (warn.length ? (' ' + warn.join(' ')) : '');
     if (warn.length) loadConnectAccounts(true);
     el('results').innerHTML = j.results.map(function(x){
-      return '<div>' + x.name + ': ' + (x.action || (x.skipped?'skipped (empty)':('<span style="color:#c8100d">'+x.error+'</span>'))) + '</div>';
+      return '<div>' + x.name + ': ' + (x.action || (x.skipped?'not set':('<span style="color:#c8100d">'+x.error+'</span>'))) + '</div>';
     }).join('');
   } catch(e){ el('writeStatus').className='status bad'; el('writeStatus').textContent='Write failed: ' + e.message; }
   el('writeBtn').disabled = false;
