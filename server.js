@@ -1793,9 +1793,10 @@ const server = http.createServer(async (req, res) => {
         const mu = new URL(req.url,'http://x');
         const mloc = (mu.searchParams.get('locationId')||'').replace(/[^A-Za-z0-9]/g,'');
         if(!mloc) return send(res,400,{error:'locationId required'});
+        if (mu.searchParams.get('refresh')){ delete _awPipeCache[mloc]; delete _awPipeFail[mloc]; }
         const mtok = await getWriteToken(mloc);
         const pls = await awPipelines(mtok, mloc);
-        if (!pls) return send(res,200,{ ok:false, reason:'no-access', message:'This account has not granted us access to its pipelines yet. Authorise it at /oauth/start and pick this sub-account.' });
+        if (!pls) return send(res,200,{ ok:false, reason:'no-access', message:'This account has not given us permission to see its pipelines yet.' });
         let mcv = {}; try { mcv = await getCustomValuesMap(mloc, mtok); } catch(_){}
         const saved = awMapGet(mloc);
         const services = {};

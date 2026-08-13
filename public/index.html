@@ -689,6 +689,11 @@ async function readiness(){
     });
     if(acct && firm && !firm.ready) html+='<div style="color:#c8100d;margin-top:8px">'+firm.name+' has not finished their Stripe onboarding, so payments to them would fail.</div>';
     if(acct && !firm && accts.length) html+='<div style="color:#8a6d00;margin-top:8px">That Stripe account is not on our platform list.</div>';
+    // Connected to its pipelines? Same question the pipeline screen asks, on the go-live checklist.
+    try {
+      var pj = await fetch('/api/pipeline-map?locationId=' + encodeURIComponent(loc) + '&cb=' + Date.now()).then(function(r){ return r.json(); });
+      rows.push(['Connected to its pipelines', pj.ok ? 'yes' : '', 'nothing will appear on their opportunity boards']);
+    } catch(e){}
     var blockers=rows.filter(function(r){ return !r[1]; }).length;
     html+='<div style="margin-top:10px;font-weight:600;color:'+(blockers?'#c8100d':'#1a7f47')+'">'+(blockers? (blockers+' thing(s) still to set before this firm goes live') : 'Ready to take payments')+'</div>';
     out.innerHTML=html;
@@ -707,19 +712,36 @@ var _pipeData = null;
 function pipeStepLabel(step){
   return String(step).replace(/[_-]+/g,' ').replace(/([a-z])([A-Z])/g,'$1 $2').replace(/^./, function(c){ return c.toUpperCase(); });
 }
-async function pipeLoad(){
+async function pipeLoad(refresh){
   var out = el('pipeOut'), loc = el('locationId').value.trim();
   if (!loc){ out.innerHTML = '<span style="color:#c8100d">Enter the GHL location ID first.</span>'; return; }
   out.textContent = 'Checking...';
   try {
-    var j = await fetch('/api/pipeline-map?locationId=' + encodeURIComponent(loc) + '&cb=' + Date.now()).then(function(r){ return r.json(); });
+    var j = await fetch('/api/pipeline-map?locationId=' + encodeURIComponent(loc) + (refresh ? '&refresh=1' : '') + '&cb=' + Date.now()).then(function(r){ return r.json(); });
     if (!j.ok){
+      if (j.reason === 'no-access'){ pipeNag(loc); return; }
       out.innerHTML = '<span style="color:#c8100d">' + (j.message || j.error || 'Could not read this account\'s pipelines.') + '</span>';
       return;
     }
     _pipeData = j;
     pipeRender();
   } catch(e){ out.innerHTML = '<span style="color:#c8100d">Check failed: ' + e.message + '</span>'; }
+}
+/* The one step of onboarding a person has to do by hand, because GHL insists a human approves
+   access. It cannot be automated away, so instead it is impossible to miss: the account says out
+   loud that it is not connected, tells you what that costs, and puts the button right here. */
+function pipeNag(loc){
+  var out = el('pipeOut');
+  out.innerHTML =
+    '<div style="border:1px solid #f0c2c1;background:#fdf3f3;border-radius:10px;padding:14px">'
+    + '<div style="font-weight:600;color:#c8100d;margin-bottom:6px">This client has not been connected to its sales pipelines yet</div>'
+    + '<div style="color:#6b6e72;line-height:1.55;margin-bottom:10px">Their funnels will still work and their answers will still be saved. But nothing will appear on their opportunity boards until this is done, so nobody can see who is midway through and no follow-ups can fire off a stage.</div>'
+    + '<button class="btn-go" id="pipeAuthBtn" style="background:#1B3D2E;color:#fff">Connect this client</button>'
+    + '<button class="btn-go" id="pipeRecheckBtn" style="margin-left:8px;background:#fff;color:#1B3D2E;border:1px solid #cfd6dc">I have done it, check again</button>'
+    + '<div style="color:#6b6e72;margin-top:10px;font-size:12px">Opens GoHighLevel in a new tab. Pick <strong>this client\'s sub-account</strong> from the list, not the agency option.</div>'
+    + '</div>';
+  el('pipeAuthBtn').addEventListener('click', function(){ window.open('/oauth/start', '_blank', 'noopener'); });
+  el('pipeRecheckBtn').addEventListener('click', function(){ pipeLoad(true); });
 }
 function pipeRender(){
   var j = _pipeData, out = el('pipeOut'), html = '';
