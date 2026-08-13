@@ -1262,6 +1262,13 @@ const server = http.createServer(async (req, res) => {
       res.setHeader('Access-Control-Allow-Origin','*');
       const hu=new URL(req.url,'http://x'); const hloc=(hu.searchParams.get('locationId')||'').replace(/[^A-Za-z0-9]/g,''); const hcid=(hu.searchParams.get('contactId')||'').replace(/[^A-Za-z0-9]/g,'');
       if(!hloc||!hcid) return send(res,400,{error:'locationId and contactId required'});
+      /* This used to answer for any contact id at all, so an old hub link kept greeting someone by
+         name months later and looked exactly like never being logged out. Someone's progress is
+         their business: prove it is them. */
+      const hclaims = verifyEdit(hu.searchParams.get('t') || '');
+      if (!hclaims || hclaims.kind !== 'session' || authIsSpent(hclaims.jti) || String(hclaims.cid) !== String(hcid) || String(hclaims.loc) !== String(hloc)){
+        return send(res, 403, { error: 'no session', message: 'Sign in to see your progress.' });
+      }
       try{
         const ht=await getWriteToken(hloc);
         const got=await ghl('GET','/contacts/'+hcid, ht); const c=got.contact||got;

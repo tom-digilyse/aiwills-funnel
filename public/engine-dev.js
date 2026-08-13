@@ -61,7 +61,7 @@ var CFG = window.AIWILLS_CONFIG || {}; (function(){ var _m='{'+'{'; for(var _k i
     function awSessClear(){ try{ sessionStorage.removeItem(awSessKey()); }catch(err){} window.AIWILLS_TOKEN = ''; }
     // The session never travels in a URL. Putting it in a link would write it into browser history
     // and into any page the customer is sent on to, which is the hole we are closing.
-    function withId(u){ if(!u) return u; return awSetParams(u, { aw_loc: loc, aw_c: contact }); }
+    function withId(u){ if(!u) return u; return awSetParams(u, { aw_loc: loc }); }
     function card(s,st){
       var done=st&&(st.paid||st.started);
       var btn;
@@ -141,12 +141,12 @@ var CFG = window.AIWILLS_CONFIG || {}; (function(){ var _m='{'+'{'; for(var _k i
         else if(svcKey==='etb'){ ep='/api/etb-save'; body={locationId:loc,contactId:_awCidEtb(),state:st,detail:consentDetail,status:'started',step:'gate'}; }
         else if(svcKey==='probate'){ ep='/api/referral-save'; body={locationId:loc,contactId:_awCid(),state:st,detail:consentDetail,key:'probate',step:'gate',status:'started'}; }
         else { ep='/api/will-save'; body={locationId:loc,contactId:_awCid(),state:st,detail:consentDetail,step:'gate'}; }
-        var goNext=function(cid){ try{ localStorage.setItem('aw_ident_'+loc, JSON.stringify({ firstName:fn, email:em, phone:ph, cid:cid||'', consent:consent })); }catch(e){} var u=url||''; if(u&&cid) u=awSetParams(u, { aw_c: cid }); try{ m.parentNode.removeChild(m); }catch(e){} if(u) window.top.location.href=u; };
+        var goNext=function(cid){ try{ localStorage.setItem('aw_ident_'+loc, JSON.stringify({ firstName:fn, email:em, phone:ph, cid:cid||'', consent:consent })); }catch(e){} var u=url||''; /* the contact they just created stays in this browser, it does not travel in the link */ try{ m.parentNode.removeChild(m); }catch(e){} if(u) window.top.location.href=u; };
         fetch(API+ep,{method:'POST',body:JSON.stringify(body)}).then(function(r){return r.json();}).then(function(j){ goNext((j&&j.contactId)||''); }).catch(function(){ goNext(''); });
       };
     }
     paint(localSt());
-    if(loc && contact){ fetch(API+'/api/hub-status?locationId='+enc(loc)+'&contactId='+enc(contact)).then(function(r){return r.json();}).then(function(j){ paint(mergeSt(localSt(),(j&&j.services)||{})); }).catch(function(){}); }
+    var _hubTok=(window.AIWILLS_TOKEN||''); if(loc && contact && _hubTok){ fetch(API+'/api/hub-status?locationId='+enc(loc)+'&contactId='+enc(contact)+'&t='+enc(_hubTok)).then(function(r){return r.json();}).then(function(j){ if(j&&j.services) paint(mergeSt(localSt(),j.services)); }).catch(function(){}); }
     awHubLoginUI();
     function awHubLoginUI(){
       var box=document.getElementById('awlogin'); if(!box) return;
