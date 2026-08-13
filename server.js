@@ -509,6 +509,27 @@ function num(v){
   var n = parseFloat(raw);
   return isFinite(n) ? n : 0;
 }
+/* One switch for the whole platform meant Demo could not be exercised without taking real money
+   off whoever was testing. Each firm now carries its own mode, so a new client can rehearse the
+   entire journey with test cards and be flipped to live on the day they launch.
+   Default is LIVE on purpose: a firm left accidentally in test would believe it was taking payments
+   while customers were never charged and no money ever arrived, which is far worse than the reverse. */
+function awStripeMode(cv){
+  return (String((cv && cv.stripe_mode) || '').trim().toLowerCase() === 'test') ? 'test' : 'live';
+}
+function awStripeKey(cv){
+  if (awStripeMode(cv) === 'test') return process.env.STRIPE_SECRET_KEY_TEST || '';
+  return process.env.STRIPE_SECRET_KEY || '';
+}
+/* Stripe signs test and live webhooks with different secrets and we may be receiving both, so try
+   each configured one. Never trust the body's own livemode flag before a signature has passed. */
+function awVerifyStripeHook(raw, sig){
+  const secrets = [process.env.STRIPE_WEBHOOK_SECRET, process.env.STRIPE_WEBHOOK_SECRET_TEST].filter(Boolean);
+  for (let i = 0; i < secrets.length; i++){
+    try { if (verifyStripeSig(raw, sig, secrets[i])) return true; } catch(e){}
+  }
+  return false;
+}
 async function stripeReq(method, pathname, params, key){
   const opts = { method: method, headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/x-www-form-urlencoded' } };
   if (params) opts.body = formEncode(params);
@@ -1283,12 +1304,13 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && pathOnly === '/api/checkout'){
       res.setHeader('Access-Control-Allow-Origin','*');
       try {
-        if (!process.env.STRIPE_SECRET_KEY) return send(res, 500, { error: 'Stripe is not configured on the server.' });
+        // the per-firm key is checked once its config is loaded, a few lines down
         const cbody = JSON.parse((await readBody(req)) || '{}');
         const loc = (cbody.locationId || '').replace(/[^A-Za-z0-9]/g,'');
         if (!loc) return send(res, 400, { error: 'locationId is required' });
         const token = await getWriteToken(loc);
         const cv = await getCustomValuesMap(loc, token);
+        if (!awStripeKey(cv)) return send(res, 500, { error: awStripeMode(cv) === 'test' ? 'This client is set to test mode but no Stripe test key is configured on the server.' : 'Stripe is not configured on the server.' });
         // The LPA funnel sells LPAs on their own, so it is priced off lpa_price and never needs a will price.
         const kind = String(cbody.kind || 'wills').toLowerCase();
         const isLpaOnly = (kind === 'lpa');
@@ -1349,7 +1371,8 @@ const server = http.createServer(async (req, res) => {
         // Ai-Wills commission is taken automatically as a flat fee per document sold.
         const cxAcct = String(cv['stripe_account_id'] || '').trim();
         let cxRouted = false;
-        if (/^acct_[A-Za-z0-9]+$/.test(cxAcct)) {
+        if (awStripeMode(cv) === 'live' && /^acct_[A-Za-z0-9]+$/.test(cxAcct)) {
+          // test mode: rehearse the journey, do not attempt a payout to a live account
           const feePerDoc = pence(cv['commission_flat']);
           let fee = feePerDoc * (willQty + lpaQty);
           if (fee >= amount) fee = 0; // never let the fee eat the whole payment; misconfig = no fee, log it
@@ -1359,7 +1382,7 @@ const server = http.createServer(async (req, res) => {
           if (fee > 0) sparams['payment_intent_data[application_fee_amount]'] = fee;
           cxRouted = true;
         }
-        const sess = await stripeReq('POST', '/v1/checkout/sessions', sparams, process.env.STRIPE_SECRET_KEY);
+        const sess = await stripeReq('POST', '/v1/checkout/sessions', sparams, awStripeKey(cv));
         return send(res, 200, { url: sess.url, id: id, routed: cxRouted });
       } catch(e){ return send(res, 200, { error: e.message }); }
     }
@@ -1367,12 +1390,13 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && pathOnly === '/api/etb-checkout'){
       res.setHeader('Access-Control-Allow-Origin','*');
       try {
-        if (!process.env.STRIPE_SECRET_KEY) return send(res, 500, { error: 'Stripe is not configured on the server.' });
+        // the per-firm key is checked once its config is loaded, a few lines down
         const cbody = JSON.parse((await readBody(req)) || '{}');
         const loc = (cbody.locationId || '').replace(/[^A-Za-z0-9]/g,'');
         if (!loc) return send(res, 400, { error: 'locationId is required' });
         const token = await getWriteToken(loc);
         const cv = await getCustomValuesMap(loc, token);
+        if (!awStripeKey(cv)) return send(res, 500, { error: awStripeMode(cv) === 'test' ? 'This client is set to test mode but no Stripe test key is configured on the server.' : 'Stripe is not configured on the server.' });
         // Price is config-not-code: etb_price_id (a real Stripe price) wins if set; otherwise the
         // yearly subscription is built on the fly from the etb_price value (e.g. "19.99"), the same
         // pattern as will_price. No hardcoded account-specific fallbacks.
@@ -1415,21 +1439,22 @@ const server = http.createServer(async (req, res) => {
         // is taken as a percentage of every renewal automatically.
         const eAcct = String(cv['stripe_account_id'] || '').trim();
         let eRouted = false;
-        if (/^acct_[A-Za-z0-9]+$/.test(eAcct)) {
+        if (awStripeMode(cv) === 'live' && /^acct_[A-Za-z0-9]+$/.test(eAcct)) {
+          // test mode: rehearse the journey, do not attempt a payout to a live account
           const pct = num(cv['commission_percent']);
           eparams['subscription_data[transfer_data][destination]'] = eAcct;
           eparams['subscription_data[on_behalf_of]'] = eAcct;
           if (pct > 0 && pct < 100) eparams['subscription_data[application_fee_percent]'] = pct;
           eRouted = true;
         }
-        const sess = await stripeReq('POST', '/v1/checkout/sessions', eparams, process.env.STRIPE_SECRET_KEY);
+        const sess = await stripeReq('POST', '/v1/checkout/sessions', eparams, awStripeKey(cv));
         return send(res, 200, { url: sess.url, contactId: contactId, routed: eRouted });
       } catch(e){ return send(res, 200, { error: e.message }); }
     }
     // ----- payment: Stripe webhook (marks the will paid, tags the GHL contact) -----
     if (req.method === 'POST' && pathOnly === '/api/stripe-webhook'){
       const raw = await readBody(req);
-      if (!process.env.STRIPE_WEBHOOK_SECRET || !verifyStripeSig(raw, req.headers['stripe-signature'], process.env.STRIPE_WEBHOOK_SECRET)){
+      if (!awVerifyStripeHook(raw, req.headers['stripe-signature'])){
         res.writeHead(400, { 'Content-Type':'text/plain' }); return res.end('signature check failed');
       }
       let evt; try { evt = JSON.parse(raw); } catch(e){ res.writeHead(400); return res.end('bad json'); }
