@@ -27,7 +27,7 @@
   function run(){
 
 var CFG = window.AIWILLS_CONFIG || {}; (function(){ var _m='{'+'{'; for(var _k in CFG){ if(typeof CFG[_k]==='string' && CFG[_k].indexOf(_m)>=0) CFG[_k]=''; } })();
-  try{ if(window.AIWILLS_EDIT===true) awStartAutoLogout(); }catch(e){}
+  try{ if(window.AIWILLS_EDIT===true){ awStartAutoLogout(); awSignedInBar(); } }catch(e){}
   if(String((window.AIWILLS_CONFIG||{}).funnel||'').toLowerCase()==='hub'){ renderHub(); return; }
   try{ var _psf=String(CFG.plan_services||'').toLowerCase().split(',').map(function(x){return x.trim();}).filter(Boolean); var _fk=(function(){var f=String((CFG.funnel)||window.AIWILLS_FUNNEL||'').toLowerCase();return (f==='etb'||f==='lpa')?f:((f==='probate'||f==='referral')?'probate':'wills');})(); if(_psf.length && _psf.indexOf(_fk)<0){ mount.innerHTML='<div class="aw-ready" style="max-width:640px;margin:60px auto;padding:32px;border:1px solid var(--line);border-radius:14px;background:#fff;text-align:center;font-family:var(--bf)"><h3 style="font-family:var(--hf);color:var(--heading)">This service is not part of your plan</h3><p style="color:var(--muted)">Please speak to your adviser about adding it, or go back to your services page.</p></div>'; try{ mount.classList.add('aw-ready'); }catch(e){} return; } }catch(e){}
   function renderHub(){
@@ -986,6 +986,7 @@ function go(dir){
 function lsKey(){ try{ var fn=((window.AIWILLS_CONFIG&&window.AIWILLS_CONFIG.funnel)||'wills'); return 'aw_draft_'+fn+'_'+(loc||''); }catch(e){ return ''; } }
 function saveLocal(){ try{ if(window.AIWILLS_EDIT===true) return; var k=lsKey(); if(k){ localStorage.setItem(k, JSON.stringify(state)); try{ localStorage.setItem(k+'_pos', JSON.stringify({c:cur,m:maxCur})); }catch(e2){} try{ document.cookie=k.replace('aw_draft_','aw_s_')+'=1;domain=.aiwills.co.uk;path=/;max-age=31536000;SameSite=Lax'; }catch(e3){} } }catch(e){} }
 function awLogout(reason){
+  try{ var _b=document.getElementById('awsignedin'); if(_b&&_b.parentNode) _b.parentNode.removeChild(_b); }catch(e){}
   // Tell the server first, so the session is dead even if this browser keeps a copy of the page.
   try{
     var _s=(window.AIWILLS_TOKEN||'');
@@ -999,6 +1000,21 @@ function awLogout(reason){
   try{ var ov=document.getElementById('aw-logout'); if(!ov){ ov=document.createElement('div'); ov.id='aw-logout'; document.body.appendChild(ov); }
     ov.style.cssText='position:fixed;inset:0;background:rgba(255,255,255,.97);z-index:99999;display:flex;align-items:center;justify-content:center;padding:24px;font-family:var(--bf,Arial,sans-serif)';
     ov.innerHTML='<div style="max-width:420px;text-align:center;border:1px solid var(--line,#e6e6e6);border-radius:16px;padding:34px 28px;background:#fff;box-shadow:0 6px 30px rgba(0,0,0,.08)"><h2 style="font-family:var(--hf,Georgia,serif);color:var(--heading,#1B1D1F);margin:0 0 10px;font-size:22px">You have been logged out</h2><p style="color:var(--muted,#6b6e72);line-height:1.55;margin:0 0 18px">For your security we log you out after a period of inactivity. Open your secure link again, or request a new one, to carry on.</p><button type="button" onclick="location.reload()" style="background:var(--btn-bg,var(--primary,#0B3D2E));color:#fff;border:none;border-radius:var(--btn-radius,10px);padding:13px 26px;font-weight:600;cursor:pointer;font-family:var(--bf)">Continue</button></div>';
+  }catch(e){}
+}
+/* There was only ever a Log out link on the services hub. Someone signed in and working through a
+   funnel had no way out at all, which is exactly the shared-computer problem the whole thing was
+   meant to solve. This shows on every page while a session is live. */
+function awSignedInBar(){
+  try{
+    if (document.getElementById('awsignedin')) return;
+    var bar = document.createElement('div');
+    bar.id = 'awsignedin';
+    bar.style.cssText = 'position:fixed;top:0;right:0;z-index:99998;display:flex;align-items:center;gap:10px;padding:7px 14px;background:rgba(255,255,255,.96);border:1px solid var(--line,#e6e6e6);border-top:0;border-right:0;border-radius:0 0 0 10px;font:14px/1.2 var(--bf,Arial,Helvetica,sans-serif);box-shadow:0 2px 10px rgba(0,0,0,.06)';
+    bar.innerHTML = '<span style="color:var(--muted,#6b6e72)">Signed in</span>'
+      + '<button type="button" id="awsignout" style="background:none;border:0;padding:0;color:var(--primary,#0B3D2E);font:inherit;font-weight:600;text-decoration:underline;cursor:pointer">Sign out</button>';
+    document.body.appendChild(bar);
+    document.getElementById('awsignout').addEventListener('click', function(){ awLogout('manual'); });
   }catch(e){}
 }
 function awStartAutoLogout(){
