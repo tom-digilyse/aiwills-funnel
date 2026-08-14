@@ -1364,7 +1364,17 @@ try{ var _qp=new URLSearchParams(location.search); if(_qp.get('aw_paid')==='1' &
   for(var _k=0;_k<_rv.length;_k++){ if(_rv[_k].kind==='review'){ _t=_k; break; } }
   /* Probate has no summary, so signing back in dropped the customer on question one of a quote they
      had already sent. Where the quote is in, land on the outcome they already have. */
-  if(_t<0){ for(var _q2=0;_q2<_rv.length;_q2++){ var _qs=_rv[_q2]; if((_qs.kind==='quote'||_qs.kind==='done') && state[_qs.id] && state[_qs.id].submitted){ _t=_q2; break; } } }
+  if(_t<0){
+    /* Anyone who sent a quote before we started stamping the step has no flag on their record, and
+       they were still being dropped on question one. Falling back to "the last question step has
+       answers in it" catches them, and costs nothing for someone genuinely part way through. */
+    var _lastIn=-1; for(var _li=0;_li<_rv.length;_li++){ if(_rv[_li].fields&&_rv[_li].fields.length) _lastIn=_li; }
+    var _anyIn=false;
+    try{ var _lo=(_lastIn>=0)?(state[_rv[_lastIn].id]||{}):{}; for(var _lk in _lo){ var _lv=_lo[_lk]; if(_lv!=null && _lv!=='' && !(Array.isArray(_lv)&&!_lv.length)){ _anyIn=true; break; } } }catch(e){}
+    for(var _q2=0;_q2<_rv.length;_q2++){ var _qs=_rv[_q2];
+      if((_qs.kind==='quote'||_qs.kind==='done') && ((state[_qs.id]&&state[_qs.id].submitted)||_anyIn)){ _t=_q2; break; }
+    }
+  }
   if(_t>=0) cur=_t;
 } }catch(e){}
 
