@@ -328,13 +328,16 @@ function relOpts(){ try{ var c=JSON.parse((window.AIWILLS_CONFIG||{}).relationsh
 var GIFT_FIELDS = [
   { key:'items', type:'repeater', itemLabel:'Item gift', max:20, fields:[
     { key:'description', type:'text', label:'What is the item?', required:true },
+    { type:'row', fields:[ {key:'recipientFirstName',type:'text',label:'Recipient first name',required:true}, {key:'recipientLastName',type:'text',label:'Recipient last name',required:true} ] },
     { key:'recipientRelationship', type:'select', options:relOpts, label:'Their relationship to you', required:true },
-    { type:'row', fields:[ {key:'recipientName',type:'text',label:'Recipient name',required:true}, {key:'recipientAddress',type:'text',label:'Recipient address (line 1)',required:true} ] },
+    { key:'recipientAddress', type:'text', label:'Recipient address (line 1)', required:true },
     { type:'row', fields:[ {key:'recipientCity',type:'text',label:'Town / city',required:true}, {key:'recipientPostcode',type:'text',label:'Postcode',required:true} ] }
   ]},
   { key:'cash', type:'repeater', itemLabel:'Cash gift', max:20, fields:[
-    { type:'row', fields:[ {key:'amount',type:'number',label:'Amount (£)',required:true}, {key:'beneficiaryRelationship',type:'select',options:relOpts,label:'Their relationship to you',required:true} ] },
-    { type:'row', fields:[ {key:'beneficiaryName',type:'text',label:'Beneficiary name',required:true}, {key:'beneficiaryAddress',type:'text',label:'Beneficiary address (line 1)',required:true} ] },
+    { key:'amount', type:'number', label:'Amount (£)', required:true },
+    { type:'row', fields:[ {key:'beneficiaryFirstName',type:'text',label:'Beneficiary first name',required:true}, {key:'beneficiaryLastName',type:'text',label:'Beneficiary last name',required:true} ] },
+    { key:'beneficiaryRelationship', type:'select', options:relOpts, label:'Their relationship to you', required:true },
+    { key:'beneficiaryAddress', type:'text', label:'Beneficiary address (line 1)', required:true },
     { type:'row', fields:[ {key:'beneficiaryCity',type:'text',label:'Town / city',required:true}, {key:'beneficiaryPostcode',type:'text',label:'Postcode',required:true} ] }
   ]},
   { key:'charities', type:'repeater', itemLabel:'Charitable donation', max:20, fields:[
@@ -343,7 +346,8 @@ var GIFT_FIELDS = [
   ]},
   { key:'pets', type:'repeater', itemLabel:'Gift for pets', max:20, fields:[
     { type:'row', fields:[ {key:'description',type:'text',label:'Pet(s) name / description',required:true}, {key:'amount',type:'number',label:'Amount (£)',required:true} ] },
-    { key:'guardian', type:'text', label:'Who will care for them?', required:true }
+    { type:'note', label:'Who will care for them?' },
+    { type:'row', fields:[ {key:'guardianFirstName',type:'text',label:'Their first name',required:true}, {key:'guardianLastName',type:'text',label:'Their last name',required:true} ] }
   ]}
 ];
 function pYes(s){ return s.partner.hasPartner==='Yes'; }

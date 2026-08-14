@@ -107,6 +107,15 @@ function guardianClause(doc, d){
   P(doc, s);
 }
 
+/* Gift recipients used to be captured as one free-text name. They are now first and last, but a
+   will generated from a draft saved before that change still has to come out right, so fall back to
+   the single field rather than printing an empty name into a legal document. */
+function personName(x, prefix, legacyKey){
+  var f = esc(x[prefix + 'FirstName']), l = esc(x[prefix + 'LastName']);
+  var joined = (f + ' ' + l).replace(/\s+/g, ' ').trim();
+  if (joined) return joined;
+  return esc(x[legacyKey || (prefix + 'Name')]);
+}
 function giftsClauses(doc, gifts){
   gifts = gifts || {};
   var items = arr(gifts.items), cash = arr(gifts.cash), char = arr(gifts.charities), pets = arr(gifts.pets);
@@ -115,7 +124,7 @@ function giftsClauses(doc, gifts){
     H(doc, 'Gifts and Legacies (Items)');
     items.forEach(function(x){
       P(doc, 'I give my ' + tcNA(x.description) + ', to my ' + tcNA(x.recipientRelationship) + ', ' +
-              tcNA(x.recipientName) + ', of ' + paddr({address:x.recipientAddress,city:x.recipientCity,postcode:x.recipientPostcode}) + ', free of inheritance tax.');
+              tcNA(personName(x, 'recipient')) + ', of ' + paddr({address:x.recipientAddress,city:x.recipientCity,postcode:x.recipientPostcode}) + ', free of inheritance tax.');
     });
     P(doc, 'If any gift or legacy in this Will fails for any reason and is not otherwise disposed of by this Will or any codicil to it, then (subject to any specific provision to the contrary) that gift or legacy shall form part of my residuary estate and shall be distributed in accordance with the terms relating to the residue of my estate.');
   }
@@ -124,7 +133,7 @@ function giftsClauses(doc, gifts){
     H(doc, 'Cash Gifts');
     cash.forEach(function(x){
       P(doc, 'I give the sum of £' + esc(x.amount) + ' to my ' + tcNA(x.beneficiaryRelationship) + ', ' +
-              tcNA(x.beneficiaryName) + ', of ' + paddr({address:x.beneficiaryAddress,city:x.beneficiaryCity,postcode:x.beneficiaryPostcode}) + ', free of inheritance tax.');
+              tcNA(personName(x, 'beneficiary')) + ', of ' + paddr({address:x.beneficiaryAddress,city:x.beneficiaryCity,postcode:x.beneficiaryPostcode}) + ', free of inheritance tax.');
     });
   }
 
@@ -141,7 +150,7 @@ function giftsClauses(doc, gifts){
   if (pets.length){
     H(doc, 'Pets');
     pets.forEach(function(x){
-      P(doc, 'I give the sum of £' + esc(x.amount) + ' to ' + tcNA(x.guardian) +
+      P(doc, 'I give the sum of £' + esc(x.amount) + ' to ' + tcNA(personName(x, 'guardian', 'guardian')) +
               ' on the condition that they take possession of and care for my pet(s) known as ' + tcNA(x.description) +
               ' and if they shall fail or be unwilling to do so, this gift shall lapse and fall into my residuary estate.');
     });
