@@ -696,7 +696,16 @@ function awFolderFor(loc, name){ var k=awFolderKey(name); return k ? (awFoldersG
 async function awFolderEnsure(token, loc, key){
   var m=awFoldersGet(loc);
   if(m[key]) return m[key];
-  var r=await ghl('POST','/locations/'+loc+'/customFields', token, { name:(AW_FOLDER_NAMES[key]||key), documentType:'folder', model:'contact' });
+  var r;
+  try { r=await ghl('POST','/locations/'+loc+'/customFields', token, { name:(AW_FOLDER_NAMES[key]||key), documentType:'folder', model:'contact' }); }
+  catch(e){
+    /* A folder of that name is already there, which is the normal case on an account someone has
+       tidied by hand. GHL hands the id back in the refusal, so adopt it instead of making a
+       near-duplicate the client would then have to merge. */
+    var eid=''; try{ var mt=String(e.message||'').match(/"existingId"\s*:\s*"([A-Za-z0-9]+)"/); if(mt) eid=mt[1]; }catch(_){}
+    if(!eid) throw e;
+    m[key]=eid; awFoldersPut(loc, m); return eid;
+  }
   var f=r.customFieldFolder||r.customField||r;
   if(!f||!f.id) throw new Error('folder create returned no id');
   m[key]=f.id; awFoldersPut(loc, m);
