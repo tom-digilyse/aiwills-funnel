@@ -275,7 +275,7 @@ function organClause(doc, v){
   P(doc, t);
 }
 
-function signatureBlock(doc){
+function signatureBlock(doc, whose){
   doc.moveDown(1);
   var ATTEST = 'Signed by me in the presence of the undersigned witnesses, who both attest and witness my signature in my presence, and in the presence of each other.';
   var usableW = doc.page.width - doc.page.margins.left - doc.page.margins.right;
@@ -295,7 +295,17 @@ function signatureBlock(doc){
      them put the testator's signature on one page and the witness blocks on the next, so a person
      signed page one and handed page two to two people who could not see what they were attesting
      to. Measure the whole signing area as one unit and break before it, never inside it. */
-  if (doc.y + needA + (1.1 * lh12) + (2 * perWitness) + 4 > floor()) doc.addPage();
+  /* A page carrying nothing but signature lines reads as a loose sheet and gets queried at probate.
+     If the signing area has to start a fresh page, head that page with the testator's name so the
+     page is tied to this will on its face. */
+  if (doc.y + needA + (1.1 * lh12) + (2 * perWitness) + 4 > floor()){
+    doc.addPage();
+    if (esc(whose)){
+      doc.font('Helvetica-Oblique').fontSize(10).fillColor('#444')
+         .text('This page forms part of, and continues, the Will of ' + whose + '.');
+      doc.fillColor('black').moveDown(0.8);
+    }
+  }
 
   doc.font('Helvetica').fontSize(11.5).fillColor('black').text(ATTEST, { align:'justify', lineGap:3 });
   doc.moveDown(0.9);
@@ -381,7 +391,7 @@ function renderWill(doc, d, isMirror){
   else funeralMirror(doc, d.mirrorFuneral);
 
   /* signature */
-  signatureBlock(doc);
+  signatureBlock(doc, testatorName);
 }
 
 function spouseDisplay(p, aka){
@@ -433,7 +443,7 @@ function normalizeWill(s){
     },
     partner: {
       title:PT.title,                               // the mirror will's testator, so it needs a title like the primary
-      firstName:PT.firstName, lastName:PT.lastName,
+      firstName:PT.firstName, middleName:PT.middleName, lastName:PT.lastName,
       aka:{ has:PT.akaHas, firstName:PT.akaFirstName, lastName:PT.akaLastName },
       dob:PT.dob, status:PT.status, address:PT.address, city:PT.city, postcode:PT.postcode, phone:PT.phone
     },
