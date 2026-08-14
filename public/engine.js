@@ -98,7 +98,7 @@ var CFG = window.AIWILLS_CONFIG || {}; (function(){ var _m='{'+'{'; for(var _k i
     function _awSignedIn(){ return window.AIWILLS_EDIT===true || !!(window.AIWILLS_TOKEN); }
     function _awHasLocal(){ try{ var n=0; ['wills','lpa','etb','probate'].forEach(function(k){ if(localStorage.getItem('aw_draft_'+k+'_'+loc) || document.cookie.indexOf('aw_s_'+k+'_'+loc+'=1')>=0) n++; }); return n>0; }catch(e){ return false; } }
     function _awForgetDevice(){
-      try{ Object.keys(localStorage).forEach(function(k){ if(k.indexOf('aw_draft_')===0) localStorage.removeItem(k); }); }catch(e){}
+      try{ Object.keys(localStorage).forEach(function(k){ if(k.indexOf('aw_draft_')===0 || k.indexOf('aw_ident_')===0) localStorage.removeItem(k); }); }catch(e){}
       try{
         var _ck=String(document.cookie||'').split(';');
         var _dead='=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/';
@@ -192,12 +192,28 @@ var CFG = window.AIWILLS_CONFIG || {}; (function(){ var _m='{'+'{'; for(var _k i
     awHubLoginUI();
     function awHubLoginUI(){
       var box=document.getElementById('awlogin'); if(!box) return;
+      /* This was two runs of small grey text stacked on each other, which read as fine print rather
+         than as the two controls on the page. One bar, the sentence on the left, the action on the
+         right as something that looks pressable. The device note only appears when there is
+         actually something saved to clear. */
+      var BAR='display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px 16px;'
+            + 'border:1px solid var(--line);border-radius:12px;padding:12px 16px;margin:4px 0 22px;background:rgba(255,255,255,.55)';
+      var LINK='display:inline-block;padding:8px 16px;border:1px solid var(--primary);border-radius:var(--btn-radius,10px);'
+            + 'color:var(--primary);font-weight:600;text-decoration:none;font-size:14px;white-space:nowrap;cursor:pointer;background:transparent';
       if(window.AIWILLS_EDIT===true){
-        box.innerHTML='<span style="color:var(--muted)">You are logged in. <a href="#" id="awlogout" style="color:var(--primary);font-weight:600;text-decoration:none">Log out</a></span>';
+        box.innerHTML='<div style="'+BAR+'">'
+          + '<span style="color:var(--body);font-size:15px">You are signed in. Your answers are saved to your account.</span>'
+          + '<a href="#" id="awlogout" style="'+LINK+'">Log out</a>'
+          + '</div>';
         var lo=document.getElementById('awlogout'); if(lo) lo.addEventListener('click',function(ev){ ev.preventDefault(); awLogout('manual'); });
       } else {
-        box.innerHTML='<span style="color:var(--muted)">New here? Just pick a service below, no account needed. Already started with us? <a href="#" id="awloginlink" style="color:var(--primary);font-weight:600;text-decoration:none">Log in</a></span>'
-          + (_awHasLocal() ? '<div style="margin-top:6px;font-size:13px;color:var(--muted)">Answers from an unfinished form are saved on this device. <a href="#" id="awforget" style="color:var(--primary);font-weight:600;text-decoration:none">Not you? Clear them</a></div>' : '');
+        box.innerHTML='<div style="'+BAR+'">'
+          + '<span style="color:var(--body);font-size:15px">New here? Choose a service below, no account needed.</span>'
+          + '<a href="#" id="awloginlink" style="'+LINK+'">Already started? Log in</a>'
+          + '</div>'
+          + (_awHasLocal()
+              ? '<p style="margin:-14px 0 20px;font-size:13px;color:var(--muted)">Unfinished answers are saved on this device. <a href="#" id="awforget" style="color:var(--primary);font-weight:600;text-decoration:none">Not you? Clear them</a></p>'
+              : '');
         var fg=document.getElementById('awforget'); if(fg) fg.addEventListener('click',function(ev){ ev.preventDefault(); _awForgetDevice(); });
         var ll=document.getElementById('awloginlink'); if(ll) ll.addEventListener('click',function(ev){ ev.preventDefault(); awOpenLogin(); });
       }
@@ -1047,7 +1063,7 @@ function awLogout(reason){
     if(_s) fetch(API+'/api/session-end',{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({s:_s})}).catch(function(){});
   }catch(e){}
   // Drafts are per browser, so on a shared computer they would show the next person the answers.
-  try{ Object.keys(localStorage).forEach(function(k){ if(k.indexOf('aw_draft_')===0) localStorage.removeItem(k); }); }catch(e){}
+  try{ Object.keys(localStorage).forEach(function(k){ if(k.indexOf('aw_draft_')===0 || k.indexOf('aw_ident_')===0) localStorage.removeItem(k); }); }catch(e){}
   /* The drafts went, the cookie stayed. localSt() counts aw_s_<kind>_<loc>=1 as "started" and that
      cookie was written with a one year max-age, so after signing out the services page still showed
      every card as In progress. From the customer's side that is indistinguishable from never having
