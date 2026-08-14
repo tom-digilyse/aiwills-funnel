@@ -1123,6 +1123,15 @@ function awSignedInBar(){
 function awDoorGate(){
   try{
     if(window.AIWILLS_EDIT===true || window.AIWILLS_PREFILL) return false;   // a real session already proved who this is
+    /* Never interrupt somebody coming back from Stripe. The return carries aw_paid and aw_id, the
+       engine sets payment.paid from them, and the panel then held the restore back until the person
+       pressed Continue, at which point restoreLocal overwrote the state from a draft saved before
+       they paid. The paid flag vanished and they were sent back to the payment step, having already
+       been charged. They also do not need asking who they are: they just came off their own card. */
+    try{
+      var _rq = new URLSearchParams(location.search);
+      if(_rq.get('aw_paid') || _rq.get('aw_id') || _rq.get('aw_etb_paid') || _rq.get('aw_t')) return false;
+    }catch(e){}
     var k=(typeof lsKey==='function') ? lsKey() : ''; if(!k) return false;
     var raw=localStorage.getItem(k); if(!raw) return false;
     var saved=null; try{ saved=JSON.parse(raw); }catch(e){ return false; }
