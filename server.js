@@ -430,6 +430,7 @@ async function etbSave(loc, state, contactId, status, opts){
   var cf = []; var written = [], noField = [];
   Object.keys(values).forEach(function(name){ var id = map[name.toLowerCase()]; if (id){ cf.push({ id: id, value: String(values[name]) }); written.push(name); } else { noField.push(name); } });
   try{ var _csf=await awCurrentStepCF(token, loc, map, 'ETB', 'etb', opts&&opts.step); if(_csf.length) cf=cf.concat(_csf); }catch(e){}
+  try{ var _dl=await awDocLinkCF(token, loc, map, 'ETB', 'etb', contactId); if(_dl.length) cf=cf.concat(_dl); }catch(e){}
   try{ var _esid=await awEnsureField(token, loc, map, 'ETB Summary'); if(_esid) cf=cf.concat([{ id:_esid, value: awSummarise(state||{}) }]); }catch(e){}
   try{ var _edf=await awDetailCF(token, loc, map, opts&&opts.detail); if(_edf.length) cf=cf.concat(_edf); }catch(e){}
   var base = { customFields: cf }; // GHL PUT rejects empty email, so only send personal fields that actually have a value
@@ -583,6 +584,10 @@ const AUTH_DIR = path.join(__dirname, 'auth_data');
 const AUTH_USED = path.join(AUTH_DIR, 'used.json');
 const AW_LINK_TTL_MS = 60 * 60 * 1000;
 const AW_SESSION_TTL_MS = 60 * 60 * 1000;
+/* A login link is deliberately short lived. A document link in the CRM is a different thing: the
+   firm opens it weeks later while advising the client, and a link that died in an hour is worse
+   than no link, because it looks broken. Same signature, same per-contact scope, long life. */
+const AW_DOC_TTL_MS = 10 * 365 * 24 * 60 * 60 * 1000;
 function authUsedAll(){ try { return JSON.parse(fs.readFileSync(AUTH_USED, 'utf8')) || {}; } catch(e){ return {}; } }
 function authUsedPut(map){ try { fs.mkdirSync(AUTH_DIR, { recursive: true }); fs.writeFileSync(AUTH_USED, JSON.stringify(map)); } catch(e){ console.error('authUsedPut', e.message); } }
 /* One list covers both jobs: a link that has been spent, and a session that has been signed out.
@@ -599,6 +604,7 @@ function authSpend(jti, exp){
 function authIsSpent(jti){ if (!jti) return false; const m = authUsedAll(); return !!(m[jti] && m[jti] > Date.now()); }
 function awJti(){ return crypto.randomBytes(12).toString('hex'); }
 function signLink(loc, cid, funnel){ return signEdit({ loc: loc, cid: cid, funnel: funnel, kind: 'link', jti: awJti(), exp: Date.now() + AW_LINK_TTL_MS }); }
+function signDoc(loc, cid, funnel){ return signEdit({ loc: loc, cid: cid, funnel: funnel, kind: 'link', jti: awJti(), exp: Date.now() + AW_DOC_TTL_MS }); }
 function signSession(loc, cid, funnel){ return signEdit({ loc: loc, cid: cid, funnel: funnel, kind: 'session', jti: awJti(), exp: Date.now() + AW_SESSION_TTL_MS }); }
 /* Read a saved funnel state JSON off a contact. funnel = 'etb' | 'wills'. */
 async function loadState(loc, contactId, funnel){
@@ -812,6 +818,20 @@ function awStageFor(service, step){
   var m=AW_STAGE_MAP[service]; if(!m||!step) return '';
   return m[step]||'';
 }
+/* Until now the finished document existed only behind a link the customer got in their browser.
+   Nobody at the firm could reach it: they would open the contact, find nothing they recognised, and
+   ask us. This puts a plain, permanent URL on the contact record, in a field named after the
+   document, so it is one click from the person advising the client. */
+async function awDocLinkCF(token, loc, map, label, funnel, cid){
+  if (!cid) return [];                       // brand new contact: the next save has the id
+  var tok = signDoc(loc, cid, funnel);
+  if (!tok) return [];                       // no signing secret configured, say nothing
+  var fid = await awEnsureField(token, loc, map, label + ' Document', 'TEXT');
+  if (!fid) return [];
+  var base = (process.env.PUBLIC_BASE || 'https://aiwills.digilyse.co');
+  var path = (funnel === 'wills') ? '/api/will-pdf' : (funnel === 'lpa' ? '/api/lpa-pdf' : '/api/etb-pdf');
+  return [{ id: fid, value: base + path + '?t=' + encodeURIComponent(tok) }];
+}
 async function awCurrentStepCF(token, loc, map, label, service, step){
   var stage=awStageFor(service, step); if(!stage) return [];
   var fid=await awEnsureField(token, loc, map, label+' Current Step', 'TEXT');
@@ -964,6 +984,7 @@ async function willSave(loc, state, contactId, opts){
   Object.keys(pmap).forEach(function(k){ if(pmap[k]!=null && String(pmap[k]).trim()!=='') base[k]=pmap[k]; });
   var _cf=await awStateAndSummaryCF(token, loc, map, 'Will', state); if(_cf.length) base.customFields=_cf;
   try{ var _csf=await awCurrentStepCF(token, loc, map, 'Will', 'wills', opts&&opts.step); if(_csf.length) base.customFields=(base.customFields||[]).concat(_csf); }catch(e){}
+  try{ var _dl=await awDocLinkCF(token, loc, map, 'Will', 'wills', contactId); if(_dl.length) base.customFields=(base.customFields||[]).concat(_dl); }catch(e){}
   try{ var _nf=await awNamedFieldsCF(token, loc, map, 'wills', state); if(_nf.length) base.customFields=(base.customFields||[]).concat(_nf); }catch(e){}
   try{ var _df=await awDetailCF(token, loc, map, (opts&&opts.detail)); if(_df.length) base.customFields=(base.customFields||[]).concat(_df); }catch(e){}
   var up=await upsertOrUpdateContact(token, loc, contactId, base);
@@ -1009,6 +1030,7 @@ async function lpaSave(loc, state, contactId, opts){
   var _lcf=await awStateAndSummaryCF(token, loc, map, 'LPA', state);
   if(_lcf.length){ base.customFields=_lcf; }
   try{ var _csf=await awCurrentStepCF(token, loc, map, 'LPA', 'lpa', opts&&opts.step); if(_csf.length) base.customFields=(base.customFields||[]).concat(_csf); }catch(e){}
+  try{ var _dl=await awDocLinkCF(token, loc, map, 'LPA', 'lpa', contactId); if(_dl.length) base.customFields=(base.customFields||[]).concat(_dl); }catch(e){}
   try{ var _nf=await awNamedFieldsCF(token, loc, map, 'lpa', state); if(_nf.length) base.customFields=(base.customFields||[]).concat(_nf); }catch(e){}
   try{ var _df=await awDetailCF(token, loc, map, (opts&&opts.detail)); if(_df.length) base.customFields=(base.customFields||[]).concat(_df); }catch(e){}
   var up=await upsertOrUpdateContact(token, loc, contactId, base);
