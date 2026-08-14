@@ -376,7 +376,9 @@ var WILLS_FUNNEL = [
   ]},
   { id:'partner', name:'Partner', title:'Your spouse or partner', lead:'Add a spouse, partner or civil partner if you want to include them.', fields:[
     { key:'hasPartner', type:'radio', label:'Do you have a spouse, partner or civil partner?', required:true, reflow:true, options:['Yes','No'] },
-    { type:'row', showIf:pYes, fields:[ {key:'firstName',type:'text',label:'Their first name',required:true}, {key:'lastName',type:'text',label:'Their last name',required:true} ] },
+    { key:'title', type:'select', label:'Their title', required:true, options:['Mr','Mrs','Miss','Ms','Mx','Dr','Prof','Other'], showIf:pYes },
+    { type:'row', showIf:pYes, fields:[ {key:'firstName',type:'text',label:'Their first name',required:true}, {key:'middleName',type:'text',label:'Their middle name(s)'} ] },
+    { key:'lastName', type:'text', label:'Their last name', required:true, showIf:pYes },
     { key:'status', type:'select', label:'Your status together', required:true, options:['Married','Civil partnership','Partner'], showIf:pYes },
     { key:'dob', type:'date', label:'Their date of birth', required:true, showIf:pYes },
     { key:'address', type:'text', label:'Their address (line 1)', required:true, showIf:pYes },
