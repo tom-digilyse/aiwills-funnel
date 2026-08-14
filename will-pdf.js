@@ -281,7 +281,12 @@ function signatureBlock(doc){
   // Group A - attestation + date + signature. This must stay with the final clause above so the
   // testator's signature is never separated from the end of the will text.
   var needA = attestH + (0.9 * lh12) + lh12 + (0.7 * lh12) + lh12 + 4;
-  if (doc.y + needA > floor()) doc.addPage();
+  var perWitness = lh12 + (0.35 * lh12) + 4 * (lh11 + 5) + (0.9 * lh12);
+  /* The testator and both witnesses sign at the same moment, in the same room. Breaking between
+     them put the testator's signature on one page and the witness blocks on the next, so a person
+     signed page one and handed page two to two people who could not see what they were attesting
+     to. Measure the whole signing area as one unit and break before it, never inside it. */
+  if (doc.y + needA + (1.1 * lh12) + (2 * perWitness) + 4 > floor()) doc.addPage();
 
   doc.font('Helvetica').fontSize(11.5).fillColor('black').text(ATTEST, { align:'justify', lineGap:3 });
   doc.moveDown(0.9);
@@ -291,9 +296,7 @@ function signatureBlock(doc){
   doc.text('Signature: ___________________________');
   doc.moveDown(1.1);
 
-  // Group B - both witness blocks move together, so a witness is never split across a page break.
-  var perWitness = lh12 + (0.35 * lh12) + 4 * (lh11 + 5) + (0.9 * lh12);
-  if (doc.y + (2 * perWitness) + 4 > floor()) doc.addPage();
+  // Group B - measured above and already reserved, so there is no break here by design.
 
   [['Witness 1'],['Witness 2']].forEach(function(w){
     doc.font('Helvetica-Bold').fontSize(12).fillColor('black').text(w[0]);
