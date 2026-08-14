@@ -1750,8 +1750,17 @@ const server = http.createServer(async (req, res) => {
             let fid = map['edit link'];
             if (!fid){ try { const cf = await ghl('POST','/locations/'+loc+'/customFields',wtoken,{name:'Edit Link',dataType:'TEXT',model:'contact'}); const nf=cf.customField||cf; if(nf&&nf.id) fid=nf.id; }catch(e){} }
             if (fid) await ghl('PUT','/contacts/'+c.id, wtoken, { customFields: [{ id: fid, value: url }] });
-            // Base tag drives the send workflow; the channel tag lets it branch text vs email if wanted.
-            try { await ghl('POST','/contacts/'+c.id+'/tags', wtoken, { tags: ['send-edit-link', (channel==='sms'?'aiw-login-sms':'aiw-login-email')] }); }catch(e){}
+            /* GoHighLevel's "Tag added" trigger fires on a state change, not on the request. A contact
+               who already carries send-edit-link from an earlier login gets the tag re-applied as a
+               no-op, the workflow never enrols, and they sit waiting for a link that was never sent.
+               Silently, because everything upstream succeeded. So take the tags off first and put
+               them back, which makes every request a genuine add. The pause is there because the
+               remove and the add are separate calls and GHL needs to settle between them. */
+            const _loginTags = ['send-edit-link', 'aiw-login-sms', 'aiw-login-email'];
+            try { await ghl('DELETE','/contacts/'+c.id+'/tags', wtoken, { tags: _loginTags }); }catch(e){}
+            await new Promise(function(r){ setTimeout(r, 1200); });
+            try { await ghl('POST','/contacts/'+c.id+'/tags', wtoken, { tags: ['send-edit-link', (channel==='sms'?'aiw-login-sms':'aiw-login-email')] }); }
+            catch(e){ console.error('edit-request tag ' + c.id + ': ' + e.message); }
           } catch(e){ console.error('edit-request', e.message); }
         })();
         return send(res, 200, { ok:true, message:'If we have your details, your secure link is on its way.' });
