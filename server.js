@@ -1222,31 +1222,45 @@ var AW_CV_SYNCED = {};
 /* GHL custom value name -> the key it comes from in our brand store. Only the handful a workflow
    email would ever merge; we are not mirroring the whole brand back into GHL. */
 var AW_CV_MAP = { company_name:'company_name', company_email:'company_email', company_address:'company_address', company_website:'company_website', company_phone:'footer_phone' };
+/* Blobs and internal bookkeeping. These are ours, no email would ever merge them, and rewriting
+   a 40KB JSON string on every sync is pure cost. */
+var AW_CV_SKIP = /^(aiwills_brand_json|pipeline_map|field_folders)$|_source$/;
 async function awSyncCompanyValue(token, loc){
   try {
     if (!loc || !token) return;
     var now = Date.now();
     if (AW_CV_SYNCED[loc] && (now - AW_CV_SYNCED[loc]) < 10 * 60 * 1000) return;
     AW_CV_SYNCED[loc] = now;
-    /* Read the merged view, not the store file. Only company_name actually lives in our store on an
-       account like Demo; the email, address and phone came in from the scraper via GHL, and
-       getCustomValuesMap is the one place that already resolves both with our store winning. */
-    var b = await getCustomValuesMap(loc, token);
-    var wants = {};
-    Object.keys(AW_CV_MAP).forEach(function(cvName){ var v = String(b[AW_CV_MAP[cvName]] || '').trim(); if (v) wants[cvName] = v; });
-    if (!Object.keys(wants).length) return;                 // nothing to say, so say nothing
+    var b = await getCustomValuesMap(loc, token);   // GHL underneath, our store on top
     var r = await ghl('GET', '/locations/' + loc + '/customValues', token);
     var list = r.customValues || r.customValue || [];
     var byName = {}; list.forEach(function(cv){ byName[String(cv.name || '').toLowerCase()] = cv; });
-    for (var nm in wants){
-      var hit = byName[nm];
-      if (hit && String(hit.value || '') === wants[nm]) continue;
-      try {
-        if (hit) await ghl('PUT', '/locations/' + loc + '/customValues/' + hit.id, token, { name: hit.name, value: wants[nm] });
-        else await ghl('POST', '/locations/' + loc + '/customValues', token, { name: nm, value: wants[nm] });
-        console.log('custom value ' + nm + ' synced for ' + loc);
-      } catch(e){ console.error('sync ' + nm, e.message); }
+    var done = 0;
+    /* 1. Correct every custom value the account already has. A stale wills_url or will_price in a
+       workflow email sends the customer to the wrong site or quotes the wrong price, and the
+       account inherits those from whatever snapshot it was built from. We only ever correct what
+       is already there, so we never invent custom values on a client's account. */
+    for (var i = 0; i < list.length; i++){
+      var cv = list[i], nm = String(cv.name || '').toLowerCase();
+      if (!nm || AW_CV_SKIP.test(nm)) continue;
+      var want = b[nm]; if (want == null) continue;
+      want = String(want); if (!want.trim()) continue;              // blank never overwrites
+      if (String(cv.value || '') === want) continue;
+      try { await ghl('PUT', '/locations/' + loc + '/customValues/' + cv.id, token, { name: cv.name, value: want }); done++; }
+      catch(e){ console.error('sync ' + nm, e.message); }
     }
+    /* 2. The headline company details get created if the account has never had them, because these
+       are the ones a client's emails are most likely to want and the most obviously wrong. */
+    var names = Object.keys(AW_CV_MAP);
+    for (var k = 0; k < names.length; k++){
+      var cname = names[k];
+      if (byName[cname]) continue;                                  // handled by pass 1
+      var cval = String(b[AW_CV_MAP[cname]] || '').trim();
+      if (!cval) continue;
+      try { await ghl('POST', '/locations/' + loc + '/customValues', token, { name: cname, value: cval }); done++; }
+      catch(e){ console.error('sync create ' + cname, e.message); }
+    }
+    if (done) console.log('custom values synced for ' + loc + ': ' + done);
   } catch(e){ console.error('awSyncCompanyValue', e.message); }
 }
 async function getCustomValuesMap(locationId, token){
@@ -1478,6 +1492,8 @@ const server = http.createServer(async (req, res) => {
               if (String(g.value||'') !== String(cstore[k]||'')) out.stale.push(lk);
             });
             if (cu.searchParams.get('run') === '1'){
+              AW_CV_SYNCED[cloc] = 0;
+              try { await awSyncCompanyValue(ctok, cloc); out.ranFullSync = true; } catch(e){ out.runError = e.message; }
               out.wrote = [];
               const cnames = Object.keys(AW_CV_MAP);
               for (let ci = 0; ci < cnames.length; ci++){
