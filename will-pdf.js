@@ -228,15 +228,21 @@ function funeralPrimary(doc, f){
 
 function funeralMirror(doc, f){
   f = f || {};
+  /* The mirror funeral section is optional and is very often left blank, which produced the clause
+     "I express my wish to be: ." in a signed will. A wish nobody expressed does not belong in it. */
+  var wishes = esc(f.arrangements) || esc(f.location) || esc(f.music) || esc(f.readings) || yes((f.plan||{}).has);
+  if (!wishes && !esc(f.organDonation)) return;
   H(doc, 'Funeral Wishes');
-  var s = 'I express my wish to be: ';
-  if (esc(f.arrangements)) s += esc(f.arrangements);
-  if (esc(f.location)) s += '; at ' + esc(f.location);
-  if (esc(f.music)) s += '; with music ' + esc(f.music);
-  if (yes((f.plan||{}).has)) s += '; with a funeral plan in place';
-  if (esc(f.readings)) s += '; with readings from: ' + esc(f.readings);
-  s += '.';
-  P(doc, s);
+  if (wishes){
+    var s = 'I express my wish to be: ';
+    if (esc(f.arrangements)) s += esc(f.arrangements);
+    if (esc(f.location)) s += '; at ' + esc(f.location);
+    if (esc(f.music)) s += '; with music ' + esc(f.music);
+    if (yes((f.plan||{}).has)) s += '; with a funeral plan in place';
+    if (esc(f.readings)) s += '; with readings from: ' + esc(f.readings);
+    s += '.';
+    P(doc, s);
+  }
   organClause(doc, f.organDonation);
 }
 
@@ -246,6 +252,9 @@ function funeralMirror(doc, f){
    carrying none of its text, so measure the paragraph and the signature block as one unit and break
    early if they will not sit together. */
 function organClause(doc, v){
+  /* Unanswered is not the same as "no". This printed the refusal wording by default, putting a wish
+     into somebody's will that they were never asked about. Say nothing instead. */
+  if (!esc(v)) return;
   var t = yes(v)
     ? 'I express my wish that, upon my death, any of my organs and/or tissue may be used for transplantation, therapy, medical education, or research purposes. I request that my Executors and family members give effect to this wish so far as is practicable.'
     : 'I express my wish that none of my organs or tissue be used for transplantation, therapy, medical education, or research purposes after my death. I request that my Executors and family members respect this wish.';
@@ -325,8 +334,12 @@ function renderWill(doc, d, isMirror){
       akaIntro = 'previously known as ' + tcNA((personal.aka||{}).firstName) + ' ' + tcNA((personal.aka||{}).lastName);
     }
   } else {
-    testatorName = partnerName(partner);
+    testatorName = personName(partner);              // include the title, so it matches the primary will
+    /* A mirror will is for a couple living at the same address and the funnel never asks the partner
+       for theirs, so this printed "of Not Available" in the opening clause of a legal document.
+       Fall back to the donor's address, which is the address the pair actually gave us. */
     testatorAddr = paddr(partner);
+    if (testatorAddr === 'Not Available') testatorAddr = personalAddress(personal);
     spouseSlotName = spouseDisplay(personal, personal.aka); // primary person is the spouse in the mirror will
     akaIntro = null; // mirror intro has no AKA in the source template
   }
@@ -419,6 +432,7 @@ function normalizeWill(s){
       email:P.email, phone:P.phone
     },
     partner: {
+      title:PT.title,                               // the mirror will's testator, so it needs a title like the primary
       firstName:PT.firstName, lastName:PT.lastName,
       aka:{ has:PT.akaHas, firstName:PT.akaFirstName, lastName:PT.akaLastName },
       dob:PT.dob, status:PT.status, address:PT.address, city:PT.city, postcode:PT.postcode, phone:PT.phone
