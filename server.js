@@ -34,6 +34,12 @@ const REDIRECT_URI = process.env.GHL_REDIRECT_URI || 'https://aiwills.digilyse.c
 const GHL_SCOPES_CORE = 'locations/customValues.readonly locations/customValues.write locations/customFields.readonly locations/customFields.write contacts.readonly contacts.write';
 const GHL_SCOPES = GHL_SCOPES_CORE;                                              // agency install: mint-safe
 const GHL_SCOPES_LOCATION = GHL_SCOPES_CORE + ' opportunities.readonly opportunities.write';   // per-location install: adds pipelines
+/* Our own public address, used for anything a customer or a firm will see or keep: the document
+   links written onto contacts, and the hub magic link. aiwills.digilyse.co is being retired, so the
+   branded host is the default and PUBLIC_BASE can still override it per environment.
+   NOTE: GHL_REDIRECT_URI is deliberately NOT derived from this. The OAuth callback has to match what
+   is registered on the marketplace app, so it only changes when that registration changes. */
+const AW_PUBLIC_BASE = process.env.PUBLIC_BASE || 'https://engine.aiwills.co.uk';
 const TOKENS_FILE = path.join(__dirname, 'ghl_tokens.json');
 /* Sub-Account app model: each sub-account authorises the app once and we store ITS
    own Location token, keyed by locationId. Custom values are sub-account data, so a
@@ -888,7 +894,7 @@ async function awDocLinkCF(token, loc, map, label, funnel, cid){
   if (!tok) return [];                       // no signing secret configured, say nothing
   var fid = await awEnsureField(token, loc, map, label + ' Document', 'TEXT');
   if (!fid) return [];
-  var base = (process.env.PUBLIC_BASE || 'https://aiwills.digilyse.co');
+  var base = AW_PUBLIC_BASE;
   var path = (funnel === 'wills') ? '/api/will-pdf' : (funnel === 'lpa' ? '/api/lpa-pdf' : '/api/etb-pdf');
   return [{ id: fid, value: base + path + '?t=' + encodeURIComponent(tok) }];
 }
@@ -1412,7 +1418,7 @@ const server = http.createServer(async (req, res) => {
             out.docFields = list.filter(function(f){ return /(document|state json|current step|summary)$/i.test(String(f.name||'')); })
               .map(function(f){ const v = byId[f.id]; const s = (v==null)?'':String(v); return { name:f.name, id:f.id, dataType:f.dataType, hasValue: s.trim()!=='', length: s.length, head: s.slice(0,40) }; });
           } catch(e){ out.contactError = e.message; }
-          try { const t = signDoc(floc, fcid, 'wills'); out.docLinkWouldBe = { signed: !!t, urlLength: ((process.env.PUBLIC_BASE||'https://aiwills.digilyse.co') + '/api/will-pdf?t=' + encodeURIComponent(t)).length }; }
+          try { const t = signDoc(floc, fcid, 'wills'); out.docLinkWouldBe = { signed: !!t, urlLength: (AW_PUBLIC_BASE + '/api/will-pdf?t=' + encodeURIComponent(t)).length }; }
           catch(e){ out.docLinkError = e.message; }
         }
         return send(res,200,out);
@@ -1493,7 +1499,7 @@ const server = http.createServer(async (req, res) => {
         } catch(e){ console.error('lead upsert', e.message); }
         const id = crypto.randomBytes(16).toString('hex');
         willStorePut(id, { willJson: cbody.willJson || {}, paid: false, locationId: loc, contactId: contactId, company: company, willQty: willQty, lpaQty: lpaQty, createdAt: Date.now() });
-        const ret = cbody.returnUrl || ('https://' + (req.headers.host || 'aiwills.digilyse.co'));
+        const ret = cbody.returnUrl || ('https://' + (req.headers.host || 'engine.aiwills.co.uk'));
         const sep = ret.indexOf('?') >= 0 ? '&' : '?';
         const sparams = {
           'mode': 'payment',
@@ -1563,7 +1569,7 @@ const server = http.createServer(async (req, res) => {
           const up = await ghl('POST', '/contacts/upsert', token, { locationId: loc, firstName: person.firstName || '', lastName: person.lastName || '', email: person.email || '', phone: person.phone || '' });
           contactId = (up.contact && up.contact.id) || up.id || contactId;
         } catch(e){ console.error('etb lead upsert', e.message); }
-        const ret = cbody.returnUrl || ('https://' + (req.headers.host || 'aiwills.digilyse.co'));
+        const ret = cbody.returnUrl || ('https://' + (req.headers.host || 'engine.aiwills.co.uk'));
         const sep = ret.indexOf('?') >= 0 ? '&' : '?';
         const eparams = {
           'mode': 'subscription',
@@ -1810,7 +1816,7 @@ const server = http.createServer(async (req, res) => {
         if(!loc||!cid) return send(res,400,{error:'locationId and contactId required'});
         const tok=signLink(loc, cid, '');
         if(!tok) return send(res,500,{error:'signing unavailable'});
-        const base=(process.env.PUBLIC_BASE||'https://aiwills.digilyse.co');
+        const base=AW_PUBLIC_BASE;
         const link=base+'/hub.html?aw_loc='+encodeURIComponent(loc)+'&aw_c='+encodeURIComponent(cid)+'&aw_t='+encodeURIComponent(tok);
         return send(res,200,{ ok:true, link:link, token:tok });
       } catch(e){ return send(res, 200, { error: e.message }); }
