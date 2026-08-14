@@ -1468,6 +1468,15 @@ const server = http.createServer(async (req, res) => {
             out.ghlCount = clist.length;
             const cby = {}; clist.forEach(function(cv){ cby[String(cv.name||'').toLowerCase()] = cv; });
             Object.keys(AW_CV_MAP).forEach(function(n){ out.ghl[n] = cby[n] ? String(cby[n].value||'') : '(missing)'; });
+            /* Which other custom values disagree with our store? Names only, never values:
+               this list is what a workflow email would merge and get wrong. */
+            out.stale = []; out.ghlOnly = [];
+            Object.keys(cstore).forEach(function(k){
+              var lk = String(k).toLowerCase();
+              var g = cby[lk];
+              if (!g) { out.ghlOnly.push(lk + ' (not in GHL)'); return; }
+              if (String(g.value||'') !== String(cstore[k]||'')) out.stale.push(lk);
+            });
             if (cu.searchParams.get('run') === '1'){
               out.wrote = [];
               const cnames = Object.keys(AW_CV_MAP);
