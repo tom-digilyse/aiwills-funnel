@@ -493,7 +493,7 @@ function brandStoreGet(loc){ try { return JSON.parse(fs.readFileSync(path.join(B
 
 function formEncode(obj){ const out = []; for (const k in obj){ const v = obj[k]; if (v === undefined || v === null || v === '') continue; out.push(encodeURIComponent(k) + '=' + encodeURIComponent(v)); } return out.join('&'); }
 /* Prices come from whatever a firm typed, or a scrape, or a GHL custom value. A blank or a
-   "Â£99 per will" parses to NaN, and NaN survives arithmetic silently - multiply it by a zero
+   "£99 per will" parses to NaN, and NaN survives arithmetic silently - multiply it by a zero
    quantity and the whole total is still NaN. Every price goes through here instead. */
 function pence(v){
   // Strip only what people legitimately type around a number. Anything else - words, a minus
@@ -636,7 +636,7 @@ function awHumanise(k){
   return String(k).replace(/([a-z0-9])([A-Z])/g,'$1 $2').replace(/_/g,' ').replace(/\b\w/g,function(c){return c.toUpperCase();});
 }
 var AW_SECTION={ personal:'Personal details', partner:'Spouse / partner', situation:'Circumstances', children:'Children', guardian:'Guardians', executors:'Executors', gifts:'Gifts & legacies', mirrorGifts:'Gifts (their mirror will)', residual:'Residual estate', funeral:'Funeral wishes', about:'About you', estate:'Estate', concerns:'Concerns', contact_details:'Contact details', your_details:'Your details' };
-function awMoney(k,v){ if(/share/i.test(k)) return v+'%'; if(/amount|price/i.test(k)) return 'Â£'+v; return v; }
+function awMoney(k,v){ if(/share/i.test(k)) return v+'%'; if(/amount|price/i.test(k)) return '£'+v; return v; }
 function awLines(obj, indent){
   var pad=''; for(var i=0;i<indent;i++) pad+='  '; var out=[];
   Object.keys(obj||{}).forEach(function(k){
@@ -893,7 +893,7 @@ async function awDetailCF(token, loc, map, detail){
   if(!Array.isArray(detail)) return out;
   for(var i=0;i<detail.length && i<300;i++){
     var d=detail[i]||{};
-    var nm=String(d.name||'').replace(/[^A-Za-z0-9 Â£%&'(),.\/-]/g,' ').replace(/\s+/g,' ').trim().slice(0,100);
+    var nm=String(d.name||'').replace(/[^A-Za-z0-9 £%&'(),.\/-]/g,' ').replace(/\s+/g,' ').trim().slice(0,100);
     var vl=(d.value==null)?'':String(d.value).slice(0,2000);
     if(!nm || vl==='') continue;
     var known=!!map[nm.toLowerCase()];
