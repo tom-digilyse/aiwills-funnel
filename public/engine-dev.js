@@ -199,7 +199,7 @@ var CFG = window.AIWILLS_CONFIG || {}; (function(){ var _m='{'+'{'; for(var _k i
       };
     }
     paint(localSt());
-    var _hubTok=(window.AIWILLS_TOKEN||''); if(loc && contact && _hubTok){ fetch(API+'/api/hub-status?locationId='+enc(loc)+'&contactId='+enc(contact)+'&t='+enc(_hubTok)).then(function(r){return r.json();}).then(function(j){ if(j&&j.services) paint(mergeSt(localSt(),j.services)); }).catch(function(){}); }
+    var _hubTok=(window.AIWILLS_TOKEN||''); if(loc && _hubTok){ fetch(API+'/api/hub-status?locationId='+enc(loc)+(contact?('&contactId='+enc(contact)):'')+'&t='+enc(_hubTok)).then(function(r){return r.json();}).then(function(j){ if(j&&j.services) paint(mergeSt(localSt(),j.services)); }).catch(function(){}); }
     awHubLoginUI();
     function awHubLoginUI(){
       var box=document.getElementById('awlogin'); if(!box) return;
@@ -744,7 +744,22 @@ var _awSeq=0, _awApplied=0;
         if(mine < _awApplied) return;   // a slower, older save answering after a newer one
         _awApplied = mine;
         window[key] = j.contactId;
+        /* Only the hub's own gate ever wrote aw_ident_, so somebody who started on a service page
+           and then clicked "My services" was met by the new-or-returning modal as though we had
+           never seen them. Any save that knows who they are is good enough. */
+        try{ awRememberIdent(j.contactId); }catch(e){}
       };
+    }
+    function awRememberIdent(cid){
+      if(!loc) return;
+      var sec=(FUNNEL===WILLS_FUNNEL)?'personal':((FUNNEL===REFERRAL_FUNNEL)?'contact_details':'your_details');
+      var d=(state&&state[sec])||{};
+      var em=String(d.email||'').trim(), ph=String(d.phone||'').trim(), fn=String(d.firstName||'').trim();
+      if(!em && !ph) return;                    // nothing identifying yet: do not claim the device
+      var prev=null; try{ prev=JSON.parse(localStorage.getItem('aw_ident_'+loc)||'null'); }catch(e){}
+      var rec={ firstName:fn, email:em, phone:ph, cid:cid||((prev&&prev.cid)||'') };
+      if(prev&&prev.consent) rec.consent=prev.consent;   // consent is the gate's to record, not ours
+      try{ localStorage.setItem('aw_ident_'+loc, JSON.stringify(rec)); }catch(e){}
     }
     function _awCid(){ return window.AIWILLS_CONTACT_ID || ''; }
     function _awCidEtb(){ return window.AIWILLS_ETB_CID || ''; }
@@ -920,6 +935,9 @@ function awEditReturnTo(fromId, ahead){
     }
   }catch(e){}
 }
+/* Probate is a short quote form with no review step. "Save" called jumpTo('review'), found nothing
+   and did nothing at all, so the button was dead and so was Back. Ask before assuming a summary. */
+function awHasReview(){ try{ var v=visible(); for(var i=0;i<v.length;i++){ if(v[i].kind==='review') return true; } }catch(e){} return false; }
 function awEditScroll(s){
   if(window.AIWILLS_EDIT!==true || !s || s.kind!=='review' || !AW_EDIT_AT) return;
   var id=AW_EDIT_AT; AW_EDIT_AT='';
@@ -940,9 +958,14 @@ function review(){
      Generate step, where it is built from the LPA answers with its own token, and probate is a
      quote with nothing to download at all. */
     var _isE=(FUNNEL===ETB_FUNNEL), _isW=(FUNNEL===WILLS_FUNNEL);
-    var _dl = (_isE || _isW)
-      ? ('<a class="btn wide" href="'+API+(_isE?'/api/etb-pdf?t=':'/api/will-pdf?t=')+encodeURIComponent(_tok)+'" target="_blank" rel="noopener" style="display:block;text-align:center;text-decoration:none;margin-top:8px">'+(_isE?'Download summary (PDF)':'Download your will (PDF)')+'</a>')
-      : ''; var _docs=[]; visible().forEach(function(s){ if(!s.fields) return; flat(s.fields).forEach(function(f){ if(f.type!=='file') return; var fp=s.id+'.'+f.key; var u=getP(fp+'_url'); if(u) _docs.push({name:(getP(fp)||f.label||'Document'), url:u}); }); }); var _fh=_docs.length?('<div class="sum" style="margin-top:12px"><h3>Your documents</h3>'+_docs.map(function(d){return '<div style="padding:4px 0"><a href="'+esc(d.url)+'" target="_blank" rel="noopener">'+esc(d.name)+'</a></div>';}).join('')+'</div>'):''; return awEditLead()+html+_dl+_fh; }
+    /* This offered the finished document to anyone who could open the summary, paid or not, so a
+       half-finished will could be downloaded for free. That is a lost sale and, worse, a legal
+       document leaving the building that nobody has checked. */
+    var _paid = (getP('payment.paid')===true);
+    var _dl = !(_isE || _isW) ? ''
+      : (_paid
+        ? ('<a class="btn wide" href="'+API+(_isE?'/api/etb-pdf?t=':'/api/will-pdf?t=')+encodeURIComponent(_tok)+'" target="_blank" rel="noopener" style="display:block;text-align:center;text-decoration:none;margin-top:8px">'+(_isE?'Download summary (PDF)':'Download your will (PDF)')+'</a>')
+        : '<p class="note" style="text-align:center;margin-top:12px">You can download your '+(_isE?'summary':'will')+' here once payment is complete.</p>'); var _docs=[]; visible().forEach(function(s){ if(!s.fields) return; flat(s.fields).forEach(function(f){ if(f.type!=='file') return; var fp=s.id+'.'+f.key; var u=getP(fp+'_url'); if(u) _docs.push({name:(getP(fp)||f.label||'Document'), url:u}); }); }); var _fh=_docs.length?('<div class="sum" style="margin-top:12px"><h3>Your documents</h3>'+_docs.map(function(d){return '<div style="padding:4px 0"><a href="'+esc(d.url)+'" target="_blank" rel="noopener">'+esc(d.name)+'</a></div>';}).join('')+'</div>'):''; return awEditLead()+html+_dl+_fh; }
   var _lpaNote=''; try{ if(FUNNEL===WILLS_FUNNEL){ var _gb=willBundle(state); if(_gb.lpas>0){ _lpaNote='<div class="mock" style="margin-top:12px;text-align:left"><p style="font-weight:600;margin:0 0 6px">Your Lasting Power of Attorney'+(_gb.lpas>1?'s':'')+'</p><p class="note" style="margin:0">You added '+_gb.lpas+' LPA'+(_gb.lpas>1?'s':'')+' to your order. We will be in touch shortly to collect the attorney details and prepare '+(_gb.lpas>1?'them':'it')+'. There is nothing more you need to do right now.</p></div>'; } } }catch(e){}
   return html+((FUNNEL===WILLS_FUNNEL)?'<p class="note" style="margin-top:12px;text-align:center;color:var(--muted)">Your will is ready. You can download it on the next step, once payment is complete.</p>':'')+_lpaNote;
 }
@@ -1022,7 +1045,7 @@ function render(){
   }
   if(cur>maxCur) maxCur=cur; if(maxCur>vis.length-1) maxCur=vis.length-1;
   try{ var _smenu=el('stepmenu'); if(_smenu){ if(window.AIWILLS_EDIT===true){ _smenu.innerHTML=''; } else { _smenu.innerHTML=vis.map(function(v,i){ var _free=(FUNNEL===ETB_FUNNEL&&v.kind!=='payment'&&v.kind!=='done'); var ok=(i<=maxCur)||_free; var cls=(i===cur)?'on':(ok?'done':''); return '<button type="button" data-sj="'+i+'"'+(cls?(' class="'+cls+'"'):'')+(ok?'':' disabled')+'>'+esc(v.name)+'</button>'; }).join(''); _smenu.querySelectorAll('[data-sj]').forEach(function(b){ b.addEventListener('click',function(){ jumpIdx(parseInt(b.getAttribute('data-sj'),10)); }); }); } } }catch(e){}
-  var _ed=(window.AIWILLS_EDIT===true);
+  var _ed=(window.AIWILLS_EDIT===true && awHasReview());   // no summary to go back to, no "Back to summary"
   el('back').textContent=_ed?'Back to summary':'Back';
   el('back').style.visibility=_ed?(s.kind==='review'?'hidden':'visible'):(cur===0?'hidden':'visible');
   var next=el('next'); if(_ed){ next.style.display=(s.kind==='review')?'none':''; next.textContent='Save'; } else { next.style.display=(s.kind==='generate'||s.kind==='done'||s.kind==='quote')?'none':''; next.textContent=(s.kind==='review')?((FUNNEL===ETB_FUNNEL)?'Continue to activate':'Continue to payment'):((FUNNEL===REFERRAL_FUNNEL&&vis[cur+1]&&vis[cur+1].kind==='quote')?(CFG.referral_submit_label||'Get my quote'):'Continue'); }
@@ -1120,7 +1143,7 @@ function go(dir){
     var bad=validateStep(s);
     if(bad.length){ var msg=null; bad.forEach(function(b){ if(b.indexOf('MSG:')===0 && !msg) msg=b.slice(4); }); var first=null; bad.forEach(function(b){ if(b.indexOf('MSG:')!==0){ var fl=document.querySelector('[data-f="'+b+'"]'); if(fl){ fl.classList.add('invalid'); if(!first) first=fl; } } }); if(first && first.scrollIntoView){ try{ first.scrollIntoView({block:'center'}); }catch(e){} } alert(msg || 'Please complete the required fields highlighted in red.'); return; }
     saveToGhl(state, { pdf: (s.kind==='review' || s.kind==='payment' || window.AIWILLS_EDIT===true) });
-    if(window.AIWILLS_EDIT===true){ try{ awEditReturnTo(s.id, 1); jumpTo('review'); }catch(e){} return; } // edit hub: save this section, back to the summary at the NEXT one
+    if(window.AIWILLS_EDIT===true && awHasReview()){ try{ awEditReturnTo(s.id, 1); jumpTo('review'); }catch(e){} return; } // edit hub: save this section, back to the summary at the NEXT one. No summary (probate) means carry on like a normal Continue.
   }
   cur+=dir; if(cur<0)cur=0; if(cur>vis.length-1){ alert('Demo complete. In production the contact is tagged and the will is issued.'); cur=vis.length-1; }
   render(); scrollTop(); try{ saveLocal(); }catch(e){}
@@ -1285,7 +1308,7 @@ document.addEventListener('click', function(e){ try{ var a=e.target.closest('[da
 document.addEventListener('change', function(e){ var u=e.target.closest&&e.target.closest('[data-upload]'); if(!u||!u.files||!u.files[0]) return; var file=u.files[0]; var fieldName=u.getAttribute('data-upload'); var nameKey=u.getAttribute('data-namekey'); var stat=u.parentElement.querySelector('.uplstat')||{}; if(file.size>10*1024*1024){ stat.textContent='File too large (max 10MB)'; return; } stat.textContent='Uploading...'; var rd=new FileReader(); rd.onload=function(){ var b64=String(rd.result).split(',')[1]||''; fetch(API+'/api/etb-save',{method:'POST',body:JSON.stringify({locationId:loc,state:state,status:'started',contactId:(window.AIWILLS_ETB_CID||'')})}).then(function(r){return r.json();}).then(function(j){ if(j&&j.contactId) window.AIWILLS_ETB_CID=j.contactId; return fetch(API+'/api/etb-upload',{method:'POST',body:JSON.stringify({locationId:loc,contactId:(window.AIWILLS_ETB_CID||''),fieldName:fieldName,filename:file.name,mimeType:file.type,dataBase64:b64})}); }).then(function(r){return r.json();}).then(function(j){ if(j&&j.ok){ stat.textContent='Uploaded: '+file.name; if(nameKey){ setP(nameKey,file.name); if(j.url) setP(nameKey+'_url',j.url); } try{ autosave(); }catch(e){} } else { stat.textContent='Upload failed: '+((j&&j.error)||'error'); } }).catch(function(){ stat.textContent='Upload failed'; }); }; rd.readAsDataURL(file); });
 document.addEventListener('click', function(e){ var rm=e.target.closest&&e.target.closest('.frm'); if(!rm) return; e.preventDefault(); var field=rm.getAttribute('data-frm'), nameKey=rm.getAttribute('data-namekey'); if(nameKey){ setP(nameKey,''); setP(nameKey+'_url',''); } var tok=window.AIWILLS_TOKEN||''; if(tok){ try{ fetch(API+'/api/etb-file-remove',{method:'POST',body:JSON.stringify({t:tok,field:field})}).catch(function(){}); }catch(e2){} } try{ autosave(); }catch(e3){} render(); });
 el('next').addEventListener('click', function(){ try{ go(1); }catch(err){ alert('Continue error: '+err.message); } });
-el('back').addEventListener('click', function(){ try{ if(window.AIWILLS_EDIT===true){ stripEmptyRepeaters(); try{autosave();}catch(e){} try{ var _vb=visible()[cur]; awEditReturnTo(_vb&&_vb.id, 0); }catch(e2){} jumpTo('review'); return; } go(-1); }catch(err){ alert('Back error: '+err.message); } });
+el('back').addEventListener('click', function(){ try{ if(window.AIWILLS_EDIT===true && awHasReview()){ stripEmptyRepeaters(); try{autosave();}catch(e){} try{ var _vb=visible()[cur]; awEditReturnTo(_vb&&_vb.id, 0); }catch(e2){} jumpTo('review'); return; } go(-1); }catch(err){ alert('Back error: '+err.message); } });
 window.addEventListener('error', function(ev){ alert('Engine error: '+((ev&&ev.message)||'unknown')); });
 function closeGaps(){
   try{
