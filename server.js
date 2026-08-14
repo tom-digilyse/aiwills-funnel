@@ -1383,9 +1383,10 @@ const server = http.createServer(async (req, res) => {
         return send(res,200,{ ok:true, services });
       }catch(e){ return send(res,500,{error:e.message}); }
     }
-    /* Diagnostics for the contact custom-field plumbing. Field names and ids only, never anyone's
-       answers, so it is safe in front of the auth gate. The create probe is limited to our own three
-       document fields, which any customer creates simply by using the funnel. */
+    /* Diagnostics for the contact custom-field plumbing. Read only, and field names, ids and folders
+       only, never anyone's answers, so it is safe in front of the auth gate. With a contactId it says
+       whether each headline field has a value and how long it is, never what it says: a document
+       field holds a signed link, and printing that would hand over the customer's PDF. */
     if (req.method === 'GET' && pathOnly === '/api/fields-debug'){
       res.setHeader('Access-Control-Allow-Origin','*');
       try {
@@ -1398,15 +1399,6 @@ const server = http.createServer(async (req, res) => {
         try { const r = await ghl('GET','/locations/'+floc+'/customFields?model=contact', ftok); list = r.customFields || r.customField || []; }
         catch(e){ out.readError = e.message; }
         out.count = list.length;
-        /* Folders are what a client actually navigates, so find out how GHL hands them back. */
-        try { const rf = await ghl('GET','/locations/'+floc+'/customFields', ftok); const all = rf.customFields || rf.customField || []; out.allCount = all.length; out.nonFieldDocs = all.filter(function(f){ return String(f.documentType||'field') !== 'field'; }); } catch(e){ out.foldersError = e.message; }
-        /* Remove a folder, but only one that nothing is filed in, so this can never orphan a field. */
-        const drop = (fu.searchParams.get('dropFolder')||'').replace(/[^A-Za-z0-9]/g,'');
-        if (drop){
-          const inUse = list.filter(function(f){ return String(f.parentId||'') === drop; }).length;
-          if (inUse) out.drop = { refused:'folder still holds fields', count:inUse };
-          else { try { out.drop = await ghl('DELETE','/locations/'+floc+'/customFields/'+drop, ftok); } catch(e){ out.dropError = e.message; } }
-        }
         out.fields = list.map(function(f){ return { id:f.id, name:f.name, dataType:f.dataType, parentId:f.parentId||'', model:f.model||'' }; });
         out.sampleRaw = list[0] || null;
         /* Did the document link actually land? Report length and the first few characters only:
@@ -1423,17 +1415,6 @@ const server = http.createServer(async (req, res) => {
           try { const t = signDoc(floc, fcid, 'wills'); out.docLinkWouldBe = { signed: !!t, urlLength: ((process.env.PUBLIC_BASE||'https://aiwills.digilyse.co') + '/api/will-pdf?t=' + encodeURIComponent(t)).length }; }
           catch(e){ out.docLinkError = e.message; }
         }
-        const want = fu.searchParams.get('create')||'';
-        const allowed = ['Will Document','LPA Document','ETB Document'];
-        if (want && allowed.indexOf(want) >= 0){
-          const hit = list.filter(function(f){ return String(f.name||'').toLowerCase() === want.toLowerCase(); })[0];
-          if (hit) out.create = { alreadyExists:true, id:hit.id, dataType:hit.dataType };
-          else {
-            const dt = (fu.searchParams.get('dataType')||'TEXT');
-            try { out.create = { ok:true, dataType:dt, response: await ghl('POST','/locations/'+floc+'/customFields', ftok, { name:want, dataType:dt, model:'contact' }) }; }
-            catch(e){ out.create = { ok:false, dataType:dt, error: e.message }; }
-          }
-        } else if (want){ out.create = { skipped:'name is not on the allow list', allowed: allowed }; }
         return send(res,200,out);
       } catch(e){ return send(res,200,{ error: e.message }); }
     }
