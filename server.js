@@ -1228,7 +1228,10 @@ async function awSyncCompanyValue(token, loc){
     var now = Date.now();
     if (AW_CV_SYNCED[loc] && (now - AW_CV_SYNCED[loc]) < 10 * 60 * 1000) return;
     AW_CV_SYNCED[loc] = now;
-    var b = brandStoreGet(loc) || {};
+    /* Read the merged view, not the store file. Only company_name actually lives in our store on an
+       account like Demo; the email, address and phone came in from the scraper via GHL, and
+       getCustomValuesMap is the one place that already resolves both with our store winning. */
+    var b = await getCustomValuesMap(loc, token);
     var wants = {};
     Object.keys(AW_CV_MAP).forEach(function(cvName){ var v = String(b[AW_CV_MAP[cvName]] || '').trim(); if (v) wants[cvName] = v; });
     if (!Object.keys(wants).length) return;                 // nothing to say, so say nothing
