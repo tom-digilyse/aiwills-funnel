@@ -656,10 +656,61 @@ function awLines(obj, indent){
   return out.join('\n');
 }
 function awSummarise(state){ try{ var s=awLines(state,0); return s||'(no details captured yet)'; }catch(e){ return '(summary unavailable)'; } }
+/* ---------- Custom field folders ----------
+   GHL drops a field created without a parentId into the sub-account's catch-all folder. Ours were
+   all created that way, so 307 of them piled up in one list and a firm opening a contact could not
+   find the document link, the summary or anything else without scrolling past every question we have
+   ever asked. Fields are filed by service, and the question-by-question ones are kept separate from
+   the handful a human actually reads.
+   The folder ids live in our own per-location store, not looked up by name: GHL will not list
+   folders back over the API, so a name lookup is impossible and a rename by the client would
+   otherwise make us create duplicates. */
+var AW_FOLDER_NAMES = {
+  wills:'Wills', lpa:'Lasting Power of Attorney', etb:'Executor Toolbox', probate:'Probate',
+  wills_detail:'Wills - every answer', lpa_detail:'LPA - every answer',
+  etb_detail:'Executor Toolbox - every answer', probate_detail:'Probate - every answer'
+};
+function awFieldService(name){
+  var n=String(name||'');
+  if(/^Will\b/i.test(n)) return 'wills';
+  if(/^LPA\b/i.test(n)) return 'lpa';
+  if(/^ETB\b/i.test(n)) return 'etb';
+  if(/^Probate\b/i.test(n)) return 'probate';
+  return '';
+}
+/* A field named "Will Cash gift 1 - Postcode" is one of hundreds generated from the answers. A field
+   named "Will Document" is one a person reads. The " - " is what separates them. */
+function awFolderKey(name){
+  var svc=awFieldService(name); if(!svc) return '';
+  return svc + ((String(name).indexOf(' - ')>=0) ? '_detail' : '');
+}
+function awFoldersGet(loc){
+  try { var b=brandStoreGet(loc)||{}; var m=b.field_folders; if(typeof m==='string') m=JSON.parse(m); return m||{}; }
+  catch(e){ return {}; }
+}
+function awFoldersPut(loc, m){
+  try { var cur=brandStoreGet(loc)||{}; cur.field_folders=m; brandStorePut(loc, cur); }
+  catch(e){ console.error('awFoldersPut', e.message); }
+}
+function awFolderFor(loc, name){ var k=awFolderKey(name); return k ? (awFoldersGet(loc)[k]||'') : ''; }
+async function awFolderEnsure(token, loc, key){
+  var m=awFoldersGet(loc);
+  if(m[key]) return m[key];
+  var r=await ghl('POST','/locations/'+loc+'/customFields', token, { name:(AW_FOLDER_NAMES[key]||key), documentType:'folder', model:'contact' });
+  var f=r.customFieldFolder||r.customField||r;
+  if(!f||!f.id) throw new Error('folder create returned no id');
+  m[key]=f.id; awFoldersPut(loc, m);
+  return f.id;
+}
 async function awEnsureField(token, loc, map, name, dataType){
   dataType=dataType||'LARGE_TEXT';
   var fid=map[name.toLowerCase()];
-  if(!fid){ try{ var c=await ghl('POST','/locations/'+loc+'/customFields',token,{name:name,dataType:dataType,model:'contact'}); var nf=c.customField||c; if(nf&&nf.id){ fid=nf.id; map[name.toLowerCase()]=fid; } }catch(e){ console.error('field create '+name, e.message); } }
+  if(!fid){ try{
+      var body={name:name,dataType:dataType,model:'contact'};
+      var pid=''; try{ pid=awFolderFor(loc, name); }catch(e2){}
+      if(pid) body.parentId=pid;                       // file it on the way in, not in a tidy-up later
+      var c=await ghl('POST','/locations/'+loc+'/customFields',token,body); var nf=c.customField||c; if(nf&&nf.id){ fid=nf.id; map[name.toLowerCase()]=fid; }
+    }catch(e){ console.error('field create '+name, e.message); } }
   return fid;
 }
 
@@ -1340,9 +1391,12 @@ const server = http.createServer(async (req, res) => {
         out.count = list.length;
         /* Folders are what a client actually navigates, so find out how GHL hands them back. */
         try { const rf = await ghl('GET','/locations/'+floc+'/customFields', ftok); const all = rf.customFields || rf.customField || []; out.allCount = all.length; out.nonFieldDocs = all.filter(function(f){ return String(f.documentType||'field') !== 'field'; }); } catch(e){ out.foldersError = e.message; }
-        if ((fu.searchParams.get('makeFolder')||'') === '1'){
-          try { out.folderCreate = await ghl('POST','/locations/'+floc+'/customFields', ftok, { name:'AI Wills', documentType:'folder', model:'contact' }); }
-          catch(e){ out.folderCreateError = e.message; }
+        /* Remove a folder, but only one that nothing is filed in, so this can never orphan a field. */
+        const drop = (fu.searchParams.get('dropFolder')||'').replace(/[^A-Za-z0-9]/g,'');
+        if (drop){
+          const inUse = list.filter(function(f){ return String(f.parentId||'') === drop; }).length;
+          if (inUse) out.drop = { refused:'folder still holds fields', count:inUse };
+          else { try { out.drop = await ghl('DELETE','/locations/'+floc+'/customFields/'+drop, ftok); } catch(e){ out.dropError = e.message; } }
         }
         out.fields = list.map(function(f){ return { id:f.id, name:f.name, dataType:f.dataType, parentId:f.parentId||'', model:f.model||'' }; });
         out.sampleRaw = list[0] || null;
@@ -1371,6 +1425,39 @@ const server = http.createServer(async (req, res) => {
             catch(e){ out.create = { ok:false, dataType:dt, error: e.message }; }
           }
         } else if (want){ out.create = { skipped:'name is not on the allow list', allowed: allowed }; }
+        return send(res,200,out);
+      } catch(e){ return send(res,200,{ error: e.message }); }
+    }
+    /* File the existing fields into those folders. Idempotent: it only ever moves a field that is
+       not already in its folder, so running it twice is a no-op. Batched, because a sub-account can
+       hold hundreds of fields and GHL will not thank us for firing them all at once. */
+    if ((req.method === 'POST' || req.method === 'GET') && pathOnly === '/api/fields-organise'){
+      res.setHeader('Access-Control-Allow-Origin','*');
+      try {
+        const ou = new URL(req.url,'http://x');
+        const oloc = (ou.searchParams.get('locationId')||'').replace(/[^A-Za-z0-9]/g,'');
+        if(!oloc) return send(res,400,{error:'locationId required'});
+        const dry = (ou.searchParams.get('dry')||'') === '1';
+        const limit = Math.max(1, Math.min(200, parseInt(ou.searchParams.get('limit')||'60',10) || 60));
+        const otok = await getWriteToken(oloc);
+        const r = await ghl('GET','/locations/'+oloc+'/customFields?model=contact', otok);
+        const all = r.customFields || r.customField || [];
+        const want = all.map(function(f){ return { f:f, key:awFolderKey(f.name) }; }).filter(function(x){ return x.key; });
+        const keys = {}; want.forEach(function(x){ keys[x.key]=1; });
+        const folders = {};
+        for (const k of Object.keys(keys)){
+          if (dry) { folders[k] = awFoldersGet(oloc)[k] || '(would create '+(AW_FOLDER_NAMES[k]||k)+')'; continue; }
+          try { folders[k] = await awFolderEnsure(otok, oloc, k); } catch(e){ folders[k] = 'ERROR '+e.message; }
+        }
+        const todo = want.filter(function(x){ return folders[x.key] && String(folders[x.key]).indexOf('ERROR')<0 && String(x.f.parentId||'') !== String(folders[x.key]); });
+        const out = { ok:true, locationId:oloc, dry:dry, folders:folders, total:all.length, ours:want.length, toMove:todo.length };
+        if (dry){ out.sample = todo.slice(0,12).map(function(x){ return { name:x.f.name, into:(AW_FOLDER_NAMES[x.key]||x.key) }; }); return send(res,200,out); }
+        const batch = todo.slice(0, limit); const failed = []; let moved = 0;
+        for (const x of batch){
+          try { await ghl('PUT','/locations/'+oloc+'/customFields/'+x.f.id, otok, { name:x.f.name, parentId:folders[x.key] }); moved++; }
+          catch(e){ if(failed.length<5) failed.push({ name:x.f.name, error:e.message }); }
+        }
+        out.moved = moved; out.failed = failed; out.remaining = Math.max(0, todo.length - batch.length);
         return send(res,200,out);
       } catch(e){ return send(res,200,{ error: e.message }); }
     }
