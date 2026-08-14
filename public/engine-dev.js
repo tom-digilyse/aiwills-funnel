@@ -999,7 +999,7 @@ function render(){
   } else if(s.kind==='done'){
     html += '<div class="mock"><div class="tick">✓</div><h3>Your Executor Toolbox is active</h3><p class="note">Your details and any documents you uploaded are securely stored. Your executors will be able to access what they need, when the time comes.</p><div style="text-align:left;margin-top:22px;padding-top:18px;border-top:1px solid #e7e7e7"><p style="font-weight:600;margin:0 0 8px">What happens next</p><ol style="margin:0;padding-left:20px;line-height:1.7"><li>Tell your executors that your Toolbox exists.</li><li>You can come back any time to add or update documents.</li><li>Keep your contact details current so we can reach you.</li></ol></div></div>';
   } else if(s.kind==='quote'){
-    try{ saveToGhl(state, { submitted:true }); }catch(e){}
+    try{ if(state[s.id] && typeof state[s.id]==='object') state[s.id].submitted='Yes'; saveToGhl(state, { submitted:true }); }catch(e){}   // recorded so a return visit lands here, not on question one
     var _q=computeQuote(state);
     if(_q){
       var _cta = (CFG.quote_cta_url) ? ('<a class="btn wide" href="'+esc(CFG.quote_cta_url)+'" target="_blank" rel="noopener" style="display:block;text-align:center;text-decoration:none;margin-top:14px">'+esc(CFG.quote_cta_label||'Book a call to proceed')+'</a>') : '';
@@ -1028,6 +1028,8 @@ function render(){
   } else {
     s.fields.forEach(function(f){ html += fld(s.id,f); });
   }
+  /* Every journey that ends here should offer the way back, not just the chip in the corner. */
+  if(s.kind==='quote'||s.kind==='generate'||s.kind==='done'){ try{ html += awHubButtonHtml(); }catch(e){} }
   el('step').innerHTML=html;
   try{ if(!el('awfaq')){ var _fq=document.createElement('div'); _fq.id='awfaq'; _fq.className='awfaq'; el('step').parentNode.appendChild(_fq); } else { el('awfaq').parentNode.appendChild(el('awfaq')); } loadFaq(); paintFaq(); }catch(e){}
   el('stepName').textContent=s.name;
@@ -1183,7 +1185,16 @@ function awLogout(reason){
   try{ var u=new URL(location.href); u.searchParams.delete('aw_t'); history.replaceState(null,'',u.pathname+(u.search||'')+(u.hash||'')); }catch(e){}
   try{ var ov=document.getElementById('aw-logout'); if(!ov){ ov=document.createElement('div'); ov.id='aw-logout'; document.body.appendChild(ov); }
     ov.style.cssText='position:fixed;inset:0;background:rgba(255,255,255,.97);z-index:99999;display:flex;align-items:center;justify-content:center;padding:24px;font-family:var(--bf,Arial,sans-serif)';
-    ov.innerHTML='<div style="max-width:420px;text-align:center;border:1px solid var(--line,#e6e6e6);border-radius:16px;padding:34px 28px;background:#fff;box-shadow:0 6px 30px rgba(0,0,0,.08)"><h2 style="font-family:var(--hf,Georgia,serif);color:var(--heading,#1B1D1F);margin:0 0 10px;font-size:22px">You have been logged out</h2><p style="color:var(--muted,#6b6e72);line-height:1.55;margin:0 0 18px">For your security we log you out after a period of inactivity. Open your secure link again, or request a new one, to carry on.</p><button type="button" onclick="location.reload()" style="background:var(--btn-bg,var(--primary,#0B3D2E));color:#fff;border:none;border-radius:var(--btn-radius,10px);padding:13px 26px;font-weight:600;cursor:pointer;font-family:var(--bf)">Continue</button></div>';
+    /* Reloading was wrong twice over: on a service page it handed a signed-out visitor a fresh
+       blank form of the thing they had just finished, and the wording blamed inactivity even when
+       they had pressed Log out themselves. */
+    var _idle=(reason==='idle');
+    var _hub=''; try{ _hub=awHubUrl(); }catch(e2){}
+    var _btnCss='display:inline-block;background:var(--btn-bg,var(--primary,#0B3D2E));color:#fff;border:none;border-radius:var(--btn-radius,10px);padding:13px 26px;font-weight:600;cursor:pointer;font-family:var(--bf);text-decoration:none';
+    var _action = _hub
+      ? ('<a href="'+esc(_hub)+'" target="_top" style="'+_btnCss+'">Back to my services</a>')
+      : ('<button type="button" onclick="location.reload()" style="'+_btnCss+'">Continue</button>');
+    ov.innerHTML='<div style="max-width:420px;text-align:center;border:1px solid var(--line,#e6e6e6);border-radius:16px;padding:34px 28px;background:#fff;box-shadow:0 6px 30px rgba(0,0,0,.08)"><h2 style="font-family:var(--hf,Georgia,serif);color:var(--heading,#1B1D1F);margin:0 0 10px;font-size:22px">'+(_idle?'You have been logged out':'You are signed out')+'</h2><p style="color:var(--muted,#6b6e72);line-height:1.55;margin:0 0 18px">'+(_idle?'For your security we log you out after a period of inactivity. Open your secure link again, or request a new one, to carry on.':'Your answers are saved to your account. Sign in again whenever you like from the services page.')+'</p>'+_action+'</div>';
   }catch(e){}
 }
 /* There was only ever a Log out link on the services hub. Someone signed in and working through a
@@ -1268,9 +1279,8 @@ function awDoorGate(){
 /* Someone half way through a will had no way back to their own services page. The only route was the
    browser's back button, and the header nav is the firm's marketing menu, which sends them off to the
    website instead. Mirrors the Sign out control on the opposite corner so the two read as a pair. */
-function awServicesBar(){
+function awHubUrl(){
   try{
-    if (document.getElementById('awservices')) return;
     var CFGx = window.AIWILLS_CONFIG || {};
     var url = String(CFGx.hub_url || '').trim();
     if(!url){ try{ url = localStorage.getItem('aw_hub_' + (loc || '')) || ''; }catch(e){} }
@@ -1283,6 +1293,19 @@ function awServicesBar(){
     /* Only ever point at somewhere we recognise. A cookie is not a safe place to take a link from
        without checking it. */
     if(url && !/^https?:\/\//i.test(url)) url='';
+    return url;
+  }catch(e){ return ''; }
+}
+/* A journey that ends on a completion screen used to leave the only way onwards as a Back button
+   or the little chip in the corner. Where we know the services page, offer it properly. */
+function awHubButtonHtml(label){
+  var u=awHubUrl(); if(!u) return '';
+  return '<a class="btn wide ghost" href="'+esc(u)+'" target="_top" style="display:block;text-align:center;text-decoration:none;margin-top:14px">'+esc(label||'Back to my services')+'</a>';
+}
+function awServicesBar(){
+  try{
+    if (document.getElementById('awservices')) return;
+    var url = awHubUrl();
     if(!url) return;   // nothing to point at, say nothing
     var bar = document.createElement('div');
     bar.id = 'awservices';
@@ -1322,7 +1345,13 @@ function closeGaps(){
   }catch(e){}
 }
 initState(); if(!awDoorGate()){ restoreLocal(); } applyBrand();
-try{ var _qp=new URLSearchParams(location.search); if(_qp.get('aw_paid')==='1' && _qp.get('aw_id')){ window.AIWILLS_WILL_ID=_qp.get('aw_id'); if(state.payment) state.payment.paid=true; var _vv=visible(); for(var _i=0;_i<_vv.length;_i++){ if(_vv[_i].id==='generate'){ cur=_i; break; } } } if(_qp.get('aw_etb_paid')==='1' && FUNNEL===ETB_FUNNEL){ if(state.payment) state.payment.paid=true; var _ev=visible(); for(var _j=0;_j<_ev.length;_j++){ if(_ev[_j].id==='done'){ cur=_j; break; } } } if(window.AIWILLS_EDIT===true){ var _rv=visible(); for(var _k=0;_k<_rv.length;_k++){ if(_rv[_k].kind==='review'){ cur=_k; break; } } } }catch(e){}
+try{ var _qp=new URLSearchParams(location.search); if(_qp.get('aw_paid')==='1' && _qp.get('aw_id')){ window.AIWILLS_WILL_ID=_qp.get('aw_id'); if(state.payment) state.payment.paid=true; var _vv=visible(); for(var _i=0;_i<_vv.length;_i++){ if(_vv[_i].id==='generate'){ cur=_i; break; } } } if(_qp.get('aw_etb_paid')==='1' && FUNNEL===ETB_FUNNEL){ if(state.payment) state.payment.paid=true; var _ev=visible(); for(var _j=0;_j<_ev.length;_j++){ if(_ev[_j].id==='done'){ cur=_j; break; } } } if(window.AIWILLS_EDIT===true){ var _rv=visible(), _t=-1;
+  for(var _k=0;_k<_rv.length;_k++){ if(_rv[_k].kind==='review'){ _t=_k; break; } }
+  /* Probate has no summary, so signing back in dropped the customer on question one of a quote they
+     had already sent. Where the quote is in, land on the outcome they already have. */
+  if(_t<0){ for(var _q2=0;_q2<_rv.length;_q2++){ var _qs=_rv[_q2]; if((_qs.kind==='quote'||_qs.kind==='done') && state[_qs.id] && state[_qs.id].submitted){ _t=_q2; break; } } }
+  if(_t>=0) cur=_t;
+} }catch(e){}
 
 /* Service URLs register themselves. When this engine runs on a real funnel page it already knows its
    own address, so it tells the server once. The services hub can then link to the client's own page
