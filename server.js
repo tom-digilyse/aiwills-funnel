@@ -1442,6 +1442,54 @@ const server = http.createServer(async (req, res) => {
        only, never anyone's answers, so it is safe in front of the auth gate. With a contactId it says
        whether each headline field has a value and how long it is, never what it says: a document
        field holds a signed link, and printing that would hand over the customer's PDF. */
+    /* Why did the company custom values not change? This says so out loud instead of guessing:
+       what our store holds, what GHL holds, and with run=1 exactly what happened when we wrote.
+       Company contact details only, the same ones printed on the client's own website. */
+    if (req.method === 'GET' && pathOnly === '/api/cv-sync-debug'){
+      res.setHeader('Access-Control-Allow-Origin','*');
+      try {
+        const cu = new URL(req.url,'http://x');
+        const cloc = (cu.searchParams.get('locationId')||'').replace(/[^A-Za-z0-9]/g,'');
+        if(!cloc) return send(res,400,{error:'locationId required'});
+        const out = { ok:true, locationId: cloc, map: AW_CV_MAP };
+        let ctok = '';
+        try { ctok = await getWriteToken(cloc); } catch(e){ out.tokenError = e.message; }
+        out.hasToken = !!ctok;
+        if (ctok){
+          const cstore = brandStoreGet(cloc) || {};
+          out.store = {}; Object.keys(AW_CV_MAP).forEach(function(n){ out.store[n] = cstore[AW_CV_MAP[n]] || ''; });
+          let cmerged = {};
+          try { cmerged = await getCustomValuesMap(cloc, ctok); } catch(e){ out.mergedError = e.message; }
+          out.merged = {}; Object.keys(AW_CV_MAP).forEach(function(n){ out.merged[n] = cmerged[AW_CV_MAP[n]] || ''; });
+          out.ghl = {};
+          try {
+            const cr = await ghl('GET','/locations/'+cloc+'/customValues', ctok);
+            const clist = cr.customValues || cr.customValue || [];
+            out.ghlCount = clist.length;
+            const cby = {}; clist.forEach(function(cv){ cby[String(cv.name||'').toLowerCase()] = cv; });
+            Object.keys(AW_CV_MAP).forEach(function(n){ out.ghl[n] = cby[n] ? String(cby[n].value||'') : '(missing)'; });
+            if (cu.searchParams.get('run') === '1'){
+              out.wrote = [];
+              const cnames = Object.keys(AW_CV_MAP);
+              for (let ci = 0; ci < cnames.length; ci++){
+                const nm = cnames[ci];
+                const want = String(cmerged[AW_CV_MAP[nm]] || '').trim();
+                if (!want){ out.wrote.push({ name:nm, action:'nothing in store' }); continue; }
+                const hit = cby[nm];
+                if (hit && String(hit.value||'') === want){ out.wrote.push({ name:nm, action:'already correct' }); continue; }
+                try {
+                  if (hit) await ghl('PUT','/locations/'+cloc+'/customValues/'+hit.id, ctok, { name: hit.name, value: want });
+                  else await ghl('POST','/locations/'+cloc+'/customValues', ctok, { name: nm, value: want });
+                  out.wrote.push({ name:nm, action: hit ? 'updated' : 'created', value: want });
+                } catch(e){ out.wrote.push({ name:nm, error: e.message }); }
+              }
+              AW_CV_SYNCED[cloc] = 0;   // let a normal save run it again straight away
+            }
+          } catch(e){ out.cvError = e.message; }
+        }
+        return send(res,200,out);
+      } catch(e){ return send(res,500,{error:e.message}); }
+    }
     if (req.method === 'GET' && pathOnly === '/api/fields-debug'){
       res.setHeader('Access-Control-Allow-Origin','*');
       try {
