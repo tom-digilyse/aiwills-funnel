@@ -52,9 +52,12 @@
 var CFG = window.AIWILLS_CONFIG || {}; (function(){ var _m='{'+'{'; for(var _k in CFG){ if(typeof CFG[_k]==='string' && CFG[_k].indexOf(_m)>=0) CFG[_k]=''; } })();
   try{ if(window.AIWILLS_EDIT===true || !!(window.AIWILLS_TOKEN)){ awStartAutoLogout(); awSignedInBar(); } }catch(e){}
   if(String((window.AIWILLS_CONFIG||{}).funnel||'').toLowerCase()==='hub'){ renderHub(); return; }
+  try{ awServicesBar(); }catch(e){}
   try{ var _psf=String(CFG.plan_services||'').toLowerCase().split(',').map(function(x){return x.trim();}).filter(Boolean); var _fk=(function(){var f=String((CFG.funnel)||window.AIWILLS_FUNNEL||'').toLowerCase();return (f==='etb'||f==='lpa')?f:((f==='probate'||f==='referral')?'probate':'wills');})(); if(_psf.length && _psf.indexOf(_fk)<0){ mount.innerHTML='<div class="aw-ready" style="max-width:640px;margin:60px auto;padding:32px;border:1px solid var(--line);border-radius:14px;background:#fff;text-align:center;font-family:var(--bf)"><h3 style="font-family:var(--hf);color:var(--heading)">This service is not part of your plan</h3><p style="color:var(--muted)">Please speak to your adviser about adding it, or go back to your services page.</p></div>'; try{ mount.classList.add('aw-ready'); }catch(e){} return; } }catch(e){}
   function renderHub(){
     var enc=encodeURIComponent;
+    /* So a service can offer a way back without anyone having to configure the address by hand. */
+    try{ if(loc) localStorage.setItem('aw_hub_'+loc, location.href.split('#')[0]); }catch(e){}
     try{ var hs=document.createElement('style'); hs.textContent='.hubwrap{max-width:var(--site-max);margin:0 auto;padding:34px 24px 60px}.hubh1{margin-bottom:6px}.hubgrid{display:flex;flex-wrap:wrap;gap:20px;margin-top:24px}.hubcard{flex:1 1 280px;min-width:260px;max-width:360px;border:1px solid var(--line);border-radius:16px;background:#fff;padding:24px;display:flex;flex-direction:column;gap:12px}.hubic{width:54px;height:54px;border-radius:12px;background:#f4f4f4;background:color-mix(in srgb,var(--icon,var(--primary)) 10%,#fff);color:var(--icon,var(--primary));display:flex;align-items:center;justify-content:center}.hubic svg{width:30px;height:30px}.hubcard h3{font-size:20px;margin:0;font-family:var(--hf)}.hubcard .hubdesc{color:var(--muted);font-size:14px;flex:1;margin:0}.hubcard .hubstatus{font-size:12px;font-weight:700;color:#157a3f}.hubcard .btn{width:100%;text-align:center;text-decoration:none;display:block;padding:13px}@media(max-width:640px){.hubgrid{flex-direction:column}.hubcard{max-width:none}}'; document.head.appendChild(hs); }catch(e){}
     var SVC=[
       {key:'wills',title:(CFG.wills_title||'Your Will'),blurb:(CFG.wills_blurb||'Create a clear, properly structured will and keep it up to date.'),url:(CFG.wills_url||'https://engine.aiwills.co.uk/wills-test.html'),icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h7l4 4v14H7z"/><path d="M14 3v4h4"/><path d="M10 12h6M10 16h4"/></svg>'},
@@ -1104,6 +1107,78 @@ function awSignedInBar(){
     document.getElementById('awsignout').addEventListener('click', function(){ awLogout('manual'); });
   }catch(e){}
 }
+/* The hub asked "new or returning?" before letting anyone into a service, but that gate only ever
+   existed on the hub's own cards. A bookmark, an emailed link or the browser's address bar went
+   straight in, and the engine silently filled the form with whatever draft it found on the machine.
+   Nothing had left the server, but on a shared computer the next person opened a will already
+   carrying somebody else's name, address and date of birth. Ask at the door instead. */
+function awDoorGate(){
+  try{
+    if(window.AIWILLS_EDIT===true || window.AIWILLS_PREFILL) return false;   // a real session already proved who this is
+    var k=(typeof lsKey==='function') ? lsKey() : ''; if(!k) return false;
+    var raw=localStorage.getItem(k); if(!raw) return false;
+    var saved=null; try{ saved=JSON.parse(raw); }catch(e){ return false; }
+    if(!saved || typeof saved!=='object') return false;
+    var nm='';
+    ['personal','your_details','contact_details','donor'].forEach(function(sec){
+      if(!nm && saved[sec] && saved[sec].firstName) nm=String(saved[sec].firstName).trim();
+    });
+    if(!nm) return false;   // nothing identifying saved, no point interrupting
+
+    var m=document.createElement('div');
+    m.id='awdoor';
+    m.style.cssText='position:fixed;inset:0;background:rgba(20,20,20,.45);z-index:99997;display:flex;align-items:center;justify-content:center;padding:20px;font-family:var(--bf,Arial,sans-serif)';
+    m.innerHTML='<div style="background:#fff;max-width:440px;width:100%;border-radius:16px;padding:26px 24px;box-shadow:0 10px 40px rgba(0,0,0,.2)">'
+      + '<h2 style="font-family:var(--hf,Georgia,serif);color:var(--heading);margin:0 0 8px;font-size:21px">Welcome back, '+esc(nm)+'</h2>'
+      + '<p style="color:var(--muted);font-size:14px;line-height:1.55;margin:0 0 18px">There are unfinished answers saved on this device. Pick up where you left off, or clear them and start again.</p>'
+      + '<button type="button" id="awdoorgo" style="width:100%;background:var(--btn-bg,var(--primary));color:#fff;border:none;border-radius:var(--btn-radius,10px);padding:13px;font-weight:600;cursor:pointer;font-family:var(--bf)">Continue where I left off</button>'
+      + '<button type="button" id="awdoornew" style="width:100%;margin-top:8px;background:#fff;color:var(--primary);border:1px solid var(--primary);border-radius:var(--btn-radius,10px);padding:12px;font-weight:600;cursor:pointer;font-family:var(--bf)">This is not me, start fresh</button>'
+      + '<p style="color:var(--muted);font-size:12.5px;line-height:1.5;margin:14px 0 0">Starting fresh removes those answers from this device for good.</p>'
+      + '</div>';
+    document.body.appendChild(m);
+    document.getElementById('awdoorgo').onclick=function(){
+      try{ m.parentNode&&m.parentNode.removeChild(m); }catch(e){}
+      try{ restoreLocal(); }catch(e){}
+      try{ render(); }catch(e){}
+    };
+    document.getElementById('awdoornew').onclick=function(){
+      try{ clearLocal(); }catch(e){}
+      try{ Object.keys(localStorage).forEach(function(kk){ if(kk.indexOf('aw_draft_')===0 || kk.indexOf('aw_ident_')===0) localStorage.removeItem(kk); }); }catch(e){}
+      try{
+        var ck=String(document.cookie||'').split(';');
+        var dead='=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/';
+        var p=String(location.hostname||'').split('.');
+        var root=p.length>2 ? p.slice(-2).join('.') : location.hostname;
+        for(var i=0;i<ck.length;i++){
+          var n=String(ck[i].split('=')[0]||'').replace(/^\s+/,'');
+          if(n.indexOf('aw_s_')!==0) continue;
+          try{ document.cookie=n+dead; }catch(e1){}
+          try{ document.cookie=n+dead+';domain=.aiwills.co.uk'; }catch(e2){}
+          try{ document.cookie=n+dead+';domain=.'+root; }catch(e3){}
+        }
+      }catch(e){}
+      try{ location.reload(); }catch(e){}
+    };
+    return true;   // caller must not restore behind the panel
+  }catch(e){ return false; }
+}
+/* Someone half way through a will had no way back to their own services page. The only route was the
+   browser's back button, and the header nav is the firm's marketing menu, which sends them off to the
+   website instead. Mirrors the Sign out control on the opposite corner so the two read as a pair. */
+function awServicesBar(){
+  try{
+    if (document.getElementById('awservices')) return;
+    var CFGx = window.AIWILLS_CONFIG || {};
+    var url = String(CFGx.hub_url || '').trim();
+    if(!url){ try{ url = localStorage.getItem('aw_hub_' + (loc || '')) || ''; }catch(e){} }
+    if(!url) return;   // nothing to point at, say nothing
+    var bar = document.createElement('div');
+    bar.id = 'awservices';
+    bar.style.cssText = 'position:fixed;top:0;left:0;z-index:99998;display:flex;align-items:center;gap:10px;padding:7px 14px;background:rgba(255,255,255,.96);border:1px solid var(--line,#e6e6e6);border-top:0;border-left:0;border-radius:0 0 10px 0;font:14px/1.2 var(--bf,Arial,Helvetica,sans-serif);box-shadow:0 2px 10px rgba(0,0,0,.06)';
+    bar.innerHTML = '<a href="' + esc(url) + '" target="_top" style="color:var(--primary,#0B3D2E);font-weight:600;text-decoration:none">\u2190 My services</a>';
+    document.body.appendChild(bar);
+  }catch(e){}
+}
 function awStartAutoLogout(){
   if(window.AIWILLS_EDIT!==true) return;
   var MINS=10;
@@ -1134,7 +1209,7 @@ function closeGaps(){
     if(g2>1 && g2<200) f.style.marginBottom=(-g2)+'px';
   }catch(e){}
 }
-initState(); restoreLocal(); applyBrand();
+initState(); if(!awDoorGate()){ restoreLocal(); } applyBrand();
 try{ var _qp=new URLSearchParams(location.search); if(_qp.get('aw_paid')==='1' && _qp.get('aw_id')){ window.AIWILLS_WILL_ID=_qp.get('aw_id'); if(state.payment) state.payment.paid=true; var _vv=visible(); for(var _i=0;_i<_vv.length;_i++){ if(_vv[_i].id==='generate'){ cur=_i; break; } } } if(_qp.get('aw_etb_paid')==='1' && FUNNEL===ETB_FUNNEL){ if(state.payment) state.payment.paid=true; var _ev=visible(); for(var _j=0;_j<_ev.length;_j++){ if(_ev[_j].id==='done'){ cur=_j; break; } } } if(window.AIWILLS_EDIT===true){ var _rv=visible(); for(var _k=0;_k<_rv.length;_k++){ if(_rv[_k].kind==='review'){ cur=_k; break; } } } }catch(e){}
 
 /* Service URLs register themselves. When this engine runs on a real funnel page it already knows its
