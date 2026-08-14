@@ -1340,6 +1340,20 @@ const server = http.createServer(async (req, res) => {
         out.count = list.length;
         out.fields = list.map(function(f){ return { id:f.id, name:f.name, dataType:f.dataType, parentId:f.parentId||'', model:f.model||'' }; });
         out.sampleRaw = list[0] || null;
+        /* Did the document link actually land? Report length and the first few characters only:
+           printing a signed URL in a public response would hand over the customer's PDF. */
+        const fcid = (fu.searchParams.get('contactId')||'').replace(/[^A-Za-z0-9]/g,'');
+        if (fcid){
+          try {
+            const got = await ghl('GET','/contacts/'+fcid, ftok); const cc = got.contact || got;
+            const byId = {}; (cc.customFields||cc.customField||[]).forEach(function(f){ byId[f.id] = (f.value!=null?f.value:f.fieldValue); });
+            out.contactFieldsWithValues = Object.keys(byId).length;
+            out.docFields = list.filter(function(f){ return /(document|state json|current step|summary)$/i.test(String(f.name||'')); })
+              .map(function(f){ const v = byId[f.id]; const s = (v==null)?'':String(v); return { name:f.name, id:f.id, dataType:f.dataType, hasValue: s.trim()!=='', length: s.length, head: s.slice(0,40) }; });
+          } catch(e){ out.contactError = e.message; }
+          try { const t = signDoc(floc, fcid, 'wills'); out.docLinkWouldBe = { signed: !!t, urlLength: ((process.env.PUBLIC_BASE||'https://aiwills.digilyse.co') + '/api/will-pdf?t=' + encodeURIComponent(t)).length }; }
+          catch(e){ out.docLinkError = e.message; }
+        }
         const want = fu.searchParams.get('create')||'';
         const allowed = ['Will Document','LPA Document','ETB Document'];
         if (want && allowed.indexOf(want) >= 0){
