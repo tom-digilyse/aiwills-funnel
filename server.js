@@ -1221,7 +1221,7 @@ async function findContactByPhone(loc, phone){
 var AW_CV_SYNCED = {};
 /* GHL custom value name -> the key it comes from in our brand store. Only the handful a workflow
    email would ever merge; we are not mirroring the whole brand back into GHL. */
-var AW_CV_MAP = { company_name:'company_name', company_email:'email', company_address:'address', company_phone:'phone' };
+var AW_CV_MAP = { company_name:'company_name', company_email:'company_email', company_address:'company_address', company_phone:'footer_phone' };
 async function awSyncCompanyValue(token, loc){
   try {
     if (!loc || !token) return;
