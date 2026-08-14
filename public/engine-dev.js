@@ -57,7 +57,15 @@ var CFG = window.AIWILLS_CONFIG || {}; (function(){ var _m='{'+'{'; for(var _k i
   function renderHub(){
     var enc=encodeURIComponent;
     /* So a service can offer a way back without anyone having to configure the address by hand. */
-    try{ if(loc) localStorage.setItem('aw_hub_'+loc, location.href.split('#')[0]); }catch(e){}
+    try{
+      if(loc){
+        var _hubHref=location.href.split('#')[0];
+        try{ localStorage.setItem('aw_hub_'+loc, _hubHref); }catch(e1){}
+        var _hp=String(location.hostname||'').split('.');
+        var _hroot=_hp.length>2 ? _hp.slice(-(_hp.length>=3 && _hp[_hp.length-2].length<=3 ? 3 : 2)).join('.') : location.hostname;
+        try{ document.cookie='aw_hub_'+loc+'='+encodeURIComponent(_hubHref)+';domain=.'+_hroot+';path=/;max-age=2592000;SameSite=Lax'; }catch(e2){}
+      }
+    }catch(e){}
     try{ var hs=document.createElement('style'); hs.textContent='.hubwrap{max-width:var(--site-max);margin:0 auto;padding:34px 24px 60px}.hubh1{margin-bottom:6px}.hubgrid{display:flex;flex-wrap:wrap;gap:20px;margin-top:24px}.hubcard{flex:1 1 280px;min-width:260px;max-width:360px;border:1px solid var(--line);border-radius:16px;background:#fff;padding:24px;display:flex;flex-direction:column;gap:12px}.hubic{width:54px;height:54px;border-radius:12px;background:#f4f4f4;background:color-mix(in srgb,var(--icon,var(--primary)) 10%,#fff);color:var(--icon,var(--primary));display:flex;align-items:center;justify-content:center}.hubic svg{width:30px;height:30px}.hubcard h3{font-size:20px;margin:0;font-family:var(--hf)}.hubcard .hubdesc{color:var(--muted);font-size:14px;flex:1;margin:0}.hubcard .hubstatus{font-size:12px;font-weight:700;color:#157a3f}.hubcard .btn{width:100%;text-align:center;text-decoration:none;display:block;padding:13px}@media(max-width:640px){.hubgrid{flex-direction:column}.hubcard{max-width:none}}'; document.head.appendChild(hs); }catch(e){}
     var SVC=[
       {key:'wills',title:(CFG.wills_title||'Your Will'),blurb:(CFG.wills_blurb||'Create a clear, properly structured will and keep it up to date.'),url:(CFG.wills_url||'https://engine.aiwills.co.uk/wills-test.html'),icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h7l4 4v14H7z"/><path d="M14 3v4h4"/><path d="M10 12h6M10 16h4"/></svg>'},
@@ -1171,6 +1179,15 @@ function awServicesBar(){
     var CFGx = window.AIWILLS_CONFIG || {};
     var url = String(CFGx.hub_url || '').trim();
     if(!url){ try{ url = localStorage.getItem('aw_hub_' + (loc || '')) || ''; }catch(e){} }
+    if(!url){
+      try{
+        var _m=String(document.cookie||'').match(new RegExp('(?:^|;\\s*)aw_hub_' + (loc || '') + '=([^;]*)'));
+        if(_m) url = decodeURIComponent(_m[1]);
+      }catch(e){}
+    }
+    /* Only ever point at somewhere we recognise. A cookie is not a safe place to take a link from
+       without checking it. */
+    if(url && !/^https?:\/\//i.test(url)) url='';
     if(!url) return;   // nothing to point at, say nothing
     var bar = document.createElement('div');
     bar.id = 'awservices';
