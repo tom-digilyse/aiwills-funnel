@@ -1219,6 +1219,9 @@ async function findContactByPhone(loc, phone){
    our store, so both sides agree. Snapshot pushes preserve custom values, so nothing overwrites it.
    Cheap: at most one check per location per ten minutes, and never fatal to a save. */
 var AW_CV_SYNCED = {};
+/* GHL custom value name -> the key it comes from in our brand store. Only the handful a workflow
+   email would ever merge; we are not mirroring the whole brand back into GHL. */
+var AW_CV_MAP = { company_name:'company_name', company_email:'email', company_address:'address', company_phone:'phone' };
 async function awSyncCompanyValue(token, loc){
   try {
     if (!loc || !token) return;
@@ -1226,15 +1229,21 @@ async function awSyncCompanyValue(token, loc){
     if (AW_CV_SYNCED[loc] && (now - AW_CV_SYNCED[loc]) < 10 * 60 * 1000) return;
     AW_CV_SYNCED[loc] = now;
     var b = brandStoreGet(loc) || {};
-    var want = String(b.company_name || '').trim();
-    if (!want) return;                                  // nothing to say, so say nothing
+    var wants = {};
+    Object.keys(AW_CV_MAP).forEach(function(cvName){ var v = String(b[AW_CV_MAP[cvName]] || '').trim(); if (v) wants[cvName] = v; });
+    if (!Object.keys(wants).length) return;                 // nothing to say, so say nothing
     var r = await ghl('GET', '/locations/' + loc + '/customValues', token);
     var list = r.customValues || r.customValue || [];
-    var hit = list.filter(function(cv){ return String(cv.name || '').toLowerCase() === 'company_name'; })[0];
-    if (hit && String(hit.value || '') === want) return;
-    if (hit) await ghl('PUT', '/locations/' + loc + '/customValues/' + hit.id, token, { name: hit.name, value: want });
-    else await ghl('POST', '/locations/' + loc + '/customValues', token, { name: 'company_name', value: want });
-    console.log('company_name custom value synced for ' + loc);
+    var byName = {}; list.forEach(function(cv){ byName[String(cv.name || '').toLowerCase()] = cv; });
+    for (var nm in wants){
+      var hit = byName[nm];
+      if (hit && String(hit.value || '') === wants[nm]) continue;
+      try {
+        if (hit) await ghl('PUT', '/locations/' + loc + '/customValues/' + hit.id, token, { name: hit.name, value: wants[nm] });
+        else await ghl('POST', '/locations/' + loc + '/customValues', token, { name: nm, value: wants[nm] });
+        console.log('custom value ' + nm + ' synced for ' + loc);
+      } catch(e){ console.error('sync ' + nm, e.message); }
+    }
   } catch(e){ console.error('awSyncCompanyValue', e.message); }
 }
 async function getCustomValuesMap(locationId, token){
