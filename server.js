@@ -1369,12 +1369,21 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'GET' && pathOnly === '/api/hub-status'){
       res.setHeader('Access-Control-Allow-Origin','*');
-      const hu=new URL(req.url,'http://x'); const hloc=(hu.searchParams.get('locationId')||'').replace(/[^A-Za-z0-9]/g,''); const hcid=(hu.searchParams.get('contactId')||'').replace(/[^A-Za-z0-9]/g,'');
-      if(!hloc||!hcid) return send(res,400,{error:'locationId and contactId required'});
+      const hu=new URL(req.url,'http://x');
+      let hloc=(hu.searchParams.get('locationId')||'').replace(/[^A-Za-z0-9]/g,'');
+      let hcid=(hu.searchParams.get('contactId')||'').replace(/[^A-Za-z0-9]/g,'');
       /* This used to answer for any contact id at all, so an old hub link kept greeting someone by
          name months later and looked exactly like never being logged out. Someone's progress is
          their business: prove it is them. */
       const hclaims = verifyEdit(hu.searchParams.get('t') || '');
+      /* The session token already says who this is. The hub lives on a public funnel page where
+         GHL's {{contact.id}} merge field resolves to nothing, so the page had no contact id to send
+         and simply never asked. A signed-in customer therefore saw "In progress" only for services
+         they happened to have started in THAT browser. Take the identity from the token when the
+         page cannot supply it; the checks below are unchanged. */
+      if(!hcid && hclaims) hcid = String(hclaims.cid||'').replace(/[^A-Za-z0-9]/g,'');
+      if(!hloc && hclaims) hloc = String(hclaims.loc||'').replace(/[^A-Za-z0-9]/g,'');
+      if(!hloc||!hcid) return send(res,400,{error:'locationId and contactId required'});
       if (!hclaims || hclaims.kind !== 'session' || authIsSpent(hclaims.jti) || String(hclaims.cid) !== String(hcid) || String(hclaims.loc) !== String(hloc)){
         return send(res, 403, { error: 'no session', message: 'Sign in to see your progress.' });
       }
