@@ -493,7 +493,7 @@ function brandStoreGet(loc){ try { return JSON.parse(fs.readFileSync(path.join(B
 
 function formEncode(obj){ const out = []; for (const k in obj){ const v = obj[k]; if (v === undefined || v === null || v === '') continue; out.push(encodeURIComponent(k) + '=' + encodeURIComponent(v)); } return out.join('&'); }
 /* Prices come from whatever a firm typed, or a scrape, or a GHL custom value. A blank or a
-   "£99 per will" parses to NaN, and NaN survives arithmetic silently - multiply it by a zero
+   "Â£99 per will" parses to NaN, and NaN survives arithmetic silently - multiply it by a zero
    quantity and the whole total is still NaN. Every price goes through here instead. */
 function pence(v){
   // Strip only what people legitimately type around a number. Anything else - words, a minus
@@ -636,7 +636,7 @@ function awHumanise(k){
   return String(k).replace(/([a-z0-9])([A-Z])/g,'$1 $2').replace(/_/g,' ').replace(/\b\w/g,function(c){return c.toUpperCase();});
 }
 var AW_SECTION={ personal:'Personal details', partner:'Spouse / partner', situation:'Circumstances', children:'Children', guardian:'Guardians', executors:'Executors', gifts:'Gifts & legacies', mirrorGifts:'Gifts (their mirror will)', residual:'Residual estate', funeral:'Funeral wishes', about:'About you', estate:'Estate', concerns:'Concerns', contact_details:'Contact details', your_details:'Your details' };
-function awMoney(k,v){ if(/share/i.test(k)) return v+'%'; if(/amount|price/i.test(k)) return '£'+v; return v; }
+function awMoney(k,v){ if(/share/i.test(k)) return v+'%'; if(/amount|price/i.test(k)) return 'Â£'+v; return v; }
 function awLines(obj, indent){
   var pad=''; for(var i=0;i<indent;i++) pad+='  '; var out=[];
   Object.keys(obj||{}).forEach(function(k){
@@ -893,7 +893,7 @@ async function awDetailCF(token, loc, map, detail){
   if(!Array.isArray(detail)) return out;
   for(var i=0;i<detail.length && i<300;i++){
     var d=detail[i]||{};
-    var nm=String(d.name||'').replace(/[^A-Za-z0-9 £%&'(),.\/-]/g,' ').replace(/\s+/g,' ').trim().slice(0,100);
+    var nm=String(d.name||'').replace(/[^A-Za-z0-9 Â£%&'(),.\/-]/g,' ').replace(/\s+/g,' ').trim().slice(0,100);
     var vl=(d.value==null)?'':String(d.value).slice(0,2000);
     if(!nm || vl==='') continue;
     var known=!!map[nm.toLowerCase()];
@@ -1322,6 +1322,37 @@ const server = http.createServer(async (req, res) => {
         const services={ wills:{ started:has('Will State Json'), paid: tags.indexOf('ai-will-paid')>=0 }, lpa:{ started:has('LPA State Json'), paid:false }, etb:{ started:has('ETB State Json'), paid: tags.indexOf('etb-active')>=0 }, probate:{ started:has('Probate State Json'), paid:false } };
         return send(res,200,{ ok:true, services });
       }catch(e){ return send(res,500,{error:e.message}); }
+    }
+    /* Diagnostics for the contact custom-field plumbing. Field names and ids only, never anyone's
+       answers, so it is safe in front of the auth gate. The create probe is limited to our own three
+       document fields, which any customer creates simply by using the funnel. */
+    if (req.method === 'GET' && pathOnly === '/api/fields-debug'){
+      res.setHeader('Access-Control-Allow-Origin','*');
+      try {
+        const fu = new URL(req.url,'http://x');
+        const floc = (fu.searchParams.get('locationId')||'').replace(/[^A-Za-z0-9]/g,'');
+        if(!floc) return send(res,400,{error:'locationId required'});
+        const ftok = await getWriteToken(floc);
+        const out = { ok:true, locationId: floc };
+        let list = [];
+        try { const r = await ghl('GET','/locations/'+floc+'/customFields?model=contact', ftok); list = r.customFields || r.customField || []; }
+        catch(e){ out.readError = e.message; }
+        out.count = list.length;
+        out.fields = list.map(function(f){ return { id:f.id, name:f.name, dataType:f.dataType, parentId:f.parentId||'', model:f.model||'' }; });
+        out.sampleRaw = list[0] || null;
+        const want = fu.searchParams.get('create')||'';
+        const allowed = ['Will Document','LPA Document','ETB Document'];
+        if (want && allowed.indexOf(want) >= 0){
+          const hit = list.filter(function(f){ return String(f.name||'').toLowerCase() === want.toLowerCase(); })[0];
+          if (hit) out.create = { alreadyExists:true, id:hit.id, dataType:hit.dataType };
+          else {
+            const dt = (fu.searchParams.get('dataType')||'TEXT');
+            try { out.create = { ok:true, dataType:dt, response: await ghl('POST','/locations/'+floc+'/customFields', ftok, { name:want, dataType:dt, model:'contact' }) }; }
+            catch(e){ out.create = { ok:false, dataType:dt, error: e.message }; }
+          }
+        } else if (want){ out.create = { skipped:'name is not on the allow list', allowed: allowed }; }
+        return send(res,200,out);
+      } catch(e){ return send(res,200,{ error: e.message }); }
     }
     if (req.method === 'POST' && pathOnly === '/api/checkout'){
       res.setHeader('Access-Control-Allow-Origin','*');
