@@ -1394,7 +1394,7 @@ const server = http.createServer(async (req, res) => {
         const defs=await ghlContactFields(ht, hloc); const byName={}; defs.forEach(function(d){ byName[(d.name||'').toLowerCase()]=d.id; });
         const has=function(n){ var id=byName[n.toLowerCase()]; var v=id?byId[id]:''; return !!(v&&String(v).trim()); };
         const tags=(c.tags||[]).map(function(t){return String(t).toLowerCase();});
-        const services={ wills:{ started:has('Will State Json'), paid: tags.indexOf('ai-will-paid')>=0 }, lpa:{ started:has('LPA State Json'), paid:false }, etb:{ started:has('ETB State Json'), paid: tags.indexOf('etb-active')>=0 }, probate:{ started:has('Probate State Json'), paid:false } };
+        const services={ wills:{ started:has('Will State Json'), paid: tags.indexOf('ai-will-paid')>=0 }, lpa:{ started:has('LPA State Json'), paid:false }, etb:{ started:has('ETB State Json'), paid: tags.indexOf('etb-active')>=0 }, probate:{ started:has('Probate State Json'), paid:false, submitted: tags.indexOf('probate-lead')>=0 } };
         return send(res,200,{ ok:true, services });
       }catch(e){ return send(res,500,{error:e.message}); }
     }
@@ -1719,7 +1719,18 @@ const server = http.createServer(async (req, res) => {
         const wp = require('./will-pdf');
         let buf, fname;
         if (fn==='wills'){ const wd = wp.normalizeWill(out.state); buf = await wp.buildWillPdf(wd, { company_name: company }); fname='your-will.pdf'; }
-        else if (fn==='lpa'){ try { const lo=await wp.buildLpaOfficial(out.state,{ company_name: company }); const pick=lo.filter(function(o){return o.field!=='LPA Guide PDF';})[0]||lo[0]; buf=pick.bytes; fname=pick.fname; } catch(e){ buf = await wp.buildLpaPdf(out.state, { company_name: company }); fname='lpa-application.pdf'; } }
+        else if (fn==='lpa'){ try {
+          const lo=await wp.buildLpaOfficial(out.state,{ company_name: company });
+          /* Somebody who buys BOTH types has two official forms, LP1F and LP1H. This handed back
+             whichever came first and the second was never given to them at all. Let the caller name
+             the form it wants; with no name, behave exactly as before. */
+          const _wf=String((new URL(req.url,'http://x')).searchParams.get('form')||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+          let pick=null;
+          if(_wf==='GUIDE') pick=lo.filter(function(o){ return o.field==='LPA Guide PDF'; })[0];
+          else if(_wf) pick=lo.filter(function(o){ return String(o.field||'').toUpperCase().indexOf(_wf)>=0; })[0];
+          if(!pick) pick=lo.filter(function(o){ return o.field!=='LPA Guide PDF'; })[0]||lo[0];
+          buf=pick.bytes; fname=pick.fname;
+        } catch(e){ buf = await wp.buildLpaPdf(out.state, { company_name: company }); fname='lpa-application.pdf'; } }
         else { buf = await wp.buildEtbPdf(out.state, { company_name: company }); fname='executor-toolbox-summary.pdf'; }
         res.writeHead(200, { 'Content-Type':'application/pdf', 'Content-Disposition':'inline; filename="'+fname+'"', 'Cache-Control':'no-store', 'Access-Control-Allow-Origin':'*' });
         return res.end(buf);
