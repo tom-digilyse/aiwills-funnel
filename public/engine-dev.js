@@ -97,13 +97,17 @@ var CFG = window.AIWILLS_CONFIG || {}; (function(){ var _m='{'+'{'; for(var _k i
     // and into any page the customer is sent on to, which is the hole we are closing.
     function withId(u){ if(!u) return u; return awSetParams(u, { aw_loc: loc }); }
     function card(s,st){
-      var done=st&&(st.paid||st.started);
+      /* A probate quote that has been sent is neither "in progress" nor "purchased": there is
+         nothing left for the customer to do and telling them to Continue reads as unfinished work. */
+      var sent=!!(st&&st.submitted&&!st.paid);
+      var done=st&&(st.paid||st.started||st.submitted);
       var btn;
       if(!s.url){ btn='<button class="btn ghost" type="button" disabled>Coming soon</button>'; }
       else if(st&&st.paid){ btn='<a class="btn ghost" target="_top" data-k="'+esc(s.key)+'" href="'+esc(withId(s.url))+'">Open / edit</a>'; }
+      else if(sent){ btn='<a class="btn ghost" target="_top" data-k="'+esc(s.key)+'" href="'+esc(withId(s.url))+'">View</a>'; }
       else if(done){ btn='<a class="btn" target="_top" data-k="'+esc(s.key)+'" href="'+esc(withId(s.url))+'">Continue</a>'; }
       else { btn='<a class="btn" target="_top" data-k="'+esc(s.key)+'" href="'+esc(withId(s.url))+'">Get started</a>'; }
-      var badge=done?('<div class="hubstatus">'+(st.paid?'Purchased':(_awSignedIn()?'In progress':'Unfinished on this device'))+'</div>'):'';
+      var badge=done?('<div class="hubstatus">'+(st.paid?'Purchased':(sent?'Quote being prepared':(_awSignedIn()?'In progress':'Unfinished on this device')))+'</div>'):'';
       return '<div class="hubcard"><div class="hubic">'+s.icon+'</div><h3>'+esc(s.title)+'</h3><p class="hubdesc">'+esc(s.blurb)+'</p>'+badge+btn+'</div>';
     }
     function _awSignedIn(){ return window.AIWILLS_EDIT===true || !!(window.AIWILLS_TOKEN); }
@@ -126,7 +130,7 @@ var CFG = window.AIWILLS_CONFIG || {}; (function(){ var _m='{'+'{'; for(var _k i
       try{ location.reload(); }catch(e){}
     }
     function localSt(){ var o={}; if(!loc) return o; ['wills','lpa','etb','probate'].forEach(function(k){ try{ if(localStorage.getItem('aw_draft_'+k+'_'+loc) || document.cookie.indexOf('aw_s_'+k+'_'+loc+'=1')>=0) o[k]={started:true,paid:false}; }catch(e){} }); return o; }
-    function mergeSt(a,b){ var o={}; ['wills','lpa','etb','probate'].forEach(function(k){ var x=a[k]||{}, y=b[k]||{}; o[k]={ started:!!(x.started||y.started), paid:!!(x.paid||y.paid) }; }); return o; }
+    function mergeSt(a,b){ var o={}; ['wills','lpa','etb','probate'].forEach(function(k){ var x=a[k]||{}, y=b[k]||{}; o[k]={ started:!!(x.started||y.started), paid:!!(x.paid||y.paid), submitted:!!(x.submitted||y.submitted) }; }); return o; }
     function paint(st){ var g=el('hubgrid'); if(!g) return; g.innerHTML=SVC.map(function(s){return card(s, st[s.key]);}).join('');
       // Gate: a visitor who is not logged in gets asked "new or returning?" before entering any service.
       g.querySelectorAll('a.btn').forEach(function(a){ a.addEventListener('click', function(ev){
@@ -1009,7 +1013,18 @@ function render(){
     }
   } else if(s.kind==='generate' && FUNNEL===LPA_FUNNEL){
     var _lcid=(rootEl&&rootEl.getAttribute('data-contact'))||qp('aw_c')||window.AIWILLS_CONTACT_ID||'';
-    setTimeout(function(){ try{ fetch(API+'/api/lpa-save',{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({locationId:loc,contactId:_lcid,state:state,pdf:true})}).then(function(r){return r.json();}).then(function(j){ var w=el('lpapdfwrap'); if(!w) return; if(j&&j.token){ var u=API+'/api/lpa-pdf?t='+encodeURIComponent(j.token); w.innerHTML='<iframe src="'+u+'" style="width:100%;height:560px;border:1px solid #e0e0e0;border-radius:10px;margin-top:16px;background:#fff" title="Your LPA"></iframe><div style="margin-top:12px"><a class="btn wide" href="'+u+'" target="_blank" rel="noopener">Download your LPA (PDF)</a></div>'; } else { w.innerHTML='<p class="note">Could not generate the LPA document'+((j&&j.error)?(': '+esc(j.error)):'')+'.</p>'; } }).catch(function(){ var w=el('lpapdfwrap'); if(w) w.innerHTML='<p class="note">Could not generate the LPA document.</p>'; }); }catch(e){} },60);
+    setTimeout(function(){ try{ fetch(API+'/api/lpa-save',{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({locationId:loc,contactId:_lcid,state:state,pdf:true})}).then(function(r){return r.json();}).then(function(j){ var w=el('lpapdfwrap'); if(!w) return; if(j&&j.token){
+        /* Both LPA types means two separate official forms, and only one of them was ever offered.
+           Name each one so the customer can see they have both, and which is which. */
+        var _ty=String(((state||{}).lpa_type||{}).type||'');
+        var _forms=[];
+        if(/Property|Both/i.test(_ty)) _forms.push({ k:'LP1F', label:'Download your Property & Financial Affairs LPA (LP1F)' });
+        if(/Health|Both/i.test(_ty)) _forms.push({ k:'LP1H', label:'Download your Health & Welfare LPA (LP1H)' });
+        if(!_forms.length) _forms.push({ k:'', label:'Download your LPA (PDF)' });
+        var _lu=function(f){ return API+'/api/lpa-pdf?t='+encodeURIComponent(j.token)+(f.k?('&form='+f.k):''); };
+        var _links=_forms.map(function(f){ return '<a class="btn wide" href="'+_lu(f)+'" target="_blank" rel="noopener" style="display:block;text-align:center;text-decoration:none;margin-top:10px">'+esc(f.label)+'</a>'; }).join('');
+        w.innerHTML='<iframe src="'+_lu(_forms[0])+'" style="width:100%;height:560px;border:1px solid #e0e0e0;border-radius:10px;margin-top:16px;background:#fff" title="Your LPA"></iframe><div style="margin-top:12px">'+_links+'</div>'+((_forms.length>1)?'<p class="note">These are two separate applications. Each one has to be signed and registered with the Office of the Public Guardian on its own.</p>':'');
+      } else { w.innerHTML='<p class="note">Could not generate the LPA document'+((j&&j.error)?(': '+esc(j.error)):'')+'.</p>'; } }).catch(function(){ var w=el('lpapdfwrap'); if(w) w.innerHTML='<p class="note">Could not generate the LPA document.</p>'; }); }catch(e){} },60);
     html += '<div class="mock"><div class="tick">\u2713</div><h3>Your LPA is ready</h3><p class="note">Payment received. Your LPA is shown below.</p><div id="lpapdfwrap"><p class="note">Preparing your LPA document\u2026</p></div></div>';
   } else if(s.kind==='generate'){
     var _p0=(state.personal||{});
