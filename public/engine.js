@@ -92,8 +92,27 @@ var CFG = window.AIWILLS_CONFIG || {}; (function(){ var _m='{'+'{'; for(var _k i
       else if(st&&st.paid){ btn='<a class="btn ghost" target="_top" data-k="'+esc(s.key)+'" href="'+esc(withId(s.url))+'">Open / edit</a>'; }
       else if(done){ btn='<a class="btn" target="_top" data-k="'+esc(s.key)+'" href="'+esc(withId(s.url))+'">Continue</a>'; }
       else { btn='<a class="btn" target="_top" data-k="'+esc(s.key)+'" href="'+esc(withId(s.url))+'">Get started</a>'; }
-      var badge=done?('<div class="hubstatus">'+(st.paid?'Purchased':'In progress')+'</div>'):'';
+      var badge=done?('<div class="hubstatus">'+(st.paid?'Purchased':(_awSignedIn()?'In progress':'Unfinished on this device'))+'</div>'):'';
       return '<div class="hubcard"><div class="hubic">'+s.icon+'</div><h3>'+esc(s.title)+'</h3><p class="hubdesc">'+esc(s.blurb)+'</p>'+badge+btn+'</div>';
+    }
+    function _awSignedIn(){ return window.AIWILLS_EDIT===true || !!(window.AIWILLS_TOKEN); }
+    function _awHasLocal(){ try{ var n=0; ['wills','lpa','etb','probate'].forEach(function(k){ if(localStorage.getItem('aw_draft_'+k+'_'+loc) || document.cookie.indexOf('aw_s_'+k+'_'+loc+'=1')>=0) n++; }); return n>0; }catch(e){ return false; } }
+    function _awForgetDevice(){
+      try{ Object.keys(localStorage).forEach(function(k){ if(k.indexOf('aw_draft_')===0) localStorage.removeItem(k); }); }catch(e){}
+      try{
+        var _ck=String(document.cookie||'').split(';');
+        var _dead='=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/';
+        var _p=String(location.hostname||'').split('.');
+        var _root=_p.length>2 ? _p.slice(-2).join('.') : location.hostname;
+        for(var _i=0;_i<_ck.length;_i++){
+          var _n=String(_ck[_i].split('=')[0]||'').replace(/^\s+/,'');
+          if(_n.indexOf('aw_s_')!==0) continue;
+          try{ document.cookie=_n+_dead; }catch(e1){}
+          try{ document.cookie=_n+_dead+';domain=.aiwills.co.uk'; }catch(e2){}
+          try{ document.cookie=_n+_dead+';domain=.'+_root; }catch(e3){}
+        }
+      }catch(e){}
+      try{ location.reload(); }catch(e){}
     }
     function localSt(){ var o={}; if(!loc) return o; ['wills','lpa','etb','probate'].forEach(function(k){ try{ if(localStorage.getItem('aw_draft_'+k+'_'+loc) || document.cookie.indexOf('aw_s_'+k+'_'+loc+'=1')>=0) o[k]={started:true,paid:false}; }catch(e){} }); return o; }
     function mergeSt(a,b){ var o={}; ['wills','lpa','etb','probate'].forEach(function(k){ var x=a[k]||{}, y=b[k]||{}; o[k]={ started:!!(x.started||y.started), paid:!!(x.paid||y.paid) }; }); return o; }
@@ -177,16 +196,18 @@ var CFG = window.AIWILLS_CONFIG || {}; (function(){ var _m='{'+'{'; for(var _k i
         box.innerHTML='<span style="color:var(--muted)">You are logged in. <a href="#" id="awlogout" style="color:var(--primary);font-weight:600;text-decoration:none">Log out</a></span>';
         var lo=document.getElementById('awlogout'); if(lo) lo.addEventListener('click',function(ev){ ev.preventDefault(); awLogout('manual'); });
       } else {
-        box.innerHTML='<span style="color:var(--muted)">Already started with us? <a href="#" id="awloginlink" style="color:var(--primary);font-weight:600;text-decoration:none">Log in</a></span>';
+        box.innerHTML='<span style="color:var(--muted)">New here? Just pick a service below, no account needed. Already started with us? <a href="#" id="awloginlink" style="color:var(--primary);font-weight:600;text-decoration:none">Log in</a></span>'
+          + (_awHasLocal() ? '<div style="margin-top:6px;font-size:13px;color:var(--muted)">Answers from an unfinished form are saved on this device. <a href="#" id="awforget" style="color:var(--primary);font-weight:600;text-decoration:none">Not you? Clear them</a></div>' : '');
+        var fg=document.getElementById('awforget'); if(fg) fg.addEventListener('click',function(ev){ ev.preventDefault(); _awForgetDevice(); });
         var ll=document.getElementById('awloginlink'); if(ll) ll.addEventListener('click',function(ev){ ev.preventDefault(); awOpenLogin(); });
       }
     }
     function awOpenLogin(){
       var m=document.getElementById('awloginmodal'); if(!m){ m=document.createElement('div'); m.id='awloginmodal'; document.body.appendChild(m); }
       m.style.cssText='position:fixed;inset:0;background:rgba(20,20,20,.45);z-index:99998;display:flex;align-items:center;justify-content:center;padding:20px;font-family:var(--bf,Arial,sans-serif)';
-      m.innerHTML='<div style="background:#fff;max-width:420px;width:100%;border-radius:16px;padding:26px 24px;box-shadow:0 10px 40px rgba(0,0,0,.2)"><h2 style="font-family:var(--hf,Georgia,serif);color:var(--heading);margin:0 0 6px;font-size:21px">Log in to your account</h2><p style="color:var(--muted);font-size:14px;line-height:1.5;margin:0 0 16px">We will send you a secure one-tap link. No password needed.</p><div style="display:flex;gap:8px;margin-bottom:14px"><button type="button" id="awtabsms" style="flex:1;padding:10px;border:1px solid var(--line);border-radius:10px;background:#fff;cursor:pointer;font-family:var(--bf)">Text me</button><button type="button" id="awtabemail" style="flex:1;padding:10px;border:1px solid var(--line);border-radius:10px;background:#fff;cursor:pointer;font-family:var(--bf)">Email me</button></div><input id="awlogininput" style="width:100%;box-sizing:border-box;padding:12px 14px;border:1px solid var(--line);border-radius:10px;font-size:15px;font-family:var(--bf)"><div id="awloginmsg" style="font-size:13px;margin-top:10px;min-height:18px;color:var(--muted)"></div><button type="button" id="awloginsend" style="width:100%;margin-top:8px;background:var(--btn-bg,var(--primary));color:#fff;border:none;border-radius:var(--btn-radius,10px);padding:13px;font-weight:600;cursor:pointer;font-family:var(--bf)">Send my link</button><button type="button" id="awloginclose" style="width:100%;margin-top:6px;background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px">Cancel</button></div>';
+      m.innerHTML='<div style="background:#fff;max-width:420px;width:100%;border-radius:16px;padding:26px 24px;box-shadow:0 10px 40px rgba(0,0,0,.2)"><h2 style="font-family:var(--hf,Georgia,serif);color:var(--heading);margin:0 0 6px;font-size:21px">Log in to your account</h2><p style="color:var(--muted);font-size:14px;line-height:1.5;margin:0 0 16px">We will send you a secure one-tap link. No password needed.</p><div style="display:flex;gap:8px;margin-bottom:14px"><button type="button" id="awtabsms" style="flex:1;padding:10px;border:1px solid var(--line);border-radius:10px;background:#fff;cursor:pointer;font-family:var(--bf)">Text me</button><button type="button" id="awtabemail" style="flex:1;padding:10px;border:1px solid var(--line);border-radius:10px;background:#fff;cursor:pointer;font-family:var(--bf)">Email me</button></div><input id="awlogininput" style="width:100%;box-sizing:border-box;padding:12px 14px;border:1px solid var(--line);border-radius:10px;font-size:15px;font-family:var(--bf)"><div id="awloginmsg" style="font-size:13px;margin-top:10px;min-height:18px;color:var(--muted)"></div><button type="button" id="awloginsend" style="width:100%;margin-top:8px;background:var(--btn-bg,var(--primary));color:#fff;border:none;border-radius:var(--btn-radius,10px);padding:13px;font-weight:600;cursor:pointer;font-family:var(--bf)">Send my link</button><button type="button" id="awloginclose" style="width:100%;margin-top:6px;background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px">Cancel</button><p style="color:var(--muted);font-size:12.5px;line-height:1.5;margin:14px 0 0;padding-top:12px;border-top:1px solid var(--line)">Not started with us yet? You do not need an account. Close this and choose a service, we will set one up as you go.</p></div>';
       var chan='sms';
-      function setTab(c){ chan=c; var inp=document.getElementById('awlogininput'); if(c==='sms'){ inp.type='tel'; inp.placeholder='Your mobile number'; } else { inp.type='email'; inp.placeholder='you@example.com'; } document.getElementById('awtabsms').style.fontWeight=(c==='sms')?'700':'400'; document.getElementById('awtabsms').style.borderColor=(c==='sms')?'var(--primary)':'var(--line)'; document.getElementById('awtabemail').style.fontWeight=(c==='email')?'700':'400'; document.getElementById('awtabemail').style.borderColor=(c==='email')?'var(--primary)':'var(--line)'; }
+      function setTab(c){ chan=c; var inp=document.getElementById('awlogininput'); if(c==='sms'){ inp.type='tel'; inp.placeholder='Your mobile number'; } else { inp.type='email'; inp.placeholder='you@example.com'; } inp.value=''; try{ inp.focus(); }catch(e){} var _tm=document.getElementById('awloginmsg'); if(_tm) _tm.textContent=''; document.getElementById('awtabsms').style.fontWeight=(c==='sms')?'700':'400'; document.getElementById('awtabsms').style.borderColor=(c==='sms')?'var(--primary)':'var(--line)'; document.getElementById('awtabemail').style.fontWeight=(c==='email')?'700':'400'; document.getElementById('awtabemail').style.borderColor=(c==='email')?'var(--primary)':'var(--line)'; }
       document.getElementById('awtabsms').onclick=function(){ setTab('sms'); };
       document.getElementById('awtabemail').onclick=function(){ setTab('email'); };
       document.getElementById('awloginclose').onclick=function(){ m.parentNode&&m.parentNode.removeChild(m); };
@@ -199,7 +220,16 @@ var CFG = window.AIWILLS_CONFIG || {}; (function(){ var _m='{'+'{'; for(var _k i
         var btn=document.getElementById('awloginsend'); btn.disabled=true; msg.style.color='var(--muted)'; msg.textContent='Sending...';
         var base=location.origin+location.pathname+'?aw_loc='+enc(loc);
         var body={ locationId:loc, funnel:'wills', channel:chan, returnBase:base }; if(chan==='email') body.email=v; else body.phone=v;
-        fetch(API+'/api/edit-request',{method:'POST',body:JSON.stringify(body)}).then(function(r){return r.json();}).then(function(j){ btn.disabled=false; msg.style.color='var(--primary)'; msg.textContent=(j&&j.message)||('If we have your details, your link is on its way by '+(chan==='sms'?'text':'email')+'.'); }).catch(function(){ btn.disabled=false; msg.style.color='#c8100d'; msg.textContent='Something went wrong, please try again.'; });
+        fetch(API+'/api/edit-request',{method:'POST',body:JSON.stringify(body)}).then(function(r){return r.json();}).then(function(j){
+          var how=(chan==='sms'?'text message':'email');
+          m.innerHTML='<div style="background:#fff;max-width:420px;width:100%;border-radius:16px;padding:26px 24px;box-shadow:0 10px 40px rgba(0,0,0,.2);text-align:center">'
+            + '<h2 style="font-family:var(--hf,Georgia,serif);color:var(--heading);margin:0 0 8px;font-size:21px">Check your '+how+'</h2>'
+            + '<p style="color:var(--muted);font-size:14px;line-height:1.55;margin:0 0 4px">If we have your details, a secure link is on its way to <strong>'+esc(v)+'</strong>. It opens your saved answers and expires after an hour.</p>'
+            + '<p style="color:var(--muted);font-size:13px;line-height:1.55;margin:12px 0 18px">Nothing arrives? You may not have started with us on those details yet. Close this and choose a service, no account needed.</p>'
+            + '<button type="button" id="awloginok" style="width:100%;background:var(--btn-bg,var(--primary));color:#fff;border:none;border-radius:var(--btn-radius,10px);padding:13px;font-weight:600;cursor:pointer;font-family:var(--bf)">Close</button>'
+            + '</div>';
+          var okb=document.getElementById('awloginok'); if(okb) okb.onclick=function(){ m.parentNode&&m.parentNode.removeChild(m); };
+        }).catch(function(){ btn.disabled=false; msg.style.color='#c8100d'; msg.textContent='Something went wrong, please try again.'; });
       };
     }
   }
