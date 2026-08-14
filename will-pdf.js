@@ -231,12 +231,30 @@ function funeralMirror(doc, f){
   organClause(doc, f.organDonation);
 }
 
+/* signatureBlock reserves room for itself, but nothing reserved room for the paragraph directly
+   above it. When that paragraph landed near the foot of a page the signatures moved to a fresh page
+   and left the closing clause of the will stranded on its own. A will should not be signed on a page
+   carrying none of its text, so measure the paragraph and the signature block as one unit and break
+   early if they will not sit together. */
 function organClause(doc, v){
-  if (yes(v)){
-    P(doc, 'I express my wish that, upon my death, any of my organs and/or tissue may be used for transplantation, therapy, medical education, or research purposes. I request that my Executors and family members give effect to this wish so far as is practicable.');
-  } else {
-    P(doc, 'I express my wish that none of my organs or tissue be used for transplantation, therapy, medical education, or research purposes after my death. I request that my Executors and family members respect this wish.');
-  }
+  var t = yes(v)
+    ? 'I express my wish that, upon my death, any of my organs and/or tissue may be used for transplantation, therapy, medical education, or research purposes. I request that my Executors and family members give effect to this wish so far as is practicable.'
+    : 'I express my wish that none of my organs or tissue be used for transplantation, therapy, medical education, or research purposes after my death. I request that my Executors and family members respect this wish.';
+  try {
+    var usableW = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+    var floor = doc.page.height - doc.page.margins.bottom;
+    var bodyH = doc.font('Times-Roman').fontSize(11).heightOfString(t, { width: usableW, lineGap: 2.5 });
+    doc.font('Helvetica').fontSize(12);
+    var lh12 = doc.currentLineHeight();
+    var attestH = doc.font('Helvetica').fontSize(11.5).heightOfString(
+      'Signed by me in the presence of the undersigned witnesses, who both attest and witness my signature in my presence, and in the presence of each other.',
+      { width: usableW, lineGap: 3 });
+    // Mirrors the Group A reserve inside signatureBlock, plus the moveDown either side of it.
+    var sigH = attestH + (0.9 * lh12) + lh12 + (0.7 * lh12) + lh12 + 4;
+    var need = bodyH + (0.45 * 11) + lh12 + sigH;
+    if (doc.y + need > floor) doc.addPage();
+  } catch (e) {}
+  P(doc, t);
 }
 
 function signatureBlock(doc){

@@ -12,7 +12,30 @@
     var st=document.createElement('style'); st.textContent=CSS+"\n.awfaq{margin:34px auto 0;max-width:var(--wrap,720px);border-top:1px solid var(--line);padding-top:22px}.awfaq h4{font-family:var(--hf);color:var(--heading);font-size:17px;margin:0 0 10px}.awfaq details{border:1px solid var(--line);border-radius:10px;margin:8px 0;background:#fff}.awfaq summary{cursor:pointer;padding:12px 14px;font-weight:600;color:var(--heading);font-family:var(--bf);list-style:none}.awfaq summary::-webkit-details-marker{display:none}.awfaq summary::after{content:'+';float:right;color:var(--muted);font-weight:700}.awfaq details[open] summary::after{content:'\u2013'}.awfaq p{margin:0;padding:0 14px 14px;color:var(--body);font-size:15px;line-height:1.55}"; document.head.appendChild(st);
     setTimeout(function(){ try{ var _mt=document.getElementById('aiwills-funnel'); if(_mt) _mt.classList.add('aw-ready'); }catch(e){} },900);
   }catch(e){}
-  var mount=document.getElementById('aiwills-funnel') || document.body;
+  /* Falling back to document.body meant innerHTML deleted every node GoHighLevel had put on the
+     page: its chat widget, any embedded survey or form, its own scripts. Those things were never
+     "failing to load", we were removing them. Build our own mount instead, and hide what was already
+     there rather than destroying it, so their scripts keep the elements they are holding on to and
+     anything injected after us is left alone entirely. */
+  var mount=document.getElementById('aiwills-funnel');
+  if(!mount){
+    mount=document.createElement('div');
+    mount.id='aiwills-funnel';
+    try{
+      var _kids=[].slice.call(document.body.children);
+      for(var _ki=0;_ki<_kids.length;_ki++){
+        var _kn=_kids[_ki];
+        var _tag=String(_kn.tagName||'').toUpperCase();
+        if(_tag==='SCRIPT'||_tag==='STYLE'||_tag==='LINK'||_tag==='NOSCRIPT') continue;
+        /* Anything that looks like a live widget stays visible. Hiding the chat bubble would be the
+           same bug in a politer form. */
+        var _sig=(_kn.id||'')+' '+(_kn.getAttribute&&_kn.getAttribute('class')||'');
+        if(/chat|widget|lc_|leadconnector|messenger|intercom|drift/i.test(_sig)) continue;
+        try{ _kn.setAttribute('data-aw-hidden','1'); _kn.style.display='none'; }catch(_ke){}
+      }
+    }catch(_ke2){}
+    document.body.appendChild(mount);
+  }
   mount.innerHTML=(String((window.AIWILLS_CONFIG||{}).funnel||'').toLowerCase()==='hub')?'':MARKUP;
   function scrapeLoc(){ try{ var h=document.documentElement.innerHTML; var fid=(location.pathname.match(/([A-Za-z0-9]{20})/)||[])[1]; if(fid){ var m=h.match(new RegExp('"'+fid+'","[^"]*","([A-Za-z0-9]{15,30})"')); if(m) return m[1]; } var m2=h.match(/"locationId":"([A-Za-z0-9]{15,30})"/); if(m2) return m2[1]; return ''; }catch(e){ return ''; } }
   function qp(n){ try{ var v=new URLSearchParams(location.search).get(n)||''; return (/[{}]/.test(v))?'':v; }catch(e){ return ''; } }
@@ -27,7 +50,7 @@
   function run(){
 
 var CFG = window.AIWILLS_CONFIG || {}; (function(){ var _m='{'+'{'; for(var _k in CFG){ if(typeof CFG[_k]==='string' && CFG[_k].indexOf(_m)>=0) CFG[_k]=''; } })();
-  try{ if(window.AIWILLS_EDIT===true){ awStartAutoLogout(); awSignedInBar(); } }catch(e){}
+  try{ if(window.AIWILLS_EDIT===true || !!(window.AIWILLS_TOKEN)){ awStartAutoLogout(); awSignedInBar(); } }catch(e){}
   if(String((window.AIWILLS_CONFIG||{}).funnel||'').toLowerCase()==='hub'){ renderHub(); return; }
   try{ var _psf=String(CFG.plan_services||'').toLowerCase().split(',').map(function(x){return x.trim();}).filter(Boolean); var _fk=(function(){var f=String((CFG.funnel)||window.AIWILLS_FUNNEL||'').toLowerCase();return (f==='etb'||f==='lpa')?f:((f==='probate'||f==='referral')?'probate':'wills');})(); if(_psf.length && _psf.indexOf(_fk)<0){ mount.innerHTML='<div class="aw-ready" style="max-width:640px;margin:60px auto;padding:32px;border:1px solid var(--line);border-radius:14px;background:#fff;text-align:center;font-family:var(--bf)"><h3 style="font-family:var(--hf);color:var(--heading)">This service is not part of your plan</h3><p style="color:var(--muted)">Please speak to your adviser about adding it, or go back to your services page.</p></div>'; try{ mount.classList.add('aw-ready'); }catch(e){} return; } }catch(e){}
   function renderHub(){
@@ -995,6 +1018,24 @@ function awLogout(reason){
   }catch(e){}
   // Drafts are per browser, so on a shared computer they would show the next person the answers.
   try{ Object.keys(localStorage).forEach(function(k){ if(k.indexOf('aw_draft_')===0) localStorage.removeItem(k); }); }catch(e){}
+  /* The drafts went, the cookie stayed. localSt() counts aw_s_<kind>_<loc>=1 as "started" and that
+     cookie was written with a one year max-age, so after signing out the services page still showed
+     every card as In progress. From the customer's side that is indistinguishable from never having
+     been logged out at all, which is exactly what Chris was seeing. Expire them here, on each domain
+     the cookie could have been written for. */
+  try{
+    var _ck=String(document.cookie||'').split(';');
+    var _dead='=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/';
+    var _parts=String(location.hostname||'').split('.');
+    var _root=_parts.length>2 ? _parts.slice(-2).join('.') : location.hostname;
+    for(var _ci=0;_ci<_ck.length;_ci++){
+      var _cn=String(_ck[_ci].split('=')[0]||'').replace(/^\s+/,'');
+      if(_cn.indexOf('aw_s_')!==0) continue;
+      try{ document.cookie=_cn+_dead; }catch(_e1){}
+      try{ document.cookie=_cn+_dead+';domain=.aiwills.co.uk'; }catch(_e2){}
+      try{ document.cookie=_cn+_dead+';domain=.'+_root; }catch(_e3){}
+    }
+  }catch(e){}
   try{ window.AIWILLS_EDIT=false; window.AIWILLS_TOKEN=''; window.AIWILLS_PREFILL=null; }catch(e){}
   try{ var u=new URL(location.href); u.searchParams.delete('aw_t'); history.replaceState(null,'',u.pathname+(u.search||'')+(u.hash||'')); }catch(e){}
   try{ var ov=document.getElementById('aw-logout'); if(!ov){ ov=document.createElement('div'); ov.id='aw-logout'; document.body.appendChild(ov); }
