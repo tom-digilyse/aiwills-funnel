@@ -508,11 +508,18 @@ function buildLpaPdf(state, brand){
       doc.addPage();
       doc.font('Helvetica-Bold').fontSize(15).fillColor('#0B3D2E').text('Signing & witnessing guide');
       doc.moveDown(0.3);
-      var stps=['Print the official LP1F and/or LP1H form(s) from GOV.UK, completed with the details above.',
+      var _ls=String((state.treatment&&state.treatment.lifeSustaining)||'');
+      var _lsStep = _ls
+        ? ('Health & Welfare (LP1H) only, section 5: there is no box to tick. You choose by signing under ONE option. You told us '
+           + (/^yes/i.test(_ls) ? 'YES, so sign under Option A - you give your attorneys authority to give or refuse consent to life-sustaining treatment.'
+                                : 'NO, so sign under Option B - you keep that decision yourself and your attorneys cannot give or refuse consent.')
+           + ' Signing under both, or neither, makes the LPA invalid.')
+        : '';
+      var stps=['Print the official LP1F and/or LP1H form(s) from GOV.UK, completed with the details above.'].concat(_lsStep?[_lsStep]:[]).concat([
         'Sign in the correct order: (1) the donor signs the statement, (2) the certificate provider signs, (3) each attorney and any replacement signs. Each signature must be witnessed in person by someone aged 18 or over who is not an attorney.',
         'Signing out of order is the most common reason the OPG rejects an LPA - follow the order exactly.',
         'Send the completed, signed forms to the OPG to register, with the fee per LPA (or the LP120 reduced-fee form if eligible).',
-        'The LPA can only be used once the OPG has registered it.'];
+        'The LPA can only be used once the OPG has registered it.']);
       stps.forEach(function(t,i){ doc.font('Helvetica-Bold').fontSize(10).fillColor('#111').text((i+1)+'. ',{continued:true}).font('Helvetica').text(t); doc.moveDown(0.2); });
       doc.moveDown(0.4); doc.font('Helvetica').fontSize(9).fillColor('#888').text('Declaration confirmed by: '+((state.declaration&&state.declaration.signature)||'-'));
       doc.end();
@@ -584,8 +591,6 @@ async function fillLpaForm(PL, bytes, state, ftype){
   // ---- Certificate provider (p13) ----
   var pv=state.provider||{};set('Title_12',pv.title);set('First names_12',pv.firstName);set('Last name_12',pv.lastName);
   setAddr('Address 1_13a','Address 1_13b','undefined_15',pv);
-  // ---- Reduced fee (p21) ----
-  if(/^Yes/i.test((state.exemption&&state.exemption.status)||'')) check('I want to apply to pay a reduced fee');
   // ---- Page 2 overview (names to refer back) ----
   var pn=function(names,list,mk){ names.forEach(function(fld,i){ if(list[i]) set(fld, mk(list[i])); }); };
   pn(['Text4','Text4a','Text4b','Text4c'], atts.slice(0,4), fullName);
@@ -600,6 +605,22 @@ async function fillLpaForm(PL, bytes, state, ftype){
   if(decV)targets['Jointly and severally']=decV;
   if(ftype==='F'){var when=(state.usage&&state.usage.when)||'';if(/registered/i.test(when))targets['As soon as my LPA has been registered']='On';else if(/capacity/i.test(when))targets['As soon as my LPA has been registered']='off';}
   targets['receive the lpa']='1';targets['receive lpa']='1';
+  /* Section 12, who is applying to register. Donor is the upper box, attorneys the lower one, and
+     the lower one's "on" state is an empty name, which is why it reads as '' rather than 'On'. */
+  var regWho=String((state.registration&&state.registration.who)||'');
+  if(/donor/i.test(regWho)) targets['Donor the donor needs to sign section 15']='On';
+  else if(/attorney/i.test(regWho)) targets['Donor the donor needs to sign section 15']='';
+  /* Section 13, how the person receiving the LPA prefers to be contacted. Leaving all four blank is
+     an incomplete application, and an email address is the one channel we can be sure of. */
+  if(String((state.your_details||{}).email||'').trim()) targets['Email']='On';
+  /* Section 14, reduced fee. */
+  if(/^Yes/i.test((state.exemption&&state.exemption.status)||'')) targets['I want to apply to pay a reduced fee']='On';
+  /* We already carry the extra people on the official LPC continuation sheet, but nothing on the
+     form itself said so, so the OPG would only ever have seen the first four. */
+  if(atts.length>4) targets['More attorneys  I want to appoint more than 4 attorneys Use Continuation sheet 1']='On';
+  if(reps.length>2) targets['More replacements   I want to appoint more than two replacements Use Continuation sheet 1']='On';
+  if(nl.length>4) targets['I want to appoint another person to notify maximum is 5  use Continuation sheet 1']='On';
+  if(/some/i.test(mode)) targets['I want to change when or how my attorneys can act optional Use Continuation sheet 2']='On';
   var T=PL.PDFName.of('T'),AS=PL.PDFName.of('AS'),AP=PL.PDFName.of('AP'),Nn=PL.PDFName.of('N'),P=PL.PDFName.of('Parent');
   var txt=function(o){if(!o)return null;o=o.decodeText?o:ctx.lookup(o);return o&&o.decodeText?o.decodeText():null;};
   var fname=function(w){var cur=w,parts=[],g=0;while(cur&&g++<6){var t=txt(cur.get(T));if(t)parts.unshift(t);var pr=cur.get(P);cur=pr?ctx.lookup(pr,PL.PDFDict):null;}return parts.join('.');};
