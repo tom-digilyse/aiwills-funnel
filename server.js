@@ -1338,6 +1338,9 @@ const server = http.createServer(async (req, res) => {
         try { const r = await ghl('GET','/locations/'+floc+'/customFields?model=contact', ftok); list = r.customFields || r.customField || []; }
         catch(e){ out.readError = e.message; }
         out.count = list.length;
+        /* Folders are what a client actually navigates, so find out how GHL hands them back. */
+        try { const rf = await ghl('GET','/locations/'+floc+'/customFields', ftok); const all = rf.customFields || rf.customField || []; out.allCount = all.length; out.nonFieldDocs = all.filter(function(f){ return String(f.documentType||'field') !== 'field'; }); } catch(e){ out.foldersError = e.message; }
+        try { out.folderEndpoint = await ghl('GET','/locations/'+floc+'/customFields?model=contact&documentType=folder', ftok); } catch(e){ out.folderEndpointError = e.message; }
         out.fields = list.map(function(f){ return { id:f.id, name:f.name, dataType:f.dataType, parentId:f.parentId||'', model:f.model||'' }; });
         out.sampleRaw = list[0] || null;
         /* Did the document link actually land? Report length and the first few characters only:
