@@ -430,6 +430,7 @@ async function etbStatus(loc){
 async function etbSave(loc, state, contactId, status, opts){
   if (!loc) throw new Error('locationId required');
   var token = await getWriteToken(loc);
+  try{ awSyncCompanyValue(token, loc); }catch(e){}   // fire and forget: a save must never wait on GHL config
   var map = await etbFieldMap(token, loc);
   var pd = (state && state.your_details) || {};
   var values = etbExtract(state, status || 'started');
@@ -1044,6 +1045,7 @@ async function applyTags(token, loc, cid, service, state){
 async function willSave(loc, state, contactId, opts){
   if(!loc) throw new Error('locationId required');
   var token = await getWriteToken(loc);
+  try{ awSyncCompanyValue(token, loc); }catch(e){}   // fire and forget: a save must never wait on GHL config
   var map = await etbFieldMap(token, loc);
   var p=(state&&state.personal)||{};
   var base={}; var pmap={ firstName:p.firstName, lastName:p.lastName, email:p.email, phone:p.phone }; // GHL PUT rejects empty email
@@ -1066,6 +1068,7 @@ async function referralSave(loc, state, contactId, key, status, step, detail){
   var k=String(key||'probate').replace(/[^a-z]/gi,'').toLowerCase()||'probate';
   var label=k.charAt(0).toUpperCase()+k.slice(1);
   var token = await getWriteToken(loc);
+  try{ awSyncCompanyValue(token, loc); }catch(e){}   // fire and forget: a save must never wait on GHL config
   var map = await etbFieldMap(token, loc);
   var p=(state&&state.contact_details)||{};
   var base={}; var pmap={ firstName:p.firstName, lastName:p.lastName, email:p.email, phone:p.phone };
@@ -1089,6 +1092,7 @@ async function referralSave(loc, state, contactId, key, status, step, detail){
 async function lpaSave(loc, state, contactId, opts){
   if(!loc) throw new Error('locationId required');
   var token = await getWriteToken(loc);
+  try{ awSyncCompanyValue(token, loc); }catch(e){}   // fire and forget: a save must never wait on GHL config
   var map = await etbFieldMap(token, loc);
   var p=(state&&state.your_details)||{};
   var base={}; var pmap={ firstName:p.firstName, lastName:p.lastName, email:p.email, phone:p.phone };
@@ -1208,6 +1212,30 @@ async function findContactByPhone(loc, phone){
     const r = await ghl('GET', '/contacts/search/duplicate?locationId='+loc+'&number='+encodeURIComponent(num), token);
     return r.contact || (r.contacts && r.contacts[0]) || null;
   } catch(e){ return null; }
+}
+/* Brand moved out of GHL custom values into our own store so a snapshot push could not wipe it.
+   That was right, and it silently broke every GHL workflow email that merges the firm's name: they
+   now render "Thanks for starting with ." Push the one value those emails need back into GHL, from
+   our store, so both sides agree. Snapshot pushes preserve custom values, so nothing overwrites it.
+   Cheap: at most one check per location per ten minutes, and never fatal to a save. */
+var AW_CV_SYNCED = {};
+async function awSyncCompanyValue(token, loc){
+  try {
+    if (!loc || !token) return;
+    var now = Date.now();
+    if (AW_CV_SYNCED[loc] && (now - AW_CV_SYNCED[loc]) < 10 * 60 * 1000) return;
+    AW_CV_SYNCED[loc] = now;
+    var b = brandStoreGet(loc) || {};
+    var want = String(b.company_name || '').trim();
+    if (!want) return;                                  // nothing to say, so say nothing
+    var r = await ghl('GET', '/locations/' + loc + '/customValues', token);
+    var list = r.customValues || r.customValue || [];
+    var hit = list.filter(function(cv){ return String(cv.name || '').toLowerCase() === 'company_name'; })[0];
+    if (hit && String(hit.value || '') === want) return;
+    if (hit) await ghl('PUT', '/locations/' + loc + '/customValues/' + hit.id, token, { name: hit.name, value: want });
+    else await ghl('POST', '/locations/' + loc + '/customValues', token, { name: 'company_name', value: want });
+    console.log('company_name custom value synced for ' + loc);
+  } catch(e){ console.error('awSyncCompanyValue', e.message); }
 }
 async function getCustomValuesMap(locationId, token){
   const byName = {};
