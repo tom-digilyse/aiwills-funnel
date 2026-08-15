@@ -107,13 +107,13 @@ var CFG = window.AIWILLS_CONFIG || {}; (function(){ var _m='{'+'{'; for(var _k i
       else if(sent){ btn='<a class="btn ghost" target="_top" data-k="'+esc(s.key)+'" href="'+esc(withId(s.url))+'">View</a>'; }
       else if(done){ btn='<a class="btn" target="_top" data-k="'+esc(s.key)+'" href="'+esc(withId(s.url))+'">Continue</a>'; }
       else { btn='<a class="btn" target="_top" data-k="'+esc(s.key)+'" href="'+esc(withId(s.url))+'">Get started</a>'; }
-      var badge=done?('<div class="hubstatus">'+(st.paid?'Purchased':(sent?'Quote being prepared':(_awSignedIn()?'In progress':'In progress')))+'</div>'):'';
+      var badge=done?('<div class="hubstatus">'+(st.paid?'Purchased':(sent?'Quote being prepared':'In progress'))+'</div>'):'';
       return '<div class="hubcard"><div class="hubic">'+s.icon+'</div><h3>'+esc(s.title)+'</h3><p class="hubdesc">'+esc(s.blurb)+'</p>'+badge+btn+'</div>';
     }
     function _awSignedIn(){ return window.AIWILLS_EDIT===true || !!(window.AIWILLS_TOKEN); }
     function _awHasLocal(){ try{ var n=0; ['wills','lpa','etb','probate'].forEach(function(k){ if(localStorage.getItem('aw_draft_'+k+'_'+loc) || document.cookie.indexOf('aw_s_'+k+'_'+loc+'=1')>=0) n++; }); return n>0; }catch(e){ return false; } }
     function _awForgetDevice(){
-      try{ Object.keys(localStorage).forEach(function(k){ if(k.indexOf('aw_draft_')===0 || k.indexOf('aw_ident_')===0) localStorage.removeItem(k); }); }catch(e){}
+      try{ Object.keys(localStorage).forEach(function(k){ if(k.indexOf('aw_draft_')===0 || k.indexOf('aw_ident_')===0 || k.indexOf('aw_sent_')===0) localStorage.removeItem(k); }); }catch(e){}
       try{
         var _ck=String(document.cookie||'').split(';');
         var _dead='=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/';
@@ -129,7 +129,11 @@ var CFG = window.AIWILLS_CONFIG || {}; (function(){ var _m='{'+'{'; for(var _k i
       }catch(e){}
       try{ location.reload(); }catch(e){}
     }
-    function localSt(){ var o={}; if(!loc) return o; ['wills','lpa','etb','probate'].forEach(function(k){ try{ if(localStorage.getItem('aw_draft_'+k+'_'+loc) || document.cookie.indexOf('aw_s_'+k+'_'+loc+'=1')>=0) o[k]={started:true,paid:false}; }catch(e){} }); return o; }
+    function localSt(){ var o={}; if(!loc) return o; ['wills','lpa','etb','probate'].forEach(function(k){ try{ if(localStorage.getItem('aw_draft_'+k+'_'+loc) || document.cookie.indexOf('aw_s_'+k+'_'+loc+'=1')>=0) o[k]={started:true,paid:false}; }catch(e){}
+      /* The services page can only ask the server about somebody who is signed in, so a customer who
+         sent a probate quote without signing in was shown that card as though they had never finished.
+         The device remembers it was sent, which is enough to stop the page telling them otherwise. */
+      try{ if(localStorage.getItem('aw_sent_'+k+'_'+loc)==='1'){ o[k]=o[k]||{started:true,paid:false}; o[k].started=true; o[k].submitted=true; } }catch(e){} }); return o; }
     function mergeSt(a,b){ var o={}; ['wills','lpa','etb','probate'].forEach(function(k){ var x=a[k]||{}, y=b[k]||{}; o[k]={ started:!!(x.started||y.started), paid:!!(x.paid||y.paid), submitted:!!(x.submitted||y.submitted) }; }); return o; }
     function paint(st){ var g=el('hubgrid'); if(!g) return; g.innerHTML=SVC.map(function(s){return card(s, st[s.key]);}).join('');
       // Gate: a visitor who is not logged in gets asked "new or returning?" before entering any service.
@@ -1010,7 +1014,8 @@ function render(){
   } else if(s.kind==='done'){
     html += '<div class="mock"><div class="tick">✓</div><h3>Your Executor Toolbox is active</h3><p class="note">Your details and any documents you uploaded are securely stored. Your executors will be able to access what they need, when the time comes.</p><div style="text-align:left;margin-top:22px;padding-top:18px;border-top:1px solid #e7e7e7"><p style="font-weight:600;margin:0 0 8px">What happens next</p><ol style="margin:0;padding-left:20px;line-height:1.7"><li>Tell your executors that your Toolbox exists.</li><li>You can come back any time to add or update documents.</li><li>Keep your contact details current so we can reach you.</li></ol></div></div>';
   } else if(s.kind==='quote'){
-    try{ if(state[s.id] && typeof state[s.id]==='object') state[s.id].submitted='Yes'; saveToGhl(state, { submitted:true }); }catch(e){}   // recorded so a return visit lands here, not on question one
+    try{ if(state[s.id] && typeof state[s.id]==='object') state[s.id].submitted='Yes'; saveToGhl(state, { submitted:true }); }catch(e){}
+    try{ if(loc) localStorage.setItem('aw_sent_'+FUNNEL_KEY+'_'+loc,'1'); }catch(e){}   // recorded so a return visit lands here, not on question one
     var _q=computeQuote(state);
     if(_q){
       var _cta = (CFG.quote_cta_url) ? ('<a class="btn wide" href="'+esc(CFG.quote_cta_url)+'" target="_blank" rel="noopener" style="display:block;text-align:center;text-decoration:none;margin-top:14px">'+esc(CFG.quote_cta_label||'Book a call to proceed')+'</a>') : '';
@@ -1224,7 +1229,7 @@ function awLogout(reason){
     if(_s) fetch(API+'/api/session-end',{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({s:_s})}).catch(function(){});
   }catch(e){}
   // Drafts are per browser, so on a shared computer they would show the next person the answers.
-  try{ Object.keys(localStorage).forEach(function(k){ if(k.indexOf('aw_draft_')===0 || k.indexOf('aw_ident_')===0) localStorage.removeItem(k); }); }catch(e){}
+  try{ Object.keys(localStorage).forEach(function(k){ if(k.indexOf('aw_draft_')===0 || k.indexOf('aw_ident_')===0 || k.indexOf('aw_sent_')===0) localStorage.removeItem(k); }); }catch(e){}
   /* The drafts went, the cookie stayed. localSt() counts aw_s_<kind>_<loc>=1 as "started" and that
      cookie was written with a one year max-age, so after signing out the services page still showed
      every card as In progress. From the customer's side that is indistinguishable from never having
