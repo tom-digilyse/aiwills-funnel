@@ -538,6 +538,15 @@ function awVerifyStripeHook(raw, sig){
   }
   return false;
 }
+/* Newer Connect accounts refuse a charge that both pays out to the firm and names the firm as the
+   settlement merchant. Dropping on_behalf_of changes nothing about the money: the firm still
+   receives the payment and our commission still comes out. The only difference is the card
+   statement shows the platform rather than the firm. Losing the sale is far worse, so retry once
+   rather than showing the customer a Stripe error at the moment they try to pay. */
+function awOnBehalfRefused(e){
+  var m = String((e && e.message) || '');
+  return /insufficient_capabilities_for_transfer|on_behalf_of/i.test(m);
+}
 async function stripeReq(method, pathname, params, key){
   const opts = { method: method, headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/x-www-form-urlencoded' } };
   if (params) opts.body = formEncode(params);
@@ -1660,7 +1669,14 @@ const server = http.createServer(async (req, res) => {
           if (fee > 0) sparams['payment_intent_data[application_fee_amount]'] = fee;
           cxRouted = true;
         }
-        const sess = await stripeReq('POST', '/v1/checkout/sessions', sparams, awStripeKey(cv));
+        let sess;
+        try { sess = await stripeReq('POST', '/v1/checkout/sessions', sparams, awStripeKey(cv)); }
+        catch(e){
+          if (!cxRouted || !awOnBehalfRefused(e)) throw e;
+          delete sparams['payment_intent_data[on_behalf_of]'];
+          console.error('checkout: ' + loc + ' refused on_behalf_of, retrying as a plain destination charge');
+          sess = await stripeReq('POST', '/v1/checkout/sessions', sparams, awStripeKey(cv));
+        }
         return send(res, 200, { url: sess.url, id: id, routed: cxRouted });
       } catch(e){ return send(res, 200, { error: e.message }); }
     }
@@ -1725,7 +1741,14 @@ const server = http.createServer(async (req, res) => {
           if (pct > 0 && pct < 100) eparams['subscription_data[application_fee_percent]'] = pct;
           eRouted = true;
         }
-        const sess = await stripeReq('POST', '/v1/checkout/sessions', eparams, awStripeKey(cv));
+        let sess;
+        try { sess = await stripeReq('POST', '/v1/checkout/sessions', eparams, awStripeKey(cv)); }
+        catch(e){
+          if (!eRouted || !awOnBehalfRefused(e)) throw e;
+          delete eparams['subscription_data[on_behalf_of]'];
+          console.error('etb-checkout: ' + loc + ' refused on_behalf_of, retrying as a plain destination charge');
+          sess = await stripeReq('POST', '/v1/checkout/sessions', eparams, awStripeKey(cv));
+        }
         return send(res, 200, { url: sess.url, contactId: contactId, routed: eRouted });
       } catch(e){ return send(res, 200, { error: e.message }); }
     }
