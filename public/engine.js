@@ -147,6 +147,12 @@ var CFG = window.AIWILLS_CONFIG || {}; (function(){ var _m='{'+'{'; for(var _k i
     function awKnownGo(url,svcKey,known){
       try{ var section=(svcKey==='wills')?'personal':((svcKey==='probate')?'contact_details':'your_details');
         var ex=null; try{ ex=JSON.parse(localStorage.getItem('aw_draft_'+svcKey+'_'+loc)||'null'); }catch(e){}
+        /* Somebody who finished this service while signed in has no local draft, because drafts are
+           deliberately not written for a signed-in session. Fabricating a blank one dropped them on
+           question one of something they had already sent, which reads as if their work was lost.
+           Send them through the returning customer route instead, which fetches their real answers. */
+        var _sent=false; try{ _sent=(localStorage.getItem('aw_sent_'+svcKey+'_'+loc)==='1'); }catch(e){}
+        if(!ex && _sent){ awGate(url, svcKey); return; }
         if(!ex){ var d={}; d[section]={ firstName:known.firstName||'', email:known.email||'', phone:known.phone||'' }; localStorage.setItem('aw_draft_'+svcKey+'_'+loc, JSON.stringify(d)); }
       }catch(e){}
       var u=url||''; if(u && known.cid && u.indexOf('aw_c=')<0) u+=(u.indexOf('?')>=0?'&':'?')+'aw_c='+enc(known.cid);
