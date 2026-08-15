@@ -819,7 +819,12 @@ function getP(p){ var a=p.split('.'),o=state,i; for(i=0;i<a.length;i++){ if(o==n
 function setP(p,v){ var a=p.split('.'),o=state,i; for(i=0;i<a.length-1;i++){ var k=a[i]; if(o[k]==null||typeof o[k]!=='object'){ o[k]=/^[0-9]+$/.test(a[i+1])?[]:{}; } o=o[k]; } o[a[a.length-1]]=v; }
 function blankItem(f){ var o={}; flat(f.fields).forEach(function(x){ o[x.key]= x.type==='repeater'?[]:''; }); return o; }
 function total(lp,key){ return (getP(lp)||[]).reduce(function(s,it){ return s+(parseFloat(it[key])||0); },0); }
-function visible(){ var ed=(window.AIWILLS_EDIT===true); return FUNNEL.filter(function(s){ if(ed && (s.kind==='payment'||s.kind==='generate'||s.kind==='done')) return false; return !s.showIf || s.showIf(state); }); }
+/* Edit mode hides the payment and download steps so somebody who has already paid cannot be charged
+   twice for correcting an answer. Somebody who has NOT paid needs those steps: the edit link is how
+   they come back to finish, and stripping payment left them on the summary with no way to buy at
+   all. So only hide them once the money is actually in. */
+function awPaidNow(){ try{ return !!(state && state.payment && state.payment.paid===true); }catch(e){ return false; } }
+function visible(){ var ed=(window.AIWILLS_EDIT===true) && awPaidNow(); return FUNNEL.filter(function(s){ if(ed && (s.kind==='payment'||s.kind==='generate'||s.kind==='done')) return false; return !s.showIf || s.showIf(state); }); }
 
 function fld(base,f){
   if(f.showIf && !f.showIf(state, base)) return '';
@@ -1067,7 +1072,7 @@ function render(){
   var _ed=(window.AIWILLS_EDIT===true && awHasReview());   // no summary to go back to, no "Back to summary"
   el('back').textContent=_ed?'Back to summary':'Back';
   el('back').style.visibility=_ed?(s.kind==='review'?'hidden':'visible'):(cur===0?'hidden':'visible');
-  var next=el('next'); if(_ed){ next.style.display=(s.kind==='review')?'none':''; next.textContent='Save'; } else { next.style.display=(s.kind==='generate'||s.kind==='done'||s.kind==='quote')?'none':''; next.textContent=(s.kind==='review')?((FUNNEL===ETB_FUNNEL)?'Continue to activate':'Continue to payment'):((FUNNEL===REFERRAL_FUNNEL&&vis[cur+1]&&vis[cur+1].kind==='quote')?(CFG.referral_submit_label||'Get my quote'):'Continue'); }
+  var next=el('next'); if(_ed){ var _epaid=awPaidNow(); next.style.display=(((s.kind==='review')&&_epaid)||s.kind==='payment'||s.kind==='generate'||s.kind==='done'||s.kind==='quote')?'none':''; next.textContent=(s.kind==='review'&&!_epaid)?((FUNNEL===ETB_FUNNEL)?'Continue to activate':'Continue to payment'):'Save'; } else { next.style.display=(s.kind==='generate'||s.kind==='done'||s.kind==='quote')?'none':''; next.textContent=(s.kind==='review')?((FUNNEL===ETB_FUNNEL)?'Continue to activate':'Continue to payment'):((FUNNEL===REFERRAL_FUNNEL&&vis[cur+1]&&vis[cur+1].kind==='quote')?(CFG.referral_submit_label||'Get my quote'):'Continue'); }
   var pay=el('pay'); if(pay) pay.addEventListener('click',function(){ try{ collectVisible(); }catch(e){} if(!awConsentOk()) return; var _isEtb=(FUNNEL===ETB_FUNNEL); var _wb=(FUNNEL===WILLS_FUNNEL)?willBundle(state):null; var _isLpa=(FUNNEL===LPA_FUNNEL); var _lbl=_isEtb?'Subscribe':('Pay '+esc(fmtPrice(String(_isLpa?lpaTotal():(_wb?(Math.round(_wb.total*100)/100):CFG.will_price))))); pay.disabled=true; pay.textContent='Redirecting to secure payment...'; var _url=_isEtb?(API+'/api/etb-checkout'):(API+'/api/checkout'); var _body=_isEtb?{locationId:loc,contactId:(window.AIWILLS_ETB_CID||''),contact:(state.your_details||{}),returnUrl:_retUrl()}:{locationId:loc,willJson:state,returnUrl:_retUrl(),pricingV:2,kind:(_isLpa?'lpa':'wills'),contactId:(window.AIWILLS_CONTACT_ID||'')}; fetch(_url,{method:'POST',body:JSON.stringify(_body)}).then(function(r){return r.json();}).then(function(j){ if(j&&j.url){ window.location.href=j.url; } else { pay.disabled=false; pay.textContent=_lbl; alert('Could not start payment: '+((j&&j.error)||'unknown')); } }).catch(function(e){ pay.disabled=false; pay.textContent=_lbl; alert('Payment error: '+e.message); }); });
   var _dlp=el('dlp'); if(_dlp) _dlp.addEventListener('click',function(){ try{ window.print(); }catch(e){} });
   // payment redirects out to Stripe and returns to the generate step (see aw_paid handling on load); no auto-advance, no demo download.
