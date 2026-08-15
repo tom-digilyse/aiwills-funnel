@@ -547,6 +547,22 @@ function awOnBehalfRefused(e){
   var m = String((e && e.message) || '');
   return /insufficient_capabilities_for_transfer|on_behalf_of/i.test(m);
 }
+/* Stripe's v2 Accounts API is JSON, not form encoded, and needs a preview version header. */
+async function stripeReqJson(method, pathname, body, key, version){
+  const opts = { method: method, headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' } };
+  if (version) opts.headers['Stripe-Version'] = version;
+  if (body) opts.body = JSON.stringify(body);
+  const r = await fetch('https://api.stripe.com' + pathname, opts);
+  const text = await r.text(); let j; try { j = JSON.parse(text); } catch(e){ j = { raw: text }; }
+  if (!r.ok) throw new Error('Stripe ' + pathname + ' -> ' + r.status + ' ' + text.slice(0,700));
+  return j;
+}
+/* Statement descriptors allow letters, numbers and spaces, 5 to 22 characters. */
+function awDescriptor(name){
+  var s = String(name||'').replace(/[^A-Za-z0-9 ]/g,'').replace(/\s+/g,' ').trim().toUpperCase();
+  if (s.length > 22) s = s.slice(0,22).trim();
+  return (s.length >= 5) ? s : '';
+}
 async function stripeReq(method, pathname, params, key){
   const opts = { method: method, headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/x-www-form-urlencoded' } };
   if (params) opts.body = formEncode(params);
@@ -2155,6 +2171,45 @@ const server = http.createServer(async (req, res) => {
     }
     /* One call powers both the health check and the mapping editor, so what the tool shows is
        exactly what the engine would do rather than a second opinion. */
+    /* Getting a firm ready to be paid needed two calls against Stripe with a live secret key pasted
+       into a terminal. That is a bad way to onboard anybody and it leaked a key the first time it was
+       tried. The server already holds the key, so it does both here: request the transfers capability
+       a destination charge needs, and set the name the customer sees at checkout and on their
+       statement, which otherwise falls back to whichever individual signed the account up. */
+    if (req.method === 'GET' && pathOnly === '/api/connect-prepare'){
+      res.setHeader('Access-Control-Allow-Origin','*');
+      try {
+        const pu = new URL(req.url,'http://x');
+        const ploc = (pu.searchParams.get('locationId')||'').replace(/[^A-Za-z0-9]/g,'');
+        if(!ploc) return send(res,400,{ error:'locationId required' });
+        const ptok = await getWriteToken(ploc);
+        const pcv = await getCustomValuesMap(ploc, ptok);
+        const pacct = String(pcv['stripe_account_id']||'').trim();
+        if(!/^acct_[A-Za-z0-9]+$/.test(pacct)) return send(res,200,{ error:'No Stripe account saved for this client yet.' });
+        const pkey = awStripeKey(pcv);
+        if(!pkey) return send(res,200,{ error:'No Stripe secret key configured on the server.' });
+        const pout = { ok:true, account:pacct, steps:[] };
+        try {
+          await stripeReqJson('POST','/v2/core/accounts/'+pacct,
+            { configuration:{ recipient:{ capabilities:{ stripe_balance:{ stripe_transfers:{ requested:true } } } } } },
+            pkey, '2026-06-24.preview');
+          pout.steps.push({ step:'Can receive payouts from you', result:'requested' });
+        } catch(err){ pout.steps.push({ step:'Can receive payouts from you', error: err.message }); }
+        const pname = String(pcv['company_name']||'').trim();
+        if (pname){
+          try {
+            const pp = { 'business_profile[name]': pname };
+            const pd = awDescriptor(pname);
+            if (pd) pp['settings[payments][statement_descriptor]'] = pd;
+            await stripeReq('POST','/v1/accounts/'+pacct, pp, pkey);
+            pout.steps.push({ step:'Name the customer sees', result: pname + (pd ? (', statement shows ' + pd) : '') });
+          } catch(err){ pout.steps.push({ step:'Name the customer sees', error: err.message }); }
+        } else {
+          pout.steps.push({ step:'Name the customer sees', error:'No company name saved for this client yet.' });
+        }
+        return send(res,200,pout);
+      } catch(e){ return send(res,500,{ error:e.message }); }
+    }
     if (req.method === 'GET' && pathOnly === '/api/pipeline-map'){
       res.setHeader('Access-Control-Allow-Origin','*');
       try {
