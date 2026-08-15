@@ -1995,6 +1995,19 @@ const server = http.createServer(async (req, res) => {
       } catch(e){ return send(res, 200, { error: e.message }); }
     }
     // Signing out has to mean something on the server, not just in the browser.
+    /* Sessions expired one hour after sign-in no matter what the customer was doing, so somebody
+       working steadily through a will was thrown out mid-question with no warning. Activity now
+       extends the session: the page asks for a fresh token while the customer is still working, and
+       a session that has genuinely gone quiet still dies on time. */
+    if (req.method === 'POST' && pathOnly === '/api/session-touch'){
+      res.setHeader('Access-Control-Allow-Origin','*');
+      try {
+        const b = JSON.parse((await readBody(req)) || '{}');
+        const cl = verifyEdit(String(b.s || ''));
+        if (!cl || cl.kind !== 'session' || !cl.loc || !cl.cid) return send(res, 403, { error:'expired' });
+        return send(res, 200, { ok:true, session: signSession(cl.loc, cl.cid, cl.funnel || ''), expiresInMs: AW_SESSION_TTL_MS });
+      } catch(e){ return send(res, 403, { error:'expired' }); }
+    }
     if (req.method === 'POST' && pathOnly === '/api/session-end'){
       res.setHeader('Access-Control-Allow-Origin','*');
       try {
