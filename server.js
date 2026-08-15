@@ -2195,17 +2195,30 @@ const server = http.createServer(async (req, res) => {
             pkey, '2026-06-24.preview');
           pout.steps.push({ step:'Can receive payouts from you', result:'requested' });
         } catch(err){ pout.steps.push({ step:'Can receive payouts from you', error: err.message }); }
+        /* Stripe writes the receipt from the connected account's own public details, and falls back to
+           the platform's when they are empty. That is how an Oak Stone customer ended up with an
+           Ai Wills receipt, logo and phone number. Fill them in from what the firm already gave us. */
         const pname = String(pcv['company_name']||'').trim();
         if (pname){
           try {
             const pp = { 'business_profile[name]': pname };
             const pd = awDescriptor(pname);
             if (pd) pp['settings[payments][statement_descriptor]'] = pd;
+            const pem = String(pcv['company_email']||'').trim();
+            const pph = String(pcv['footer_phone']||'').trim();
+            const pur = String(pcv['company_website']||'').trim();
+            if (pem) pp['business_profile[support_email]'] = pem;
+            if (pph) pp['business_profile[support_phone]'] = pph;
+            if (pur) pp['business_profile[url]'] = (/^https?:\/\//i.test(pur) ? pur : ('https://' + pur));
             await stripeReq('POST','/v1/accounts/'+pacct, pp, pkey);
-            pout.steps.push({ step:'Name the customer sees', result: pname + (pd ? (', statement shows ' + pd) : '') });
-          } catch(err){ pout.steps.push({ step:'Name the customer sees', error: err.message }); }
+            const bits = [pname];
+            if (pd) bits.push('statement ' + pd);
+            if (pem) bits.push(pem);
+            if (pph) bits.push(pph);
+            pout.steps.push({ step:'Name and details on receipts', result: bits.join(', ') });
+          } catch(err){ pout.steps.push({ step:'Name and details on receipts', error: err.message }); }
         } else {
-          pout.steps.push({ step:'Name the customer sees', error:'No company name saved for this client yet.' });
+          pout.steps.push({ step:'Name and details on receipts', error:'No company name saved for this client yet.' });
         }
         return send(res,200,pout);
       } catch(e){ return send(res,500,{ error:e.message }); }
