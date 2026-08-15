@@ -557,6 +557,47 @@ async function stripeReqJson(method, pathname, body, key, version){
   if (!r.ok) throw new Error('Stripe ' + pathname + ' -> ' + r.status + ' ' + text.slice(0,700));
   return j;
 }
+/* Everything a firm's Stripe account needs before it can take a payment, in one place: the
+   capability a destination charge requires, and the public details Stripe puts on the receipt.
+   Onboarding runs this on Save so nobody has to remember it; the button only re-runs it. */
+async function awStripePrepare(ploc){
+  const out = { steps: [] };
+  const ptok = await getWriteToken(ploc);
+  const pcv = await getCustomValuesMap(ploc, ptok);
+  const pacct = String(pcv['stripe_account_id'] || '').trim();
+  if (!/^acct_[A-Za-z0-9]+$/.test(pacct)){ out.skip = true; return out; }
+  const pkey = awStripeKey(pcv);
+  if (!pkey){ out.steps.push({ step:'Stripe', error:'No Stripe secret key configured on the server.' }); return out; }
+  out.account = pacct;
+  try {
+    await stripeReqJson('POST','/v2/core/accounts/'+pacct,
+      { configuration:{ recipient:{ capabilities:{ stripe_balance:{ stripe_transfers:{ requested:true } } } } } },
+      pkey, '2026-06-24.preview');
+    out.steps.push({ step:'can receive payouts from you', result:'requested' });
+  } catch(err){ out.steps.push({ step:'can receive payouts from you', error: err.message }); }
+  /* Stripe writes the receipt from the connected account's own public details and falls back to the
+     platform's when they are empty, which is how an Oak Stone customer got an Ai Wills receipt. */
+  const pname = String(pcv['company_name'] || '').trim();
+  if (pname){
+    try {
+      const pp = { 'business_profile[name]': pname };
+      const pd = awDescriptor(pname);
+      if (pd) pp['settings[payments][statement_descriptor]'] = pd;
+      const pem = String(pcv['company_email'] || '').trim();
+      const pph = String(pcv['footer_phone'] || '').trim();
+      const pur = String(pcv['company_website'] || '').trim();
+      if (pem) pp['business_profile[support_email]'] = pem;
+      if (pph) pp['business_profile[support_phone]'] = pph;
+      if (pur) pp['business_profile[url]'] = (/^https?:\/\//i.test(pur) ? pur : ('https://' + pur));
+      await stripeReq('POST','/v1/accounts/'+pacct, pp, pkey);
+      const bits = [pname]; if (pd) bits.push('statement ' + pd); if (pem) bits.push(pem); if (pph) bits.push(pph);
+      out.steps.push({ step:'name and details on receipts', result: bits.join(', ') });
+    } catch(err){ out.steps.push({ step:'name and details on receipts', error: err.message }); }
+  } else {
+    out.steps.push({ step:'name and details on receipts', error:'No company name saved for this client yet.' });
+  }
+  return out;
+}
 /* Statement descriptors allow letters, numbers and spaces, 5 to 22 characters. */
 function awDescriptor(name){
   var s = String(name||'').replace(/[^A-Za-z0-9 ]/g,'').replace(/\s+/g,' ').trim().toUpperCase();
@@ -2167,7 +2208,17 @@ const server = http.createServer(async (req, res) => {
         const problem = await connectAcctProblem(acct);
         if (problem){ delete vals.stripe_account_id; warnings.push(problem); }
       }
-      return send(res, 200, { results: await handleWrite(parsed.locationId, vals, { allowClear: !!parsed.allowClear, confirmClear: !!parsed.confirmClear }), warnings: warnings });
+      const wres = await handleWrite(parsed.locationId, vals, { allowClear: !!parsed.allowClear, confirmClear: !!parsed.confirmClear });
+      /* Getting the firm ready in Stripe used to be a separate thing somebody had to remember, and
+         forgetting it meant the first customer could not pay. A Stripe failure must never fail the
+         save, so it is reported alongside the other results rather than thrown. */
+      try {
+        const pr = await awStripePrepare(parsed.locationId);
+        (pr.steps || []).forEach(function(st){
+          wres.push(st.error ? { name: 'Stripe: ' + st.step, error: st.error } : { name: 'Stripe: ' + st.step, action: st.result });
+        });
+      } catch(e){ wres.push({ name:'Stripe setup', error: e.message }); }
+      return send(res, 200, { results: wres, warnings: warnings });
     }
     /* One call powers both the health check and the mapping editor, so what the tool shows is
        exactly what the engine would do rather than a second opinion. */
@@ -2182,45 +2233,9 @@ const server = http.createServer(async (req, res) => {
         const pu = new URL(req.url,'http://x');
         const ploc = (pu.searchParams.get('locationId')||'').replace(/[^A-Za-z0-9]/g,'');
         if(!ploc) return send(res,400,{ error:'locationId required' });
-        const ptok = await getWriteToken(ploc);
-        const pcv = await getCustomValuesMap(ploc, ptok);
-        const pacct = String(pcv['stripe_account_id']||'').trim();
-        if(!/^acct_[A-Za-z0-9]+$/.test(pacct)) return send(res,200,{ error:'No Stripe account saved for this client yet.' });
-        const pkey = awStripeKey(pcv);
-        if(!pkey) return send(res,200,{ error:'No Stripe secret key configured on the server.' });
-        const pout = { ok:true, account:pacct, steps:[] };
-        try {
-          await stripeReqJson('POST','/v2/core/accounts/'+pacct,
-            { configuration:{ recipient:{ capabilities:{ stripe_balance:{ stripe_transfers:{ requested:true } } } } } },
-            pkey, '2026-06-24.preview');
-          pout.steps.push({ step:'Can receive payouts from you', result:'requested' });
-        } catch(err){ pout.steps.push({ step:'Can receive payouts from you', error: err.message }); }
-        /* Stripe writes the receipt from the connected account's own public details, and falls back to
-           the platform's when they are empty. That is how an Oak Stone customer ended up with an
-           Ai Wills receipt, logo and phone number. Fill them in from what the firm already gave us. */
-        const pname = String(pcv['company_name']||'').trim();
-        if (pname){
-          try {
-            const pp = { 'business_profile[name]': pname };
-            const pd = awDescriptor(pname);
-            if (pd) pp['settings[payments][statement_descriptor]'] = pd;
-            const pem = String(pcv['company_email']||'').trim();
-            const pph = String(pcv['footer_phone']||'').trim();
-            const pur = String(pcv['company_website']||'').trim();
-            if (pem) pp['business_profile[support_email]'] = pem;
-            if (pph) pp['business_profile[support_phone]'] = pph;
-            if (pur) pp['business_profile[url]'] = (/^https?:\/\//i.test(pur) ? pur : ('https://' + pur));
-            await stripeReq('POST','/v1/accounts/'+pacct, pp, pkey);
-            const bits = [pname];
-            if (pd) bits.push('statement ' + pd);
-            if (pem) bits.push(pem);
-            if (pph) bits.push(pph);
-            pout.steps.push({ step:'Name and details on receipts', result: bits.join(', ') });
-          } catch(err){ pout.steps.push({ step:'Name and details on receipts', error: err.message }); }
-        } else {
-          pout.steps.push({ step:'Name and details on receipts', error:'No company name saved for this client yet.' });
-        }
-        return send(res,200,pout);
+        const pr = await awStripePrepare(ploc);
+        if (pr.skip) return send(res,200,{ error:'No Stripe account saved for this client yet.' });
+        return send(res,200,{ ok:true, account:pr.account, steps:pr.steps });
       } catch(e){ return send(res,500,{ error:e.message }); }
     }
     if (req.method === 'GET' && pathOnly === '/api/pipeline-map'){
