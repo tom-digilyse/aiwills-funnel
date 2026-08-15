@@ -98,6 +98,8 @@ details.measure summary{cursor:pointer;font-weight:600;font-size:13px}
       <button class="btn-go" id="writeBtn" style="margin-top:2px">Save to client</button>
       <button class="btn-go" id="readyBtn" style="margin-top:8px;background:#fff;color:#1B3D2E;border:1px solid #cfd6dc">Can this client take payments?</button>
       <div id="readyOut" style="margin-top:8px;font-size:13px;line-height:1.6"></div>
+      <button class="btn-go" id="prepBtn" style="margin-top:8px;background:#fff;color:#1B3D2E;border:1px solid #cfd6dc">Set this client up in Stripe</button>
+      <div id="prepOut" style="margin-top:8px;font-size:13px;line-height:1.6"></div>
       <button class="btn-go" id="pipeBtn" style="margin-top:8px;background:#fff;color:#1B3D2E;border:1px solid #cfd6dc">Check the sales pipelines</button>
       <div id="pipeOut" style="margin-top:8px;font-size:13px;line-height:1.6"></div>
       <div class="status" id="writeStatus"></div>
@@ -704,6 +706,25 @@ async function readiness(){
   }catch(e){ out.innerHTML='<span style="color:#c8100d">Check failed: '+e.message+'</span>'; }
 }
 el('readyBtn').addEventListener('click', readiness);
+
+/* Requests the transfers capability a destination charge needs, and sets the name the customer sees
+   at checkout and on their bank statement. Both used to be curl commands with a live secret key on
+   somebody's clipboard. The server already has the key, so nobody else needs to touch one. */
+async function connectPrepare(){
+  var out = el('prepOut'), loc = el('locationId').value.trim();
+  if(!loc){ out.innerHTML = '<span style="color:#c8100d">Enter the GHL location ID first.</span>'; return; }
+  out.textContent = 'Setting up...';
+  try{
+    var j = await fetch('/api/connect-prepare?locationId=' + encodeURIComponent(loc) + '&cb=' + Date.now()).then(function(r){ return r.json(); });
+    if(!j.steps){ out.innerHTML = '<span style="color:#c8100d">' + (j.error || 'Could not set this client up.') + '</span>'; return; }
+    out.innerHTML = j.steps.map(function(s){
+      return s.error
+        ? '<div style="color:#c8100d">' + s.step + ': ' + s.error + '</div>'
+        : '<div style="color:#1B7F4B">' + s.step + ': ' + s.result + '</div>';
+    }).join('') + '<p class="hint" style="margin-top:6px">Requested is not the same as active. Stripe may still ask the firm to finish verifying before they can be paid.</p>';
+  }catch(e){ out.innerHTML = '<span style="color:#c8100d">Failed: ' + e.message + '</span>'; }
+}
+el('prepBtn').addEventListener('click', connectPrepare);
 
 /* ---------- Sales pipelines ----------
    The funnel steps and the firm's pipeline stages are two separate lists. This screen shows how
