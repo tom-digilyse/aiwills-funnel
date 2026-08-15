@@ -1166,6 +1166,24 @@ function go(dir){
     stripEmptyRepeaters(); // drop blank add-cards so empty items never reach the review/summary
     var bad=validateStep(s);
     if(bad.length){ var msg=null; bad.forEach(function(b){ if(b.indexOf('MSG:')===0 && !msg) msg=b.slice(4); }); var first=null; bad.forEach(function(b){ if(b.indexOf('MSG:')!==0){ var fl=document.querySelector('[data-f="'+b+'"]'); if(fl){ fl.classList.add('invalid'); if(!first) first=fl; } } }); if(first && first.scrollIntoView){ try{ first.scrollIntoView({block:'center'}); }catch(e){} } alert(msg || 'Please complete the required fields highlighted in red.'); return; }
+    /* Nothing had ever validated the questions for a customer who arrived straight at the summary
+       from an edit link: validateStep returns early for any step with a kind, and the summary has
+       one. A will was paid for and generated carrying no surname and no address. Nothing leaves this
+       page for payment until every section is answered, checked with the same validator the
+       individual steps use, against the same answers. */
+    if(s.kind==='review'){
+      var _miss=[], _vv2=visible();
+      for(var _mi=0;_mi<_vv2.length;_mi++){
+        var _ms=_vv2[_mi]; if(!(_ms.fields&&_ms.fields.length)) continue;
+        var _mb=[]; try{ need(_ms.id,_ms.fields,_mb); }catch(e){}
+        if(_mb.length) _miss.push({ id:_ms.id, label:(_ms.name||_ms.title||_ms.id) });
+      }
+      if(_miss.length){
+        alert('Before you can pay, these sections still need answers:\n\n' + _miss.map(function(m){return '\u2022 '+m.label;}).join('\n') + '\n\nOpen each one, complete it, then press Save.');
+        try{ jumpTo(_miss[0].id); }catch(e){}
+        return;
+      }
+    }
     saveToGhl(state, { pdf: (s.kind==='review' || s.kind==='payment' || window.AIWILLS_EDIT===true) });
     /* ...but NOT from the summary itself. Pressing Continue there was saving and re-rendering the
    summary, so the button looked dead and the customer could never reach payment. From the
