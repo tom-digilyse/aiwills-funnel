@@ -1167,7 +1167,10 @@ function go(dir){
     var bad=validateStep(s);
     if(bad.length){ var msg=null; bad.forEach(function(b){ if(b.indexOf('MSG:')===0 && !msg) msg=b.slice(4); }); var first=null; bad.forEach(function(b){ if(b.indexOf('MSG:')!==0){ var fl=document.querySelector('[data-f="'+b+'"]'); if(fl){ fl.classList.add('invalid'); if(!first) first=fl; } } }); if(first && first.scrollIntoView){ try{ first.scrollIntoView({block:'center'}); }catch(e){} } alert(msg || 'Please complete the required fields highlighted in red.'); return; }
     saveToGhl(state, { pdf: (s.kind==='review' || s.kind==='payment' || window.AIWILLS_EDIT===true) });
-    if(window.AIWILLS_EDIT===true && awHasReview()){ try{ awEditReturnTo(s.id, 1); jumpTo('review'); }catch(e){} return; } // edit hub: save this section, back to the summary at the NEXT one. No summary (probate) means carry on like a normal Continue.
+    /* ...but NOT from the summary itself. Pressing Continue there was saving and re-rendering the
+   summary, so the button looked dead and the customer could never reach payment. From the
+   summary, Continue must behave like a normal Continue and move on to the payment step. */
+    if(window.AIWILLS_EDIT===true && awHasReview() && s.kind!=='review'){ try{ awEditReturnTo(s.id, 1); jumpTo('review'); }catch(e){} return; } // edit hub: save this section, back to the summary at the NEXT one. No summary (probate) means carry on like a normal Continue.
   }
   cur+=dir; if(cur<0)cur=0; if(cur>vis.length-1){ alert('Demo complete. In production the contact is tagged and the will is issued.'); cur=vis.length-1; }
   render(); scrollTop(); try{ saveLocal(); }catch(e){}
@@ -1367,7 +1370,11 @@ function closeGaps(){
   }catch(e){}
 }
 initState(); if(!awDoorGate()){ restoreLocal(); } applyBrand();
-try{ var _qp=new URLSearchParams(location.search); if(_qp.get('aw_paid')==='1' && _qp.get('aw_id')){ window.AIWILLS_WILL_ID=_qp.get('aw_id'); if(state.payment) state.payment.paid=true; var _vv=visible(); for(var _i=0;_i<_vv.length;_i++){ if(_vv[_i].id==='generate'){ cur=_i; break; } } } if(_qp.get('aw_etb_paid')==='1' && FUNNEL===ETB_FUNNEL){ if(state.payment) state.payment.paid=true; var _ev=visible(); for(var _j=0;_j<_ev.length;_j++){ if(_ev[_j].id==='done'){ cur=_j; break; } } } if(window.AIWILLS_EDIT===true){ var _rv=visible(), _t=-1;
+try{ var _qp=new URLSearchParams(location.search); if(_qp.get('aw_paid')==='1' && _qp.get('aw_id')){ window.AIWILLS_WILL_ID=_qp.get('aw_id'); if(state.payment) state.payment.paid=true; var _vv=visible(); for(var _i=0;_i<_vv.length;_i++){ if(_vv[_i].id==='generate'){ cur=_i; break; } } } if(_qp.get('aw_etb_paid')==='1' && FUNNEL===ETB_FUNNEL){ if(state.payment) state.payment.paid=true; var _ev=visible(); for(var _j=0;_j<_ev.length;_j++){ if(_ev[_j].id==='done'){ cur=_j; break; } } } /* Only land on the summary if there is something to summarise. Someone opening a service for the
+   first time from their services page arrives in edit mode too, and was being dropped on a page
+   of empty sections instead of question one. */
+function awAnyAnswers(){ try{ var _v=visible(); for(var _i=0;_i<_v.length;_i++){ var _s2=_v[_i]; if(!(_s2.fields&&_s2.fields.length)) continue; var _o=state[_s2.id]||{}; for(var _k2 in _o){ var _v2=_o[_k2]; if(_v2!=null && _v2!=='' && !(Array.isArray(_v2)&&!_v2.length)) return true; } } }catch(e){} return false; }
+if(window.AIWILLS_EDIT===true && awAnyAnswers()){ var _rv=visible(), _t=-1;
   for(var _k=0;_k<_rv.length;_k++){ if(_rv[_k].kind==='review'){ _t=_k; break; } }
   /* Probate has no summary, so signing back in dropped the customer on question one of a quote they
      had already sent. Where the quote is in, land on the outcome they already have. */
