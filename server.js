@@ -552,7 +552,9 @@ async function stripeReq(method, pathname, params, key){
   if (params) opts.body = formEncode(params);
   const r = await fetch('https://api.stripe.com' + pathname, opts);
   const text = await r.text(); let j; try { j = JSON.parse(text); } catch(e){ j = { raw: text }; }
-  if (!r.ok) throw new Error('Stripe ' + pathname + ' -> ' + r.status + ' ' + text.slice(0,300));
+  /* Stripe's capability errors carry the fix in the second half of the sentence, and 300 characters
+   cut it off exactly where it started to be useful. Show the lot. */
+  if (!r.ok) throw new Error('Stripe ' + pathname + ' -> ' + r.status + ' ' + text.slice(0,1200));
   return j;
 }
 /* ---- Connect: which firms can actually be paid ----
