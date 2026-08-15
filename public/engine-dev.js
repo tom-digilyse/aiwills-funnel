@@ -50,7 +50,7 @@
   function run(){
 
 var CFG = window.AIWILLS_CONFIG || {}; (function(){ var _m='{'+'{'; for(var _k in CFG){ if(typeof CFG[_k]==='string' && CFG[_k].indexOf(_m)>=0) CFG[_k]=''; } })();
-  try{ if(window.AIWILLS_EDIT===true || !!(window.AIWILLS_TOKEN)){ awStartAutoLogout(); awSignedInBar(); } }catch(e){}
+  try{ if(window.AIWILLS_EDIT===true || !!(window.AIWILLS_TOKEN)){ awStartAutoLogout(); awSignedInBar(); awKeepSessionAlive(); } }catch(e){}
   if(String((window.AIWILLS_CONFIG||{}).funnel||'').toLowerCase()==='hub'){ renderHub(); return; }
   try{ awServicesBar(); }catch(e){}
   try{ var _psf=String(CFG.plan_services||'').toLowerCase().split(',').map(function(x){return x.trim();}).filter(Boolean); var _fk=(function(){var f=String((CFG.funnel)||window.AIWILLS_FUNNEL||'').toLowerCase();return (f==='etb'||f==='lpa')?f:((f==='probate'||f==='referral')?'probate':'wills');})(); if(_psf.length && _psf.indexOf(_fk)<0){ mount.innerHTML='<div class="aw-ready" style="max-width:640px;margin:60px auto;padding:32px;border:1px solid var(--line);border-radius:14px;background:#fff;text-align:center;font-family:var(--bf)"><h3 style="font-family:var(--hf);color:var(--heading)">This service is not part of your plan</h3><p style="color:var(--muted)">Please speak to your adviser about adding it, or go back to your services page.</p></div>'; try{ mount.classList.add('aw-ready'); }catch(e){} return; } }catch(e){}
@@ -107,7 +107,7 @@ var CFG = window.AIWILLS_CONFIG || {}; (function(){ var _m='{'+'{'; for(var _k i
       else if(sent){ btn='<a class="btn ghost" target="_top" data-k="'+esc(s.key)+'" href="'+esc(withId(s.url))+'">View</a>'; }
       else if(done){ btn='<a class="btn" target="_top" data-k="'+esc(s.key)+'" href="'+esc(withId(s.url))+'">Continue</a>'; }
       else { btn='<a class="btn" target="_top" data-k="'+esc(s.key)+'" href="'+esc(withId(s.url))+'">Get started</a>'; }
-      var badge=done?('<div class="hubstatus">'+(st.paid?'Purchased':(sent?'Quote being prepared':(_awSignedIn()?'In progress':'Unfinished on this device')))+'</div>'):'';
+      var badge=done?('<div class="hubstatus">'+(st.paid?'Purchased':(sent?'Quote being prepared':(_awSignedIn()?'In progress':'In progress')))+'</div>'):'';
       return '<div class="hubcard"><div class="hubic">'+s.icon+'</div><h3>'+esc(s.title)+'</h3><p class="hubdesc">'+esc(s.blurb)+'</p>'+badge+btn+'</div>';
     }
     function _awSignedIn(){ return window.AIWILLS_EDIT===true || !!(window.AIWILLS_TOKEN); }
@@ -1177,6 +1177,25 @@ function go(dir){
 }
 
 function lsKey(){ try{ var fn=((window.AIWILLS_CONFIG&&window.AIWILLS_CONFIG.funnel)||'wills'); return 'aw_draft_'+fn+'_'+(loc||''); }catch(e){ return ''; } }
+/* The session used to die exactly one hour after sign-in, so somebody still filling in a will was
+   signed out mid-question. While the page is open and the customer is signed in, ask the server for
+   a fresh token well before the old one runs out. Close the tab and the session still expires. */
+function awKeepSessionAlive(){
+  try{
+    if (window.__awKeepAlive) return; window.__awKeepAlive = 1;
+    setInterval(function(){
+      try{
+        var t = window.AIWILLS_TOKEN || '';
+        if (!t) return;
+        if (document.hidden) return;              // nobody is working, let it expire
+        fetch(API + '/api/session-touch', { method:'POST', headers:{'Content-Type':'text/plain'}, body: JSON.stringify({ s: t }) })
+          .then(function(r){ return r.json(); })
+          .then(function(j){ if (j && j.ok && j.session){ try{ awSessSet(j.session); }catch(e){ window.AIWILLS_TOKEN = j.session; } } })
+          .catch(function(){});
+      }catch(e){}
+    }, 15 * 60 * 1000);
+  }catch(e){}
+}
 function saveLocal(){ try{ if(window.AIWILLS_EDIT===true) return; var k=lsKey(); if(k){ localStorage.setItem(k, JSON.stringify(state)); try{ localStorage.setItem(k+'_pos', JSON.stringify({c:cur,m:maxCur})); }catch(e2){} try{ document.cookie=k.replace('aw_draft_','aw_s_')+'=1;domain=.aiwills.co.uk;path=/;max-age=31536000;SameSite=Lax'; }catch(e3){} } }catch(e){} }
 function awLogout(reason){
   try{ var _b=document.getElementById('awsignedin'); if(_b&&_b.parentNode) _b.parentNode.removeChild(_b); }catch(e){}
