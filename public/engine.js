@@ -647,8 +647,10 @@ var LPA_FUNNEL = [
   { id:'preferences', name:'Preferences', title:'Preferences & instructions', fields:[
     { key:'hasPreferences', type:'radio', label:'Do you want to include any preferences?', reflow:true, options:['Yes','No'] },
     { key:'preferences', type:'textarea', label:'Your preferences', required:true, showIf:function(s){return s.preferences.hasPreferences==='Yes';} },
+    { key:'preferencesApply', type:'radio', label:'Which LPA do these preferences apply to?', required:true, reflow:true, options:['Both','Property & Financial only','Health & Welfare only'], showIf:function(s){return s.preferences.hasPreferences==='Yes' && s.lpa_type.type==='Both';} },
     { key:'hasInstructions', type:'radio', label:'Do you want to include legally binding instructions?', reflow:true, options:['Yes','No'] },
-    { key:'instructions', type:'textarea', label:'Your instructions', required:true, showIf:function(s){return s.preferences.hasInstructions==='Yes';} }
+    { key:'instructions', type:'textarea', label:'Your instructions', required:true, showIf:function(s){return s.preferences.hasInstructions==='Yes';} },
+    { key:'instructionsApply', type:'radio', label:'Which LPA do these instructions apply to?', required:true, reflow:true, options:['Both','Property & Financial only','Health & Welfare only'], showIf:function(s){return s.preferences.hasInstructions==='Yes' && s.lpa_type.type==='Both';} }
   ]},
   { id:'usage', name:'Usage', title:'When can the LPA be used?', lead:'Property & Financial only.', showIf:function(s){var t=s.lpa_type.type; return t==='Property & Financial Affairs'||t==='Both';}, fields:[
     { key:'when', type:'radio', label:'When can attorneys start using the Property & Financial LPA?', required:true, options:['As soon as it is registered','Only if I lose mental capacity'] }
