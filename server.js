@@ -684,7 +684,7 @@ function signSession(loc, cid, funnel){ return signEdit({ loc: loc, cid: cid, fu
 /* Read a saved funnel state JSON off a contact. funnel = 'etb' | 'wills'. */
 async function loadState(loc, contactId, funnel){
   var token = await getWriteToken(loc);
-  var fieldName = (funnel==='wills') ? 'Will State Json' : (funnel==='lpa' ? 'LPA State Json' : 'ETB State Json');
+  var fieldName = (funnel==='wills') ? 'Will State Json' : (funnel==='lpa' ? 'LPA State Json' : (funnel==='probate' ? 'Probate State Json' : 'ETB State Json'));
   var map = await etbFieldMap(token, loc); // generic contact-field name -> id
   var fid = map[fieldName.toLowerCase()];
   var got = await ghl('GET', '/contacts/' + contactId, token); var c = got.contact || got;
@@ -693,7 +693,8 @@ async function loadState(loc, contactId, funnel){
   if (fid && byId[fid]!=null){ try{ state=JSON.parse(byId[fid]); }catch(e){} }
   // Uploaded documents: read the FILE_UPLOAD fields' URLs so the client can view/download them.
   var files=[], filesRaw=[]; ETB_FILES.forEach(function(name){ var id=map[name.toLowerCase()]; if(!id) return; var raw=byId[id]; if(raw!=null&&raw!=='') filesRaw.push({ field:name, t:(typeof raw), sample:(typeof raw==='object'?JSON.stringify(raw):String(raw)).slice(0,240) }); var u=extractFileUrl(raw); if(u.url) files.push({ field:name, url:u.url, name:u.name||'' }); });
-  return { state: state, contact: contact, found: !!state, files: files, filesRaw: filesRaw };
+  var submitted=false; try{ if(funnel==='probate'){ submitted = (c.tags||[]).map(function(t){ return String(t).toLowerCase(); }).indexOf('probate-lead')>=0; } }catch(e){}
+  return { state: state, contact: contact, found: !!state, files: files, filesRaw: filesRaw, submitted: submitted };
 }
 // GHL FILE_UPLOAD values vary (plain URL, object/array {url}, JSON string, or a documents wrapper). Pull a usable URL out.
 function extractFileUrl(v){
@@ -1276,7 +1277,9 @@ async function findContactByEmail(loc, email){
 async function findContactByPhone(loc, phone){
   try {
     const token = await getWriteToken(loc);
-    const num = String(phone||'').replace(/[^0-9+]/g,'');
+    let num = String(phone||'').replace(/[^0-9+]/g,'');
+    if (/^07\d{9}$/.test(num)) num = '+44' + num.slice(1);        // GHL stores UK mobiles as E.164
+    else if (/^447\d{9}$/.test(num)) num = '+' + num;
     const r = await ghl('GET', '/contacts/search/duplicate?locationId='+loc+'&number='+encodeURIComponent(num), token);
     return r.contact || (r.contacts && r.contacts[0]) || null;
   } catch(e){ return null; }
@@ -1753,13 +1756,18 @@ const server = http.createServer(async (req, res) => {
         // Price is config-not-code: etb_price_id (a real Stripe price) wins if set; otherwise the
         // yearly subscription is built on the fly from the etb_price value (e.g. "19.99"), the same
         // pattern as will_price. No hardcoded account-specific fallbacks.
-        const price = cv['etb_price_id'] || process.env.ETB_PRICE_ID || '';
-        const etbAmt = pence(cv['etb_price']);
-        if (!Number.isInteger(etbAmt) || etbAmt < 100){
-          console.error('etb-checkout: bad amount for ' + loc + ' (etb_price=' + JSON.stringify(cv['etb_price']) + ')');
-          return send(res, 400, { error: 'The Executor Toolbox price for this firm is not set correctly, so payment cannot start.' });
+        const plan = (['monthly','annual','lifetime'].indexOf(cbody.plan)>=0) ? cbody.plan : 'annual';
+        // Prices live in our brand store (set by the onboarding tool); custom values are the fallback.
+        let bprices = {}; try { bprices = brandStoreGet(loc) || {}; } catch(e){}
+        const price = (plan==='annual') ? (cv['etb_price_id'] || process.env.ETB_PRICE_ID || '') : '';
+        const planRaw = (plan==='monthly') ? (bprices['etb_price_monthly'] || cv['etb_price_monthly'])
+                      : (plan==='lifetime') ? (bprices['etb_price_oneoff'] || cv['etb_price_oneoff'])
+                      : (bprices['etb_price'] || cv['etb_price']);
+        const etbAmt = pence(planRaw);
+        if (!price && (!Number.isInteger(etbAmt) || etbAmt < 100)){
+          console.error('etb-checkout: bad amount for ' + loc + ' plan=' + plan + ' (value=' + JSON.stringify(planRaw) + ')');
+          return send(res, 400, { error: 'The Executor Toolbox price for this option is not set, so payment cannot start.' });
         }
-        if (!price && !(etbAmt >= 100)) return send(res, 400, { error: 'Set an Executor Toolbox price (etb_price) or etb_price_id for this location' });
         const person = cbody.contact || {};
         let contactId = cbody.contactId || '';
         try {
@@ -1769,11 +1777,12 @@ const server = http.createServer(async (req, res) => {
         const ret = cbody.returnUrl || ('https://' + (req.headers.host || 'engine.aiwills.co.uk'));
         const sep = ret.indexOf('?') >= 0 ? '&' : '?';
         const eparams = {
-          'mode': 'subscription',
+          'mode': (plan==='lifetime' ? 'payment' : 'subscription'),
           'success_url': ret + sep + 'aw_etb_paid=1',
           'cancel_url': ret + sep + 'aw_etb_paid=0',
           'line_items[0][quantity]': 1,
           'metadata[kind]': 'etb',
+          'metadata[plan]': plan,
           'metadata[locationId]': loc,
           'metadata[contactId]': contactId,
           'subscription_data[metadata][kind]': 'etb',
@@ -1781,11 +1790,17 @@ const server = http.createServer(async (req, res) => {
           'subscription_data[metadata][contactId]': contactId,
           'customer_email': person.email || ''
         };
+        if (plan === 'lifetime'){
+          // subscription_data is not accepted on a one-off payment session
+          delete eparams['subscription_data[metadata][kind]'];
+          delete eparams['subscription_data[metadata][locationId]'];
+          delete eparams['subscription_data[metadata][contactId]'];
+        }
         if (price) { eparams['line_items[0][price]'] = price; }
         else {
           eparams['line_items[0][price_data][currency]'] = 'gbp';
           eparams['line_items[0][price_data][unit_amount]'] = etbAmt;
-          eparams['line_items[0][price_data][recurring][interval]'] = 'year';
+          if (plan !== 'lifetime') eparams['line_items[0][price_data][recurring][interval]'] = (plan==='monthly' ? 'month' : 'year');
           eparams['line_items[0][price_data][product_data][name]'] = 'Executor Toolbox (' + (cv['company_name'] || 'AI Wills') + ')';
         }
         // Connect payout split: subscription revenue lands with the firm, the Ai-Wills commission
@@ -1795,9 +1810,15 @@ const server = http.createServer(async (req, res) => {
         if (awStripeMode(cv) === 'live' && /^acct_[A-Za-z0-9]+$/.test(eAcct)) {
           // test mode: rehearse the journey, do not attempt a payout to a live account
           const pct = num(cv['commission_percent']);
-          eparams['subscription_data[transfer_data][destination]'] = eAcct;
-          eparams['subscription_data[on_behalf_of]'] = eAcct;
-          if (pct > 0 && pct < 100) eparams['subscription_data[application_fee_percent]'] = pct;
+          if (plan === 'lifetime'){
+            eparams['payment_intent_data[transfer_data][destination]'] = eAcct;
+            eparams['payment_intent_data[on_behalf_of]'] = eAcct;
+            if (pct > 0 && pct < 100) eparams['payment_intent_data[application_fee_amount]'] = Math.round(etbAmt * pct / 100);
+          } else {
+            eparams['subscription_data[transfer_data][destination]'] = eAcct;
+            eparams['subscription_data[on_behalf_of]'] = eAcct;
+            if (pct > 0 && pct < 100) eparams['subscription_data[application_fee_percent]'] = pct;
+          }
           eRouted = true;
         }
         let sess;
@@ -1805,6 +1826,7 @@ const server = http.createServer(async (req, res) => {
         catch(e){
           if (!eRouted || !awOnBehalfRefused(e)) throw e;
           delete eparams['subscription_data[on_behalf_of]'];
+          delete eparams['payment_intent_data[on_behalf_of]'];
           console.error('etb-checkout: ' + loc + ' refused on_behalf_of, retrying as a plain destination charge');
           sess = await stripeReq('POST', '/v1/checkout/sessions', eparams, awStripeKey(cv));
         }
@@ -2086,7 +2108,7 @@ const server = http.createServer(async (req, res) => {
         if(claims.kind!=='session') return send(res,403,{error:'no session',message:'Please open your sign-in link again.'});
         if(authIsSpent(claims.jti)) return send(res,403,{error:'signed out',message:'You have been signed out. Please request a new link.'});
         const _qf=(new URL(req.url,'http://x')).searchParams.get('funnel'); const _uf=_qf||claims.funnel||'etb'; const out=await loadState(claims.loc, claims.cid, _uf);
-        return send(res,200,{ ok:true, funnel:_uf, contactId:claims.cid, state:out.state, contact:out.contact, found:out.found, files:out.files||[], filesRaw:out.filesRaw||[] });
+        return send(res,200,{ ok:true, funnel:_uf, contactId:claims.cid, state:out.state, contact:out.contact, found:out.found, submitted:out.submitted||false, files:out.files||[], filesRaw:out.filesRaw||[] });
       } catch(e){ return send(res, 200, { error: e.message }); }
     }
     // DEV ONLY: mint an edit token to test the edit flow. Disabled the moment EDIT_SECRET is set (production).
@@ -2100,7 +2122,7 @@ const server = http.createServer(async (req, res) => {
         if (!need || secret !== need) return send(res, 403, { error: 'forbidden' });
         const loc = (b.locationId||'').replace(/[^A-Za-z0-9]/g,'');
         const cid = (b.contactId||'').replace(/[^A-Za-z0-9]/g,'');
-        const funnel = (['wills','lpa','etb'].indexOf(b.funnel)>=0)?b.funnel:'etb';
+        const funnel = (['wills','lpa','etb','probate'].indexOf(b.funnel)>=0)?b.funnel:'etb';
         if (!loc || !cid) return send(res, 400, { error: 'locationId and contactId required' });
         const ttl = Math.min(parseInt(b.ttlDays||30,10)||30, 90);
         const token = signLink(loc, cid, funnel);
@@ -2119,7 +2141,7 @@ const server = http.createServer(async (req, res) => {
         const email = (b.email||'').trim();
         const phone = (b.phone||'').trim();
         const channel = (String(b.channel||'').toLowerCase()==='sms') ? 'sms' : (email ? 'email' : 'sms');
-        const funnel = (['wills','lpa','etb'].indexOf(b.funnel)>=0)?b.funnel:'etb';
+        const funnel = (['wills','lpa','etb','probate'].indexOf(b.funnel)>=0)?b.funnel:'etb';
         const base = b.returnBase || '';
         if (!loc || (!email && !phone)) return send(res, 400, { error: 'locationId and an email or phone required' });
         (async function(){
