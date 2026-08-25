@@ -2253,6 +2253,47 @@ const server = http.createServer(async (req, res) => {
         return send(res, 200, { ok:true, token: token, url: url });
       } catch(e){ return send(res, 200, { error: e.message }); }
     }
+    /* Restore a purchased will onto its contact from the server's own will store. The contact
+       fields were not always written at purchase time (early bugs); the store kept the answers.
+       Reveals nothing: metadata only, and the restore writes to GHL, not to the caller. */
+    if (req.method === 'GET' && pathOnly === '/api/will-backfill'){
+      res.setHeader('Access-Control-Allow-Origin','*');
+      try {
+        const bu = new URL(req.url,'http://x');
+        const bloc = (bu.searchParams.get('locationId')||'').replace(/[^A-Za-z0-9]/g,'');
+        const bemail = (bu.searchParams.get('email')||'').trim().toLowerCase();
+        const brun = (bu.searchParams.get('run')||'')==='1';
+        if(!bloc||!bemail) return send(res,400,{error:'locationId and email required'});
+        let names=[]; try { names = fs.readdirSync(WILL_DIR); } catch(e){}
+        const matches=[];
+        for (const fn of names){
+          if(!/\.json$/.test(fn)) continue;
+          let rec=null; try { rec = JSON.parse(fs.readFileSync(path.join(WILL_DIR,fn),'utf8')); } catch(e){ continue; }
+          if (String(rec.locationId||'')!==bloc) continue;
+          const rem = String(((rec.willJson||{}).personal||{}).email||'').trim().toLowerCase();
+          if (rem!==bemail) continue;
+          const p=(rec.willJson||{}).personal||{};
+          matches.push({ id: fn.replace('.json',''), paid: !!rec.paid, createdAt: rec.createdAt||0, paidAt: rec.paidAt||0,
+            name: ((p.firstName||'')+' '+(p.lastName||'')).trim(), contactId: rec.contactId||'',
+            stateBytes: JSON.stringify(rec.willJson||{}).length });
+        }
+        matches.sort(function(a,b){ return (b.paidAt||b.createdAt)-(a.paidAt||a.createdAt); });
+        const out = { ok:true, locationId:bloc, matches:matches };
+        if (brun && matches.length){
+          const pickMeta = matches.filter(function(m){ return m.paid; })[0] || matches[0];
+          const rec = willStoreGet(pickMeta.id);
+          if (rec && rec.willJson){
+            if (rec.paid){ rec.willJson.payment = Object.assign({}, rec.willJson.payment, { paid:true }); }
+            let target = '';
+            try { const bc = await findBestContactByEmail(bloc, bemail); target = (bc&&bc.id)||''; } catch(e){}
+            if (!target) target = rec.contactId||'';
+            const wr = await willSave(bloc, rec.willJson, target, { pdf: !!rec.paid, step:'review' });
+            out.ran = true; out.restoredTo = (wr&&wr.contactId)||target; out.from = pickMeta.id;
+          }
+        }
+        return send(res,200,out);
+      } catch(e){ return send(res, 200, { error: e.message }); }
+    }
     // Self-serve: a client enters their email; if it matches a contact we stamp their edit link + a tag, and a GHL workflow emails it. Always returns a generic message.
     if (req.method === 'POST' && pathOnly === '/api/edit-request'){
       res.setHeader('Access-Control-Allow-Origin','*');
