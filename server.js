@@ -1633,10 +1633,22 @@ const server = http.createServer(async (req, res) => {
         const all = r.customFields || r.customField || [];
         const want = all.map(function(f){ return { f:f, key:awFolderKey(f.name) }; }).filter(function(x){ return x.key; });
         const keys = {}; want.forEach(function(x){ keys[x.key]=1; });
+        /* A snapshot push copies the folder structure but not our per-location folder map, so the
+           map starts empty and ensure() would build a second 'Wills' next to the snapshot's one.
+           Adopt instead: a folder key's home is wherever most of its fields already live. */
+        const have = awFoldersGet(oloc) || {}; let adopted = false;
+        for (const k of Object.keys(keys)){
+          if (have[k]) continue;
+          const tally = {};
+          want.forEach(function(x){ if (x.key===k && x.f.parentId){ tally[x.f.parentId]=(tally[x.f.parentId]||0)+1; } });
+          let best='', n=0; Object.keys(tally).forEach(function(pid){ if (tally[pid]>n){ best=pid; n=tally[pid]; } });
+          if (best && n>=3){ have[k]=best; adopted=true; }
+        }
+        if (adopted && !dry){ try{ awFoldersPut(oloc, have); }catch(e){} }
         const folders = {};
         for (const k of Object.keys(keys)){
-          if (dry) { folders[k] = awFoldersGet(oloc)[k] || '(would create '+(AW_FOLDER_NAMES[k]||k)+')'; continue; }
-          try { folders[k] = await awFolderEnsure(otok, oloc, k); } catch(e){ folders[k] = 'ERROR '+e.message; }
+          if (dry) { folders[k] = have[k] || '(would create '+(AW_FOLDER_NAMES[k]||k)+')'; continue; }
+          try { folders[k] = have[k] || await awFolderEnsure(otok, oloc, k); } catch(e){ folders[k] = 'ERROR '+e.message; }
         }
         const todo = want.filter(function(x){ return folders[x.key] && String(folders[x.key]).indexOf('ERROR')<0 && String(x.f.parentId||'') !== String(folders[x.key]); });
         const out = { ok:true, locationId:oloc, dry:dry, folders:folders, total:all.length, ours:want.length, toMove:todo.length };
