@@ -691,10 +691,30 @@ async function loadState(loc, contactId, funnel){
   var state=null, contact={ firstName:c.firstName||'', lastName:c.lastName||'', email:c.email||'', phone:c.phone||'' };
   var byId={}; (c.customFields||c.customField||[]).forEach(function(f){ byId[f.id]=(f.value!=null?f.value:f.fieldValue); });
   if (fid && byId[fid]!=null){ try{ state=JSON.parse(byId[fid]); }catch(e){} }
+  /* Nothing here for this service, but the same person may have a duplicate contact that holds it:
+     answers migrate between twins when GHL's upsert races. Serve their real answers, and hand back
+     the twin's id so anything they change saves onto the record that has the rest. */
+  if (!state && contact.email){
+    try {
+      var _twins = await findContactsByEmail(loc, contact.email, token);
+      for (var _ti=0; _ti<_twins.length; _ti++){
+        var _tw=_twins[_ti];
+        if (String(_tw.id)===String(contactId)) continue;
+        var _g2 = await ghl('GET','/contacts/'+_tw.id, token); var _c2=_g2.contact||_g2;
+        var _by2={}; (_c2.customFields||_c2.customField||[]).forEach(function(f){ _by2[f.id]=(f.value!=null?f.value:f.fieldValue); });
+        if (fid && _by2[fid]!=null && String(_by2[fid]).length>2){
+          try { state = JSON.parse(_by2[fid]); } catch(e){ continue; }
+          contactId = _tw.id; c = _c2; byId = _by2;
+          console.error('state-load: adopted duplicate contact ' + _tw.id + ' for ' + funnel);
+          break;
+        }
+      }
+    } catch(e){}
+  }
   // Uploaded documents: read the FILE_UPLOAD fields' URLs so the client can view/download them.
   var files=[], filesRaw=[]; ETB_FILES.forEach(function(name){ var id=map[name.toLowerCase()]; if(!id) return; var raw=byId[id]; if(raw!=null&&raw!=='') filesRaw.push({ field:name, t:(typeof raw), sample:(typeof raw==='object'?JSON.stringify(raw):String(raw)).slice(0,240) }); var u=extractFileUrl(raw); if(u.url) files.push({ field:name, url:u.url, name:u.name||'' }); });
   var submitted=false; try{ if(funnel==='probate'){ submitted = (c.tags||[]).map(function(t){ return String(t).toLowerCase(); }).indexOf('probate-lead')>=0; } }catch(e){}
-  return { state: state, contact: contact, found: !!state, files: files, filesRaw: filesRaw, submitted: submitted };
+  return { state: state, contact: contact, found: !!state, files: files, filesRaw: filesRaw, submitted: submitted, contactId: contactId };
 }
 // GHL FILE_UPLOAD values vary (plain URL, object/array {url}, JSON string, or a documents wrapper). Pull a usable URL out.
 function extractFileUrl(v){
@@ -1252,6 +1272,19 @@ async function upsertOrUpdateContact(token, loc, contactId, base){
     // No email means no way to tell this person from anyone else, so do not try to match.
     return await ghl('POST', '/contacts/upsert', token, Object.assign({ locationId: loc }, base));
   }
+  // Ask the duplicate search before upserting: GHL's upsert can race its own index and mint a twin.
+  try {
+    const r0 = await ghl('GET', '/contacts/search/duplicate?locationId='+loc+'&email='+encodeURIComponent(email), token);
+    const hit = r0.contact || (r0.contacts && r0.contacts[0]) || null;
+    if (hit && hit.id){
+      const merged = Object.assign({}, base); delete merged.email; const ph0 = merged.phone; delete merged.phone;
+      let rr = null; try { rr = await ghl('PUT', '/contacts/'+hit.id, token, merged); } catch(e2){ rr = null; }
+      if (rr){
+        if (ph0){ try { await ghl('PUT', '/contacts/'+hit.id, token, { phone: ph0 }); } catch(e3){} }
+        return (rr.contact || rr.id) ? rr : { contact: { id: hit.id } };
+      }
+    }
+  } catch(e){}
   const ident = Object.assign({ locationId: loc }, base);
   delete ident.phone;
   const created = await ghl('POST', '/contacts/upsert', token, ident);
@@ -1266,6 +1299,39 @@ async function upsertOrUpdateContact(token, loc, contactId, base){
     }
   }
   return created;
+}
+/* One person, several contacts: GHL's upsert can race its own duplicate index (and some accounts
+   allow duplicates outright), so answers end up split across twins that share an email. These two
+   helpers make login and restore land on the twin that actually holds the data. */
+async function findContactsByEmail(loc, email, token){
+  try {
+    const t = token || await getWriteToken(loc);
+    const r = await ghl('GET', '/contacts/?locationId='+loc+'&query='+encodeURIComponent(email)+'&limit=20', t);
+    const list = (r && (r.contacts || r.items)) || [];
+    const em = String(email||'').trim().toLowerCase();
+    return list.filter(function(c){ return String(c.email||'').trim().toLowerCase()===em; });
+  } catch(e){ return []; }
+}
+async function findBestContactByEmail(loc, email){
+  try {
+    const token = await getWriteToken(loc);
+    const dups = await findContactsByEmail(loc, email, token);
+    if (dups.length <= 1) return dups[0] || await findContactByEmail(loc, email);
+    let map = {}; try { map = await etbFieldMap(token, loc); } catch(e){}
+    const stateIds = ['will state json','lpa state json','etb state json','probate state json'].map(function(n){ return map[n]; }).filter(Boolean);
+    let best = null, bestScore = -1, bestUpd = 0;
+    for (const d of dups){
+      let full = null;
+      try { const got = await ghl('GET','/contacts/'+d.id, token); full = got.contact || got; } catch(e){ continue; }
+      const byId = {}; (full.customFields||full.customField||[]).forEach(function(f){ byId[f.id]=(f.value!=null?f.value:f.fieldValue); });
+      let score = 0;
+      stateIds.forEach(function(id){ if (byId[id] && String(byId[id]).length > 2) score += 10; });
+      (full.tags||[]).forEach(function(t){ if (/^(ai-will-paid|ai-lpa-paid|etb-active|probate-lead)$/i.test(String(t))) score += 5; });
+      const upd = Date.parse(full.dateUpdated || full.dateAdded || 0) || 0;
+      if (score > bestScore || (score === bestScore && upd > bestUpd)){ best = full; bestScore = score; bestUpd = upd; }
+    }
+    return best || dups[0];
+  } catch(e){ return await findContactByEmail(loc, email); }
 }
 async function findContactByEmail(loc, email){
   try {
@@ -1520,6 +1586,28 @@ const server = http.createServer(async (req, res) => {
         const has=function(n){ var id=byName[n.toLowerCase()]; var v=id?byId[id]:''; return !!(v&&String(v).trim()); };
         const tags=(c.tags||[]).map(function(t){return String(t).toLowerCase();});
         const services={ wills:{ started:has('Will State Json'), paid: tags.indexOf('ai-will-paid')>=0 }, lpa:{ started:has('LPA State Json'), paid:false }, etb:{ started:has('ETB State Json'), paid: tags.indexOf('etb-active')>=0 }, probate:{ started:has('Probate State Json'), paid:false, submitted: tags.indexOf('probate-lead')>=0 } };
+        /* The same person can be split across duplicate contacts; their services page should show
+           everything they have, whichever twin it sits on. */
+        try {
+          const hemail = String(c.email||'').trim();
+          if (hemail){
+            const twins = await findContactsByEmail(hloc, hemail, ht);
+            for (const tw of twins){
+              if (String(tw.id)===String(hcid)) continue;
+              const g2 = await ghl('GET','/contacts/'+tw.id, ht); const c2=g2.contact||g2;
+              const by2={}; (c2.customFields||c2.customField||[]).forEach(function(f){ by2[f.id]=(f.value!=null?f.value:f.fieldValue); });
+              const has2=function(n){ var id=byName[n.toLowerCase()]; var v=id?by2[id]:''; return !!(v&&String(v).trim()); };
+              const tags2=(c2.tags||[]).map(function(t){return String(t).toLowerCase();});
+              services.wills.started = services.wills.started || has2('Will State Json');
+              services.wills.paid = services.wills.paid || tags2.indexOf('ai-will-paid')>=0;
+              services.lpa.started = services.lpa.started || has2('LPA State Json');
+              services.etb.started = services.etb.started || has2('ETB State Json');
+              services.etb.paid = services.etb.paid || tags2.indexOf('etb-active')>=0;
+              services.probate.started = services.probate.started || has2('Probate State Json');
+              services.probate.submitted = services.probate.submitted || tags2.indexOf('probate-lead')>=0;
+            }
+          }
+        } catch(e){}
         return send(res,200,{ ok:true, services });
       }catch(e){ return send(res,500,{error:e.message}); }
     }
@@ -2120,7 +2208,7 @@ const server = http.createServer(async (req, res) => {
         if(claims.kind!=='session') return send(res,403,{error:'no session',message:'Please open your sign-in link again.'});
         if(authIsSpent(claims.jti)) return send(res,403,{error:'signed out',message:'You have been signed out. Please request a new link.'});
         const _qf=(new URL(req.url,'http://x')).searchParams.get('funnel'); const _uf=_qf||claims.funnel||'etb'; const out=await loadState(claims.loc, claims.cid, _uf);
-        return send(res,200,{ ok:true, funnel:_uf, contactId:claims.cid, state:out.state, contact:out.contact, found:out.found, submitted:out.submitted||false, files:out.files||[], filesRaw:out.filesRaw||[] });
+        return send(res,200,{ ok:true, funnel:_uf, contactId:(out.contactId||claims.cid), state:out.state, contact:out.contact, found:out.found, submitted:out.submitted||false, files:out.files||[], filesRaw:out.filesRaw||[] });
       } catch(e){ return send(res, 200, { error: e.message }); }
     }
     // DEV ONLY: mint an edit token to test the edit flow. Disabled the moment EDIT_SECRET is set (production).
@@ -2158,7 +2246,7 @@ const server = http.createServer(async (req, res) => {
         if (!loc || (!email && !phone)) return send(res, 400, { error: 'locationId and an email or phone required' });
         (async function(){
           try {
-            const c = email ? await findContactByEmail(loc, email) : await findContactByPhone(loc, phone);
+            const c = email ? await findBestContactByEmail(loc, email) : await findContactByPhone(loc, phone);
             if (!c || !c.id) return;
             const token = signLink(loc, c.id, funnel);
             if (!token) return;
