@@ -1018,7 +1018,8 @@ function render(){
       if(!_plans.length) _plans.push({k:'annual',lbl:'Annual',price:'£19.99 / year'});
       var _pick='';
       if(_plans.length>1){
-        _pick='<div class="choices" id="awetbplans" style="flex-direction:column;margin:0 0 14px">'+_plans.map(function(pl,ix){ return '<label class="choice'+(ix===0?' on':'')+'" style="display:flex;justify-content:space-between;align-items:center;text-align:left;gap:10px"><span style="display:flex;align-items:center;gap:8px"><input type="radio" name="awetbplan" value="'+pl.k+'"'+(ix===0?' checked':'')+'><span>'+esc(pl.lbl)+'</span></span><span style="font-weight:700">'+esc(pl.price)+'</span></label>'; }).join('')+'</div>';
+        var _di=0; _plans.forEach(function(pl,ii){ if(pl.k==='annual') _di=ii; });
+        _pick='<div class="choices" id="awetbplans" style="flex-direction:column;margin:0 0 14px">'+_plans.map(function(pl,ix){ return '<label class="choice'+(ix===_di?' on':'')+'" style="display:flex;justify-content:space-between;align-items:center;text-align:left;gap:10px"><span style="display:flex;align-items:center;gap:8px"><input type="radio" name="awetbplan" value="'+pl.k+'"'+(ix===_di?' checked':'')+'><span>'+esc(pl.lbl)+'</span></span><span style="font-weight:700">'+esc(pl.price)+'</span></label>'; }).join('')+'</div>';
       } else {
         _pick='<div class="price">'+esc(_plans[0].price)+'</div>';
       }
