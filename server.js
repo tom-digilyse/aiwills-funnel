@@ -1681,6 +1681,27 @@ const server = http.createServer(async (req, res) => {
         const floc = (fu.searchParams.get('locationId')||'').replace(/[^A-Za-z0-9]/g,'');
         if(!floc) return send(res,400,{error:'locationId required'});
         const ftok = await getWriteToken(floc);
+        /* email=: list this person's duplicate contacts and which service data sits where.
+           Fill state and lengths only, never the answers themselves. */
+        const femail = (fu.searchParams.get('email')||'').trim();
+        if (femail){
+          const twinsOut = [];
+          const map0 = await etbFieldMap(ftok, floc);
+          const stateNames = ['Will State Json','LPA State Json','ETB State Json','Probate State Json','Will Document','Will Summary','Edit Link'];
+          const twins = await findContactsByEmail(floc, femail, ftok);
+          for (const tw of twins){
+            let full=null; try { const g=await ghl('GET','/contacts/'+tw.id, ftok); full=g.contact||g; } catch(e){ continue; }
+            const byId={}; (full.customFields||full.customField||[]).forEach(function(f){ byId[f.id]=(f.value!=null?f.value:f.fieldValue); });
+            const fill={};
+            stateNames.forEach(function(n){ const id=map0[n.toLowerCase()]; const v=id?byId[id]:''; fill[n]=(v&&String(v).length)||0; });
+            twinsOut.push({ id: tw.id, name: ((full.firstName||'')+' '+(full.lastName||'')).trim(),
+              added: full.dateAdded||'', updated: full.dateUpdated||'',
+              tags: (full.tags||[]).filter(function(t){ return /^(ai-will-paid|ai-lpa-paid|etb-active|probate-lead|send-edit-link|aiw-login-email|aiw-login-sms)$/i.test(String(t)); }),
+              fill: fill });
+          }
+          let pick=null; try { const b=await findBestContactByEmail(floc, femail); pick=b&&b.id; } catch(e){}
+          return send(res,200,{ ok:true, locationId:floc, email:femail, twins:twinsOut, bestPick:pick });
+        }
         const out = { ok:true, locationId: floc };
         let list = [];
         try { const r = await ghl('GET','/locations/'+floc+'/customFields?model=contact', ftok); list = r.customFields || r.customField || []; }
