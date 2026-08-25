@@ -714,7 +714,18 @@ async function loadState(loc, contactId, funnel){
   // Uploaded documents: read the FILE_UPLOAD fields' URLs so the client can view/download them.
   var files=[], filesRaw=[]; ETB_FILES.forEach(function(name){ var id=map[name.toLowerCase()]; if(!id) return; var raw=byId[id]; if(raw!=null&&raw!=='') filesRaw.push({ field:name, t:(typeof raw), sample:(typeof raw==='object'?JSON.stringify(raw):String(raw)).slice(0,240) }); var u=extractFileUrl(raw); if(u.url) files.push({ field:name, url:u.url, name:u.name||'' }); });
   var submitted=false; try{ if(funnel==='probate'){ submitted = (c.tags||[]).map(function(t){ return String(t).toLowerCase(); }).indexOf('probate-lead')>=0; } }catch(e){}
-  return { state: state, contact: contact, found: !!state, files: files, filesRaw: filesRaw, submitted: submitted, contactId: contactId };
+  /* Status the funnel can show even when no answers are loadable: paid flag, document link and
+     the plain-English summary. What the person already owns should never render as a blank form. */
+  var _tagsL=[]; try{ _tagsL=(c.tags||[]).map(function(t){ return String(t).toLowerCase(); }); }catch(e){}
+  var paid=false;
+  if (funnel==='wills') paid=_tagsL.indexOf('ai-will-paid')>=0;
+  else if (funnel==='lpa') paid=_tagsL.indexOf('ai-lpa-paid')>=0;
+  else if (funnel==='etb') paid=_tagsL.indexOf('etb-active')>=0;
+  var _docName=(funnel==='wills')?'Will Document':((funnel==='lpa')?'LPA Document':((funnel==='etb')?'ETB Document':''));
+  var _sumName=(funnel==='wills')?'Will Summary':((funnel==='lpa')?'LPA Summary':((funnel==='etb')?'ETB Summary':'Probate Summary'));
+  var docUrl=''; try{ var _did=_docName?map[_docName.toLowerCase()]:''; var _dv=_did?byId[_did]:''; if(_dv && /^https?:/i.test(String(_dv))) docUrl=String(_dv); }catch(e){}
+  var summaryText=''; try{ var _sid=map[_sumName.toLowerCase()]; if(_sid && byId[_sid]) summaryText=String(byId[_sid]); }catch(e){}
+  return { state: state, contact: contact, found: !!state, files: files, filesRaw: filesRaw, submitted: submitted, contactId: contactId, paid: paid, docUrl: docUrl, summaryText: summaryText };
 }
 // GHL FILE_UPLOAD values vary (plain URL, object/array {url}, JSON string, or a documents wrapper). Pull a usable URL out.
 function extractFileUrl(v){
@@ -2229,7 +2240,7 @@ const server = http.createServer(async (req, res) => {
         if(claims.kind!=='session') return send(res,403,{error:'no session',message:'Please open your sign-in link again.'});
         if(authIsSpent(claims.jti)) return send(res,403,{error:'signed out',message:'You have been signed out. Please request a new link.'});
         const _qf=(new URL(req.url,'http://x')).searchParams.get('funnel'); const _uf=_qf||claims.funnel||'etb'; const out=await loadState(claims.loc, claims.cid, _uf);
-        return send(res,200,{ ok:true, funnel:_uf, contactId:(out.contactId||claims.cid), state:out.state, contact:out.contact, found:out.found, submitted:out.submitted||false, files:out.files||[], filesRaw:out.filesRaw||[] });
+        return send(res,200,{ ok:true, funnel:_uf, contactId:(out.contactId||claims.cid), state:out.state, contact:out.contact, found:out.found, submitted:out.submitted||false, paid:out.paid||false, docUrl:out.docUrl||'', summaryText:out.summaryText||'', files:out.files||[], filesRaw:out.filesRaw||[] });
       } catch(e){ return send(res, 200, { error: e.message }); }
     }
     // DEV ONLY: mint an edit token to test the edit flow. Disabled the moment EDIT_SECRET is set (production).
@@ -2287,7 +2298,10 @@ const server = http.createServer(async (req, res) => {
             let target = '';
             try { const bc = await findBestContactByEmail(bloc, bemail); target = (bc&&bc.id)||''; } catch(e){}
             if (!target) target = rec.contactId||'';
-            const wr = await willSave(bloc, rec.willJson, target, { pdf: !!rec.paid, step:'review' });
+            const isLpaOnly = (parseInt(rec.lpaQty,10)>0) && !(parseInt(rec.willQty,10)>0);
+            const wr = isLpaOnly
+              ? await lpaSave(bloc, rec.willJson, target, { pdf: !!rec.paid, step:'review' })
+              : await willSave(bloc, rec.willJson, target, { pdf: !!rec.paid, step:'review' });
             out.ran = true; out.restoredTo = (wr&&wr.contactId)||target; out.from = pickMeta.id;
           }
         }
