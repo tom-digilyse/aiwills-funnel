@@ -995,7 +995,29 @@ function review(){
   return html+((FUNNEL===WILLS_FUNNEL)?'<p class="note" style="margin-top:12px;text-align:center;color:var(--muted)">Your will is ready. You can download it on the next step, once payment is complete.</p>':'')+_lpaNote;
 }
 
+function awRenderStatusOnly(){
+  var m=window.__awStatusOnly||{};
+  var _svc=(FUNNEL===LPA_FUNNEL)?'Lasting Power of Attorney':((FUNNEL===ETB_FUNNEL)?'Executor Toolbox':((FUNNEL===REFERRAL_FUNNEL)?'probate enquiry':'will'));
+  var html='';
+  if(FUNNEL===REFERRAL_FUNNEL && m.submitted){
+    html+='<h1>Your quote is being prepared</h1><div class="mock"><div class="tick">\u2713</div><h3>We have your enquiry</h3><p class="note">The team are preparing your fixed fee quote and will be in touch. There is nothing more you need to do.</p></div>';
+  } else if(m.paid || m.docUrl){
+    html+='<h1>Your '+esc(_svc)+'</h1><div class="mock"><div class="tick">\u2713</div><h3>'+(FUNNEL===ETB_FUNNEL?'Your Toolbox is active':'Paid for and safely stored')+'</h3>';
+    if(m.docUrl){ html+='<p class="note">Your document is ready to view or download.</p><a class="btn wide" href="'+esc(m.docUrl)+'" target="_blank" rel="noopener" style="display:block;text-align:center;text-decoration:none;margin-top:12px">View my '+(FUNNEL===LPA_FUNNEL?'LPA':(FUNNEL===ETB_FUNNEL?'Toolbox summary':'will'))+'</a>'; }
+    else { html+='<p class="note">We could not load your original answers on this device. Your purchase is safe on your record - the firm can help with any changes.</p>'; }
+    html+='</div>';
+  } else {
+    html+='<h1>Your '+esc(_svc)+'</h1><div class="mock"><p class="note">We could not load your saved answers on this device. Please contact the firm if you need anything.</p></div>';
+  }
+  if(m.summary){ html+='<h3 style="margin:22px 0 8px">The answers you gave</h3><div style="white-space:pre-wrap;border:1px solid var(--line);border-radius:12px;padding:16px;font-size:15px;line-height:1.55;background:#fff">'+esc(m.summary)+'</div>'; }
+  try{ html += awHubButtonHtml(); }catch(e){}
+  el('step').innerHTML=html;
+  try{ el('next').style.display='none'; }catch(e){}
+  try{ el('back').style.display='none'; }catch(e){}
+  try{ var _h=el('hdr'); if(_h) _h.style.display='none'; }catch(e){}
+}
 function render(){
+  if(window.__awStatusOnly){ try{ awRenderStatusOnly(); return; }catch(e){} }
   var vis=visible(); if(cur>vis.length-1) cur=vis.length-1; var s=vis[cur];
   if(s.fields){ s.fields.forEach(function(f){ if(f.type!=='repeater') return; var active=f.showIf?f.showIf(state):false; if(!(f.required||active)) return; var lp=s.id+'.'+f.key; var l=getP(lp); if(Array.isArray(l) && l.length===0){ l.push(blankItem(f)); } }); } // auto-open a card only for required or gated-active repeaters; optional lists (e.g. gifts) can be emptied via Remove
   /* In the edit hub the review step is not a checkpoint on the way to paying, it IS the product:
@@ -1469,6 +1491,10 @@ if(window.AIWILLS_EDIT===true && awAnyAnswers()){ var _rv=visible(), _t=-1;
     }
   }
   if(_t>=0) cur=_t;
+} else if(window.AIWILLS_EDIT===true){
+  /* Signed in, nothing loadable, but the record says they bought or submitted something: a blank
+     question one reads as \"your work is gone\". Show what we know instead. */
+  try{ var _mm=window.AIWILLS_META||{}; if(_mm.paid===true || _mm.submitted===true || _mm.docUrl){ window.__awStatusOnly=_mm; } }catch(e){}
 } }catch(e){}
 
 /* Service URLs register themselves. When this engine runs on a real funnel page it already knows its
@@ -1538,7 +1564,7 @@ setTimeout(closeGaps,400); setTimeout(closeGaps,1200);
     function _awLoadState(sess){
       return fetch(API+'/api/state-load?t='+encodeURIComponent(sess)+'&funnel='+encodeURIComponent(String((window.AIWILLS_CONFIG||{}).funnel||'')))
         .then(function(r){return r.json();}).then(function(j){
-          if(j&&j.ok){ window.AIWILLS_EDIT=true; window.AIWILLS_SUBMITTED=(j.submitted===true); window.AIWILLS_FILES=j.files||[]; if(j.state) window.AIWILLS_PREFILL=j.state; if(j.funnel==='wills'||j.funnel==='lpa'){ window.AIWILLS_CONTACT_ID=j.contactId; } else { window.AIWILLS_ETB_CID=j.contactId; } }
+          if(j&&j.ok){ window.AIWILLS_EDIT=true; window.AIWILLS_SUBMITTED=(j.submitted===true); window.AIWILLS_META={ paid:(j.paid===true), submitted:(j.submitted===true), docUrl:(j.docUrl||''), summary:(j.summaryText||'') }; window.AIWILLS_FILES=j.files||[]; if(j.state) window.AIWILLS_PREFILL=j.state; if(j.funnel==='wills'||j.funnel==='lpa'){ window.AIWILLS_CONTACT_ID=j.contactId; } else { window.AIWILLS_ETB_CID=j.contactId; } }
           else { window.__awSessDead=true; try{ sessionStorage.removeItem(_sk); }catch(e){} }
         }).catch(function(){ window.__awSessDead=true; });
     }
