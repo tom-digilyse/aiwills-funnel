@@ -2264,6 +2264,65 @@ const server = http.createServer(async (req, res) => {
         return send(res, 200, { ok:true, token: token, url: url });
       } catch(e){ return send(res, 200, { error: e.message }); }
     }
+    /* Field clean-up, run only on explicit sign-off. Two modes:
+       dupes: for each of OUR field names that exists twice, keep the copy the system writes to
+              (checked against values on recent contacts) and delete the idle twin.
+       ids:   delete an explicit list of field/folder ids (legacy fields already signed off).
+       Every call without run=1&confirm=DELETE is a dry run that only reports the plan. */
+    if (req.method === 'GET' && pathOnly === '/api/fields-cleanup'){
+      res.setHeader('Access-Control-Allow-Origin','*');
+      try {
+        const cu2 = new URL(req.url,'http://x');
+        const cloc2 = (cu2.searchParams.get('locationId')||'').replace(/[^A-Za-z0-9]/g,'');
+        if(!cloc2) return send(res,400,{error:'locationId required'});
+        const mode2 = (cu2.searchParams.get('mode')||'dupes');
+        const live2 = (cu2.searchParams.get('run')||'')==='1' && (cu2.searchParams.get('confirm')||'')==='DELETE';
+        const ctok2 = await getWriteToken(cloc2);
+        const rr2 = await ghl('GET','/locations/'+cloc2+'/customFields?model=contact', ctok2);
+        const all2 = rr2.customFields || rr2.customField || [];
+        const byId2 = {}; all2.forEach(function(f){ byId2[f.id]=f; });
+        const del = async function(id){ try { await ghl('DELETE','/locations/'+cloc2+'/customFields/'+id, ctok2); return true; } catch(e){ return 'ERROR '+e.message; } };
+        if (mode2==='ids'){
+          const ids2 = String(cu2.searchParams.get('ids')||'').split(',').map(function(x){ return x.replace(/[^A-Za-z0-9]/g,''); }).filter(Boolean);
+          const plan2 = ids2.map(function(id){ return { id:id, name:(byId2[id]&&byId2[id].name)||'(not found)', exists: !!byId2[id] }; });
+          if (!live2) return send(res,200,{ ok:true, dry:true, mode:'ids', plan:plan2 });
+          const done2 = [];
+          for (const p2 of plan2){ done2.push({ id:p2.id, name:p2.name, deleted: p2.exists ? await del(p2.id) : 'skipped: not found' }); }
+          return send(res,200,{ ok:true, mode:'ids', results:done2 });
+        }
+        // dupes
+        const groups2 = {};
+        all2.forEach(function(f){ if(!awFieldService(f.name)) return; (groups2[f.name]=groups2[f.name]||[]).push(f); });
+        const dupNames2 = Object.keys(groups2).filter(function(n){ return groups2[n].length>1; });
+        // value check across recent contacts, so the copy holding data is always the keeper
+        let recent2 = [];
+        try { const rc = await ghl('GET','/contacts/?locationId='+cloc2+'&limit=20', ctok2); recent2 = rc.contacts || []; } catch(e){}
+        const valueCount2 = {};
+        for (const rcon of recent2){
+          try {
+            const g3 = await ghl('GET','/contacts/'+rcon.id, ctok2); const c3 = g3.contact||g3;
+            (c3.customFields||c3.customField||[]).forEach(function(f){ const v=(f.value!=null?f.value:f.fieldValue); if(v!=null&&String(v).trim()!=='') valueCount2[f.id]=(valueCount2[f.id]||0)+1; });
+          } catch(e){}
+        }
+        const map2 = {}; all2.forEach(function(f){ map2[String(f.name||'').toLowerCase()]=f.id; });  // same last-wins rule the writers use
+        const plan2 = [];
+        dupNames2.forEach(function(n){
+          const grp = groups2[n];
+          let keeper = map2[String(n).toLowerCase()];
+          const withVals = grp.filter(function(f){ return (valueCount2[f.id]||0)>0; });
+          if (withVals.length===1) keeper = withVals[0].id;                     // data wins over write-target
+          const both = withVals.length>1;
+          grp.forEach(function(f){ if(f.id!==keeper) plan2.push({ name:n, deleteId:f.id, keepId:keeper, valuesOnRecent:(valueCount2[f.id]||0), blocked: both ? 'both copies hold data - left alone' : '' }); });
+        });
+        if (!live2) return send(res,200,{ ok:true, dry:true, mode:'dupes', dupNames:dupNames2.length, plan:plan2 });
+        const done2 = [];
+        for (const p2 of plan2){
+          if (p2.blocked){ done2.push({ name:p2.name, deleteId:p2.deleteId, deleted:'skipped: '+p2.blocked }); continue; }
+          done2.push({ name:p2.name, deleteId:p2.deleteId, deleted: await del(p2.deleteId) });
+        }
+        return send(res,200,{ ok:true, mode:'dupes', results:done2 });
+      } catch(e){ return send(res, 200, { error: e.message }); }
+    }
     /* Restore a purchased will onto its contact from the server's own will store. The contact
        fields were not always written at purchase time (early bugs); the store kept the answers.
        Reveals nothing: metadata only, and the restore writes to GHL, not to the caller. */
