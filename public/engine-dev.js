@@ -1543,6 +1543,11 @@ setTimeout(closeGaps,400); setTimeout(closeGaps,1200);
         }).catch(function(){ window.__awSessDead=true; });
     }
     var _sess=''; try{ _sess=sessionStorage.getItem(_sk)||''; }catch(e){}
+    /* A page that ran the previous engine stored the session under 'aw_sess_' with no location.
+       Adopt it so signing in on a stale services tab still carries into the funnels. */
+    if(!_sess && _qloc){
+      try{ var _legacy=sessionStorage.getItem('aw_sess_')||''; if(_legacy){ _sess=_legacy; sessionStorage.setItem(_sk,_legacy); sessionStorage.removeItem('aw_sess_'); } }catch(e){}
+    }
     if(_tok){
       // Swap the emailed link for a session, then take it out of the address bar so the back
       // button and the browser history cannot sign the next person in.
