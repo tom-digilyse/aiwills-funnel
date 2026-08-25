@@ -1504,6 +1504,7 @@ setTimeout(closeGaps,400); setTimeout(closeGaps,1200);
     }
     var _tok=null, _qloc='';
     try{ var _q=new URLSearchParams(location.search); _tok=_q.get('aw_t'); _qloc=_q.get('aw_loc')||''; }catch(e){}
+    if(!_qloc){ try{ var _dle=document.getElementById('aiwills-funnel'); if(_dle) _qloc=String(_dle.getAttribute('data-loc')||'').replace(/[^A-Za-z0-9]/g,''); }catch(e){} }
     try{ window.AIWILLS_LOC=_qloc; }catch(e){}
     var _sk='aw_sess_'+_qloc;
     function _awStripToken(){ try{ var u=new URL(location.href); u.searchParams.delete('aw_t'); history.replaceState(null,'',u.pathname+(u.search||'')+(u.hash||'')); }catch(e){} }
