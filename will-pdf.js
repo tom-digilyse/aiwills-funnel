@@ -601,6 +601,12 @@ async function fillLpaForm(PL, bytes, state, ftype){
   var pf=state.preferences||{};
   var prefTxt=(String(pf.hasPreferences).toLowerCase()==='yes')?String(pf.preferences||''):'';
   var instrTxt=(String(pf.hasInstructions).toLowerCase()==='yes')?String(pf.instructions||''):'';
+  /* One set of wording landing on both forms put financial preferences on the health LPA. The
+     funnel now asks which form each applies to; older answers carry no choice and keep going on
+     both, exactly as before. */
+  var _appliesHere=function(v){ v=String(v||''); if(!v || /both/i.test(v)) return true; return (ftype==='F') ? /financial/i.test(v) : /health/i.test(v); };
+  if(!_appliesHere(pf.preferencesApply)) prefTxt='';
+  if(!_appliesHere(pf.instructionsApply)) instrTxt='';
   var LIM=210;
   if(prefTxt){ set('Preferences  use words like prefer and would like', prefTxt.length>LIM?(prefTxt.slice(0,LIM-24).replace(/\s+\S*$/,'')+'  (continued on sheet 2)'):prefTxt); if(prefTxt.length>LIM) check('I need more space  use Continuation sheet 2'); }
   if(instrTxt){ set('Instructions  use words like must and have to', instrTxt.length>LIM?(instrTxt.slice(0,LIM-24).replace(/\s+\S*$/,'')+'  (continued on sheet 2)'):instrTxt); if(instrTxt.length>LIM) check('I need more space  use Continuation sheet 2_2'); }
@@ -648,8 +654,19 @@ async function fillLpaForm(PL, bytes, state, ftype){
   var T=PL.PDFName.of('T'),AS=PL.PDFName.of('AS'),AP=PL.PDFName.of('AP'),Nn=PL.PDFName.of('N'),P=PL.PDFName.of('Parent');
   var txt=function(o){if(!o)return null;o=o.decodeText?o:ctx.lookup(o);return o&&o.decodeText?o.decodeText():null;};
   var fname=function(w){var cur=w,parts=[],g=0;while(cur&&g++<6){var t=txt(cur.get(T));if(t)parts.unshift(t);var pr=cur.get(P);cur=pr?ctx.lookup(pr,PL.PDFDict):null;}return parts.join('.');};
-  var onKey=function(w){try{var n=ctx.lookup(w.get(AP),PL.PDFDict);var nn=ctx.lookup(n.get(Nn),PL.PDFDict);return nn.keys().map(function(x){return x.asString();}).find(function(x){return x!=='/Off';});}catch(e){return null;}};
-  pdf.getPages().forEach(function(pg){var an=pg.node.Annots&&pg.node.Annots();if(!an)return;for(var i=0;i<an.size();i++){var w=ctx.lookup(an.get(i),PL.PDFDict);if(!w||!w.get)continue;var nm=fname(w);if(!(nm in targets))continue;var want=PL.PDFName.of(targets[nm]).asString();if(onKey(w)===want)w.set(AS,PL.PDFName.of(targets[nm]));else w.set(AS,PL.PDFName.of('Off'));}});
+  var onName=function(w){try{var n=ctx.lookup(w.get(AP),PL.PDFDict);var nn=ctx.lookup(n.get(Nn),PL.PDFDict);var ks=nn.keys();for(var q=0;q<ks.length;q++){ if(ks[q].asString()!=='/Off') return ks[q]; }}catch(e){} return null;};
+  /* NeedAppearances-compliant viewers redraw ticks from the field VALUE, not the widget state, so a
+     tick set only via /AS can silently vanish in Acrobat. Set the group's /V too, reuse the
+     widget's own on-state name (one of them is the empty name, which must never be rebuilt by
+     hand), and never let one odd widget abort the rest of the walk. */
+  var Vn=PL.PDFName.of('V');
+  var setGroup=function(w,nm){try{
+    var onN=onName(w); if(!onN) return;
+    var on=(onN.asString() === '/'+String(targets[nm]));
+    w.set(AS, on ? onN : PL.PDFName.of('Off'));
+    if(on){ var top=w,g=0; while(g++<6){ var pr=top.get(P); var pd=pr?ctx.lookup(pr,PL.PDFDict):null; if(!pd) break; top=pd; } top.set(Vn, onN); }
+  }catch(e){}};
+  pdf.getPages().forEach(function(pg){var an=pg.node.Annots&&pg.node.Annots();if(!an)return;for(var i=0;i<an.size();i++){try{var w=ctx.lookup(an.get(i),PL.PDFDict);if(!w||!w.get)continue;var nm=fname(w);if(!(nm in targets))continue;setGroup(w,nm);}catch(e){}}});
   // (Long preferences/instructions overflow is carried on the official LPC Continuation sheet 2,
   //  generated separately by buildLpaContinuation and appended as its own document.)
   try{form.acroForm.dict.set(PL.PDFName.of('NeedAppearances'),PL.PDFBool.True);}catch(e){}
@@ -662,6 +679,9 @@ async function buildLpaContinuation(PL, lpcBytes, state){
   var prefTxt=(String(pf.hasPreferences).toLowerCase()==='yes')?String(pf.preferences||''):'';
   var instrTxt=(String(pf.hasInstructions).toLowerCase()==='yes')?String(pf.instructions||''):'';
   var LIM=210; var needP=prefTxt.length>LIM, needI=instrTxt.length>LIM;
+  /* The jointly-for-some decisions must be stated in full on Continuation sheet 2 or the
+     restriction is not given effect. They were collected and never printed anywhere. */
+  var mixTxt=''; try{ if(/some/i.test(String((state.decisions&&state.decisions.mode)||''))) mixTxt=String((state.decisions&&state.decisions.mixedDetail)||'').trim(); }catch(e){}
   var atts=(state.attorneys&&state.attorneys.list)||[];
   var reps=[]; atts.forEach(function(a){ if(String(a.hasReplacement).toLowerCase()==='yes'&&(a.repFirstName||a.repLastName)) reps.push({type:'2',title:a.repTitle,firstName:a.repFirstName,lastName:a.repLastName,address:a.repAddress,city:a.repCity,postcode:a.repPostcode,dob:a.repDob}); });
   var nl=(state.notify&&String(state.notify.has).toLowerCase()==='yes')?(state.notify.list||[]):[];
@@ -672,7 +692,7 @@ async function buildLpaContinuation(PL, lpcBytes, state){
   var signerName=(state.declaration&&state.declaration.signerName)||'';
   var trust=atts.filter(function(a){return String(a.isTrustCorp).toLowerCase()==='yes';});
   var trustReg=trust.length?(trust[0].companyRegNumber||''):'';
-  if(!needP&&!needI&&!overflow.length&&canSign&&!trust.length) return null;
+  if(!needP&&!needI&&!overflow.length&&canSign&&!trust.length&&!mixTxt) return null;
   var lpc=await PL.PDFDocument.load(lpcBytes); var form=lpc.getForm(); var ctx=lpc.context;
   var donor=fullName(state.your_details||{});
   var set=function(n,v){try{if(v!=null&&String(v).trim()!=='')form.getTextField(n).setText(String(v));}catch(e){}};
@@ -692,11 +712,17 @@ async function buildLpaContinuation(PL, lpcBytes, state){
       if(pages.indexOf(s.pg)<0){pages.push(s.pg); set(s.full,donor);}
     });
   }
-  if(needP){ set('Instructions LPA section 7', prefTxt); set('Full name_3', donor); cbTargets['Decisions attorneys should make jointly LPA section 3']='3'; if(pages.indexOf(4)<0)pages.push(4); }
-  if(needI){
-    if(needP){ set('Instructions LPA section 7_2', instrTxt); set('Full name_4', donor); cbTargets['Decisions attorneys should make jointly LPA section 3_2']='4'; if(pages.indexOf(5)<0)pages.push(5); }
-    else { set('Instructions LPA section 7', instrTxt); set('Full name_3', donor); cbTargets['Decisions attorneys should make jointly LPA section 3']='4'; if(pages.indexOf(4)<0)pages.push(4); }
+  var sheets=[];
+  if(mixTxt) sheets.push({ v:'1', txt:'Decisions that must be made jointly by my attorneys:\n'+mixTxt });
+  if(needP) sheets.push({ v:'3', txt:prefTxt });
+  if(needI) sheets.push({ v:'4', txt:instrTxt });
+  if(sheets.length>2){
+    // two physical slots on the sheet; fold the rest into slot two with headings so nothing is lost
+    var _extra=sheets.splice(2);
+    _extra.forEach(function(x){ sheets[1].txt += '\n\n'+(x.v==='4'?'Instructions (LPA section 7):':'Preferences (LPA section 7):')+'\n'+x.txt; });
   }
+  if(sheets[0]){ set('Instructions LPA section 7', sheets[0].txt); set('Full name_3', donor); cbTargets['Decisions attorneys should make jointly LPA section 3']=sheets[0].v; if(pages.indexOf(4)<0)pages.push(4); }
+  if(sheets[1]){ set('Instructions LPA section 7_2', sheets[1].txt); set('Full name_4', donor); cbTargets['Decisions attorneys should make jointly LPA section 3_2']=sheets[1].v; if(pages.indexOf(5)<0)pages.push(5); }
   if(!canSign){ set('Full name_5', signerName||donor); if(pages.indexOf(6)<0)pages.push(6); }
   if(trust.length){ set('Company registration number', trustReg); if(pages.indexOf(8)<0)pages.push(8); }
   pages.sort(function(a,b){return a-b;});
@@ -704,8 +730,15 @@ async function buildLpaContinuation(PL, lpcBytes, state){
   var T=PL.PDFName.of('T'),AS=PL.PDFName.of('AS'),AP=PL.PDFName.of('AP'),Nn=PL.PDFName.of('N'),P=PL.PDFName.of('Parent');
   var txt=function(o){if(!o)return null;o=o.decodeText?o:ctx.lookup(o);return o&&o.decodeText?o.decodeText():null;};
   var fnm=function(w){var cur=w,parts=[],g=0;while(cur&&g++<6){var t=txt(cur.get(T));if(t)parts.unshift(t);var pr=cur.get(P);cur=pr?ctx.lookup(pr,PL.PDFDict):null;}return parts.join('.');};
-  var onKey=function(w){try{var n=ctx.lookup(w.get(AP),PL.PDFDict);var nn=ctx.lookup(n.get(Nn),PL.PDFDict);return nn.keys().map(function(x){return x.asString();}).find(function(x){return x!=='/Off';});}catch(e){return null;}};
-  lpc.getPages().forEach(function(pg){var an=pg.node.Annots&&pg.node.Annots();if(!an)return;for(var i=0;i<an.size();i++){var w=ctx.lookup(an.get(i),PL.PDFDict);if(!w||!w.get)continue;var nm=fnm(w);if(!(nm in cbTargets))continue;var want=PL.PDFName.of(cbTargets[nm]).asString();if(onKey(w)===want)w.set(AS,PL.PDFName.of(cbTargets[nm]));else w.set(AS,PL.PDFName.of('Off'));}});
+  var onName=function(w){try{var n=ctx.lookup(w.get(AP),PL.PDFDict);var nn=ctx.lookup(n.get(Nn),PL.PDFDict);var ks=nn.keys();for(var q=0;q<ks.length;q++){ if(ks[q].asString()!=='/Off') return ks[q]; }}catch(e){} return null;};
+  var Vn=PL.PDFName.of('V');
+  var setGroup=function(w,nm){try{
+    var onN=onName(w); if(!onN) return;
+    var on=(onN.asString() === '/'+String(cbTargets[nm]));
+    w.set(AS, on ? onN : PL.PDFName.of('Off'));
+    if(on){ var top=w,g=0; while(g++<6){ var pr=top.get(P); var pd=pr?ctx.lookup(pr,PL.PDFDict):null; if(!pd) break; top=pd; } top.set(Vn, onN); }
+  }catch(e){}};
+  lpc.getPages().forEach(function(pg){var an=pg.node.Annots&&pg.node.Annots();if(!an)return;for(var i=0;i<an.size();i++){try{var w=ctx.lookup(an.get(i),PL.PDFDict);if(!w||!w.get)continue;var nm=fnm(w);if(!(nm in cbTargets))continue;setGroup(w,nm);}catch(e){}}});
   var out=await PL.PDFDocument.create();
   var copied=await out.copyPages(lpc, pages);
   copied.forEach(function(pg){ out.addPage(pg); });
