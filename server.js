@@ -680,7 +680,7 @@ function authIsSpent(jti){ if (!jti) return false; const m = authUsedAll(); retu
 function awJti(){ return crypto.randomBytes(12).toString('hex'); }
 function signLink(loc, cid, funnel){ return signEdit({ loc: loc, cid: cid, funnel: funnel, kind: 'link', jti: awJti(), exp: Date.now() + AW_LINK_TTL_MS }); }
 function signDoc(loc, cid, funnel){ return signEdit({ loc: loc, cid: cid, funnel: funnel, kind: 'link', jti: awJti(), exp: Date.now() + AW_DOC_TTL_MS }); }
-function signSession(loc, cid, funnel){ return signEdit({ loc: loc, cid: cid, funnel: funnel, kind: 'session', jti: awJti(), exp: Date.now() + AW_SESSION_TTL_MS }); }
+function signSession(loc, cid, funnel, ev){ var p = { loc: loc, cid: cid, funnel: funnel, kind: 'session', jti: awJti(), exp: Date.now() + AW_SESSION_TTL_MS }; if (ev === 0) p.ev = 0;   /* email not yet proven; cleared the moment they open an emailed link */ return signEdit(p); }
 /* Read a saved funnel state JSON off a contact. funnel = 'etb' | 'wills'. */
 async function loadState(loc, contactId, funnel){
   var token = await getWriteToken(loc);
@@ -1788,6 +1788,7 @@ const server = http.createServer(async (req, res) => {
       try {
         // the per-firm key is checked once its config is loaded, a few lines down
         const cbody = JSON.parse((await readBody(req)) || '{}');
+        try { const _sc = verifyEdit(String(cbody.t||'')); if (_sc && _sc.kind==='session' && _sc.ev===0) return send(res, 200, { error: 'Please confirm your email address first. Use the sign-in link we emailed you, then try again.' }); } catch(e){}
         const loc = (cbody.locationId || '').replace(/[^A-Za-z0-9]/g,'');
         if (!loc) return send(res, 400, { error: 'locationId is required' });
         const token = await getWriteToken(loc);
@@ -1882,6 +1883,7 @@ const server = http.createServer(async (req, res) => {
       try {
         // the per-firm key is checked once its config is loaded, a few lines down
         const cbody = JSON.parse((await readBody(req)) || '{}');
+        try { const _sc = verifyEdit(String(cbody.t||'')); if (_sc && _sc.kind==='session' && _sc.ev===0) return send(res, 200, { error: 'Please confirm your email address first. Use the sign-in link we emailed you, then try again.' }); } catch(e){}
         const loc = (cbody.locationId || '').replace(/[^A-Za-z0-9]/g,'');
         if (!loc) return send(res, 400, { error: 'locationId is required' });
         const token = await getWriteToken(loc);
@@ -2231,6 +2233,42 @@ const server = http.createServer(async (req, res) => {
     }
     // Trade a one-time emailed link for a session. The link dies here whether or not the rest works,
     // so a forwarded or shoulder-surfed link is worth nothing the second time it is opened.
+    /* Registration IS sign-in now. A brand-new email gets a contact and a live session on the
+       spot, so the customer is properly signed in from their first minute, with a visible way out.
+       The session carries ev:0 (email not yet proven) and payment is gated on proving it. An email
+       we already know NEVER gets an instant session: a typed address must not unlock someone
+       else's saved answers, so those people get the usual emailed sign-in link instead. */
+    if (req.method === 'POST' && pathOnly === '/api/register'){
+      res.setHeader('Access-Control-Allow-Origin','*');
+      try {
+        const b = JSON.parse((await readBody(req)) || '{}');
+        const rloc = (b.locationId||'').replace(/[^A-Za-z0-9]/g,'');
+        const remail = String(b.email||'').trim();
+        const rfirst = String(b.firstName||'').trim().slice(0,80);
+        const rlast = String(b.lastName||'').trim().slice(0,80);
+        const rphone = String(b.phone||'').trim().slice(0,30);
+        const rfunnel = (['wills','lpa','etb','probate'].indexOf(b.funnel)>=0) ? b.funnel : '';
+        if (!rloc || !rfirst || !/.+@.+\..+/.test(remail)) return send(res,400,{ error:'locationId, firstName and a valid email required' });
+        const rtok = await getWriteToken(rloc);
+        let existing = [];
+        try { existing = await findContactsByEmail(rloc, remail, rtok); } catch(e){}
+        if (existing && existing.length) return send(res, 200, { ok:true, existing:true });
+        let rcid = '';
+        try {
+          const up = await ghl('POST','/contacts/', rtok, { locationId:rloc, firstName:rfirst, lastName:rlast, email:remail, phone:rphone });
+          rcid = (up.contact && up.contact.id) || up.id || '';
+        } catch(e){
+          /* GHL refuses a create that matches an existing contact by email or phone. That IS the
+             existing-account case, whatever the search said a moment ago. */
+          if (/duplicat/i.test(String(e.message||''))) return send(res, 200, { ok:true, existing:true });
+          throw e;
+        }
+        if (!rcid) return send(res, 500, { error:'could not create contact' });
+        const rsess = signSession(rloc, rcid, rfunnel, 0);
+        if (!rsess) return send(res, 200, { ok:true, existing:false, contactId:rcid, session:'' });   // signing unavailable: caller falls back to the anonymous journey
+        return send(res, 200, { ok:true, existing:false, contactId:rcid, session:rsess, expiresInMs: AW_SESSION_TTL_MS });
+      } catch(e){ return send(res, 200, { error:e.message }); }
+    }
     if (req.method === 'POST' && pathOnly === '/api/session-start'){
       res.setHeader('Access-Control-Allow-Origin','*');
       try {
@@ -2255,7 +2293,7 @@ const server = http.createServer(async (req, res) => {
         const b = JSON.parse((await readBody(req)) || '{}');
         const cl = verifyEdit(String(b.s || ''));
         if (!cl || cl.kind !== 'session' || !cl.loc || !cl.cid) return send(res, 403, { error:'expired' });
-        return send(res, 200, { ok:true, session: signSession(cl.loc, cl.cid, cl.funnel || ''), expiresInMs: AW_SESSION_TTL_MS });
+        return send(res, 200, { ok:true, session: signSession(cl.loc, cl.cid, cl.funnel || '', (cl.ev===0?0:1)), expiresInMs: AW_SESSION_TTL_MS });
       } catch(e){ return send(res, 403, { error:'expired' }); }
     }
     if (req.method === 'POST' && pathOnly === '/api/session-end'){
