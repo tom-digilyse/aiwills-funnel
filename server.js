@@ -679,6 +679,29 @@ function authSpend(jti, exp){
 }
 function authIsSpent(jti){ if (!jti) return false; const m = authUsedAll(); return !!(m[jti] && m[jti] > Date.now()); }
 function awJti(){ return crypto.randomBytes(12).toString('hex'); }
+/* SMS sign-in: a link texted to a phone signs in the phone, not the screen the person is sitting
+   at. So SMS carries a 6 digit code instead, typed into the waiting screen. Codes live server-side
+   hashed, die after 10 minutes or 5 wrong tries, and work exactly once. The texted link still works
+   too, for the person who genuinely is on their phone. */
+const AUTH_CODES = path.join(AUTH_DIR, 'codes.json');
+function codesAll(){ try { return JSON.parse(fs.readFileSync(AUTH_CODES, 'utf8')) || {}; } catch(e){ return {}; } }
+function codesPut(m){ try { fs.mkdirSync(AUTH_DIR, { recursive: true }); fs.writeFileSync(AUTH_CODES, JSON.stringify(m)); } catch(e){ console.error('codesPut', e.message); } }
+function codeMint(loc, cid){
+  const code = String(Math.floor(100000 + Math.random() * 900000));
+  const m = codesAll(); const now = Date.now();
+  Object.keys(m).forEach(function(k){ if (!m[k] || m[k].exp < now) delete m[k]; });
+  m[loc + '|' + cid] = { h: crypto.createHash('sha256').update(code).digest('hex'), exp: now + 10 * 60 * 1000, tries: 0 };
+  codesPut(m); return code;
+}
+function codeCheck(loc, cid, code){
+  const m = codesAll(); const k = loc + '|' + cid; const rec = m[k];
+  if (!rec || rec.exp < Date.now()){ if (rec){ delete m[k]; codesPut(m); } return false; }
+  rec.tries = (rec.tries || 0) + 1;
+  if (rec.tries > 5){ delete m[k]; codesPut(m); return false; }
+  const ok = crypto.createHash('sha256').update(String(code)).digest('hex') === rec.h;
+  if (ok) delete m[k];
+  codesPut(m); return ok;
+}
 function signLink(loc, cid, funnel){ return signEdit({ loc: loc, cid: cid, funnel: funnel, kind: 'link', jti: awJti(), exp: Date.now() + AW_LINK_TTL_MS }); }
 function signDoc(loc, cid, funnel){ return signEdit({ loc: loc, cid: cid, funnel: funnel, kind: 'link', jti: awJti(), exp: Date.now() + AW_DOC_TTL_MS }); }
 function signSession(loc, cid, funnel, ev){ var p = { loc: loc, cid: cid, funnel: funnel, kind: 'session', jti: awJti(), exp: Date.now() + AW_SESSION_TTL_MS }; if (ev === 0) p.ev = 0;   /* email not yet proven; cleared the moment they open an emailed link */ return signEdit(p); }
@@ -2270,6 +2293,26 @@ const server = http.createServer(async (req, res) => {
         return send(res, 200, { ok:true, existing:false, contactId:rcid, session:rsess, expiresInMs: AW_SESSION_TTL_MS });
       } catch(e){ return send(res, 200, { error:e.message }); }
     }
+    /* Trade a texted 6 digit code for a session, on the device where it was typed. The response is
+       the same whether the phone is unknown or the code wrong: this screen must not reveal which
+       numbers hold an account. */
+    if (req.method === 'POST' && pathOnly === '/api/code-login'){
+      res.setHeader('Access-Control-Allow-Origin','*');
+      try {
+        const b = JSON.parse((await readBody(req)) || '{}');
+        const kloc = (b.locationId||'').replace(/[^A-Za-z0-9]/g,'');
+        const kphone = String(b.phone||'').trim();
+        const kcode = String(b.code||'').replace(/[^0-9]/g,'');
+        const kfun = (['wills','lpa','etb','probate'].indexOf(b.funnel)>=0) ? b.funnel : '';
+        const NO = { error: 'That code did not match. Check it and try again, or send a fresh one.' };
+        if (!kloc || !kphone || kcode.length !== 6) return send(res, 200, NO);
+        let kc = null; try { kc = await findContactByPhone(kloc, kphone); } catch(e){}
+        if (!(kc && kc.id && codeCheck(kloc, kc.id, kcode))) return send(res, 200, NO);
+        const ksess = signSession(kloc, kc.id, kfun);
+        if (!ksess) return send(res, 500, { error: 'signing unavailable' });
+        return send(res, 200, { ok: true, session: ksess, contactId: kc.id, expiresInMs: AW_SESSION_TTL_MS });
+      } catch(e){ return send(res, 200, { error: e.message }); }
+    }
     if (req.method === 'POST' && pathOnly === '/api/session-start'){
       res.setHeader('Access-Control-Allow-Origin','*');
       try {
@@ -2469,6 +2512,14 @@ const server = http.createServer(async (req, res) => {
             let fid = map['edit link'];
             if (!fid){ try { const cf = await ghl('POST','/locations/'+loc+'/customFields',wtoken,{name:'Edit Link',dataType:'TEXT',model:'contact'}); const nf=cf.customField||cf; if(nf&&nf.id) fid=nf.id; }catch(e){} }
             if (fid) await ghl('PUT','/contacts/'+c.id, wtoken, { customFields: [{ id: fid, value: url }] });
+            if (channel === 'sms'){
+              try {
+                const lcode = codeMint(loc, c.id);
+                let cfid = map['login code'];
+                if (!cfid){ try { const cf2 = await ghl('POST','/locations/'+loc+'/customFields',wtoken,{name:'Login Code',dataType:'TEXT',model:'contact'}); const nf2=cf2.customField||cf2; if(nf2&&nf2.id) cfid=nf2.id; }catch(e){} }
+                if (cfid) await ghl('PUT','/contacts/'+c.id, wtoken, { customFields: [{ id: cfid, value: lcode }] });
+              } catch(e){ console.error('login code', e.message); }
+            }
             /* GoHighLevel's "Tag added" trigger fires on a state change, not on the request. A contact
                who already carries send-edit-link from an earlier login gets the tag re-applied as a
                no-op, the workflow never enrols, and they sit waiting for a link that was never sent.
