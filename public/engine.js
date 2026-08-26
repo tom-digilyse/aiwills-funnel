@@ -90,9 +90,9 @@ var CFG = window.AIWILLS_CONFIG || {}; (function(){ var _m='{'+'{'; for(var _k i
       }
     }
     function awSessKey(){ return 'aw_sess_' + (loc || ''); }
-    function awSessGet(){ try{ return sessionStorage.getItem(awSessKey()) || ''; }catch(err){ return ''; } }
-    function awSessSet(t){ try{ sessionStorage.setItem(awSessKey(), t); }catch(err){} window.AIWILLS_TOKEN = t; }
-    function awSessClear(){ try{ sessionStorage.removeItem(awSessKey()); }catch(err){} window.AIWILLS_TOKEN = ''; }
+    function awSessGet(){ var t=awSess2Read(loc); return (t&&t!=='EXPIRED')?t:''; }
+    function awSessSet(t){ awSess2Write(loc, t); window.AIWILLS_TOKEN = t; }
+    function awSessClear(){ awSess2Clear(loc); try{ sessionStorage.removeItem(awSessKey()); }catch(err){} window.AIWILLS_TOKEN = ''; }
     // The session never travels in a URL. Putting it in a link would write it into browser history
     // and into any page the customer is sent on to, which is the hole we are closing.
     function withId(u){ if(!u) return u; return awSetParams(u, { aw_loc: loc }); }
@@ -1280,19 +1280,38 @@ function awKeepSessionAlive(){
         if (document.hidden) return;              // nobody is working, let it expire
         fetch(API + '/api/session-touch', { method:'POST', headers:{'Content-Type':'text/plain'}, body: JSON.stringify({ s: t }) })
           .then(function(r){ return r.json(); })
-          .then(function(j){ if (j && j.ok && j.session){ try{ awSessSet(j.session); }catch(e){ window.AIWILLS_TOKEN = j.session; } } })
+          .then(function(j){ if (j && j.ok && j.session){ try{ awSess2Write((window.AIWILLS_LOC)||'', j.session); }catch(e){} window.AIWILLS_TOKEN = j.session; } })
           .catch(function(){});
       }catch(e){}
     }, 15 * 60 * 1000);
   }catch(e){}
 }
 function saveLocal(){ try{ if(window.AIWILLS_EDIT===true) return; var k=lsKey(); if(k){ localStorage.setItem(k, JSON.stringify(state)); try{ localStorage.setItem(k+'_ts', String(Date.now())); }catch(e4){} try{ localStorage.setItem(k+'_pos', JSON.stringify({c:cur,m:maxCur})); }catch(e2){} try{ document.cookie=k.replace('aw_draft_','aw_s_')+'=1;domain=.aiwills.co.uk;path=/;max-age=31536000;SameSite=Lax'; }catch(e3){} } }catch(e){} }
+/* Session v2: one session for the whole browser, not one per tab. It lives in localStorage with a
+   last-activity stamp; any page finding it more than ten idle minutes old treats it as signed out
+   and wipes it, so the ten-minute rule holds across every tab and even a closed browser. */
+var AW_IDLE_MS = 10*60*1000;
+function awSess2Key(l){ return 'aw_sess2_' + (l||''); }
+function awSess2Read(l){
+  try{
+    var raw = localStorage.getItem(awSess2Key(l)) || '';
+    if(!raw) return '';
+    var o = JSON.parse(raw);
+    if(!o || !o.t) return '';
+    if((Date.now() - (+o.ts||0)) > AW_IDLE_MS){ try{ localStorage.removeItem(awSess2Key(l)); }catch(e){} return 'EXPIRED'; }
+    return o.t;
+  }catch(e){ return ''; }
+}
+function awSess2Write(l, t){ try{ localStorage.setItem(awSess2Key(l), JSON.stringify({ t:t, ts:Date.now() })); }catch(e){} }
+function awSess2Touch(l){ try{ var raw=localStorage.getItem(awSess2Key(l)); if(!raw) return; var o=JSON.parse(raw); o.ts=Date.now(); localStorage.setItem(awSess2Key(l), JSON.stringify(o)); }catch(e){} }
+function awSess2Clear(l){ try{ localStorage.removeItem(awSess2Key(l)); }catch(e){} }
 function awLogout(reason){
   try{ var _b=document.getElementById('awsignedin'); if(_b&&_b.parentNode) _b.parentNode.removeChild(_b); }catch(e){}
   // Tell the server first, so the session is dead even if this browser keeps a copy of the page.
   try{
     var _s=(window.AIWILLS_TOKEN||'');
-    try{ var _k='aw_sess_'+((window.AIWILLS_LOC)||''); if(!_s) _s=sessionStorage.getItem(_k)||''; sessionStorage.removeItem(_k); }catch(e2){}
+    try{ var _k='aw_sess_'+((window.AIWILLS_LOC)||''); if(!_s){ var _s2=awSess2Read(window.AIWILLS_LOC); if(_s2&&_s2!=='EXPIRED') _s=_s2; } if(!_s) _s=sessionStorage.getItem(_k)||''; sessionStorage.removeItem(_k); }catch(e2){}
+    try{ Object.keys(localStorage).forEach(function(k){ if(k.indexOf('aw_sess2_')===0) localStorage.removeItem(k); }); }catch(e2b){}
     if(_s) fetch(API+'/api/session-end',{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({s:_s})}).catch(function(){});
   }catch(e){}
   // Drafts are per browser, so on a shared computer they would show the next person the answers.
@@ -1460,7 +1479,7 @@ function awServicesBar(){
 function awStartAutoLogout(){
   if(window.AIWILLS_EDIT!==true) return;
   var MINS=10;
-  function reset(){ if(window._awLogoutTimer) clearTimeout(window._awLogoutTimer); window._awLogoutTimer=setTimeout(function(){ awLogout('idle'); }, MINS*60*1000); }
+  function reset(){ if(window._awLogoutTimer) clearTimeout(window._awLogoutTimer); window._awLogoutTimer=setTimeout(function(){ awLogout('idle'); }, MINS*60*1000); try{ var _n=Date.now(); if(!window.__awSessTouched || _n-window.__awSessTouched>15000){ window.__awSessTouched=_n; awSess2Touch((window.AIWILLS_LOC)||''); } }catch(e){} }
   ['mousemove','keydown','click','scroll','touchstart'].forEach(function(ev){ try{ document.addEventListener(ev, reset, {passive:true}); }catch(e){ try{ document.addEventListener(ev, reset); }catch(e2){} } });
   reset();
 }
@@ -1490,7 +1509,15 @@ function closeGaps(){
   }catch(e){}
 }
 initState(); if(!awDoorGate()){ restoreLocal(); } applyBrand();
-try{ var _qp=new URLSearchParams(location.search); if(_qp.get('aw_paid')==='1' && _qp.get('aw_id')){ window.AIWILLS_WILL_ID=_qp.get('aw_id'); if(state.payment) state.payment.paid=true; try{ if(loc) localStorage.setItem('aw_sent_'+FUNNEL_KEY+'_'+loc,'1'); }catch(e){}   /* finished on this device: stop the services page offering them a blank form later */ var _vv=visible(); for(var _i=0;_i<_vv.length;_i++){ if(_vv[_i].id==='generate'){ cur=_i; break; } } } if(_qp.get('aw_etb_paid')==='1' && FUNNEL===ETB_FUNNEL){ if(state.payment) state.payment.paid=true; try{ if(loc) localStorage.setItem('aw_sent_'+FUNNEL_KEY+'_'+loc,'1'); }catch(e){}   /* finished on this device: stop the services page offering them a blank form later */ var _ev=visible(); for(var _j=0;_j<_ev.length;_j++){ if(_ev[_j].id==='done'){ cur=_j; break; } } } /* Only land on the summary if there is something to summarise. Someone opening a service for the
+try{ var _qp=new URLSearchParams(location.search); if(_qp.get('aw_paid')==='1' && _qp.get('aw_id')){ window.AIWILLS_WILL_ID=_qp.get('aw_id'); if(state.payment){ state.payment.paid=true; state.payment.willId=_qp.get('aw_id'); } try{ if(loc) localStorage.setItem('aw_sent_'+FUNNEL_KEY+'_'+loc,'1'); }catch(e){} try{ saveLocal(); }catch(e){}   /* finished on this device: stop the services page offering them a blank form later */ var _vv=visible(); for(var _i=0;_i<_vv.length;_i++){ if(_vv[_i].id==='generate'){ cur=_i; break; } } } if(_qp.get('aw_etb_paid')==='1' && FUNNEL===ETB_FUNNEL){ if(state.payment) state.payment.paid=true; try{ if(loc) localStorage.setItem('aw_sent_'+FUNNEL_KEY+'_'+loc,'1'); }catch(e){} try{ saveLocal(); }catch(e){}   /* finished on this device: stop the services page offering them a blank form later */ var _ev=visible(); for(var _j=0;_j<_ev.length;_j++){ if(_ev[_j].id==='done'){ cur=_j; break; } } } /* A device that recorded a purchase must never offer the payment step again, whatever survived in
+   the draft. aw_sent is only ever written on a genuine paid return (or a sent probate quote). */
+try{
+  if(window.AIWILLS_EDIT!==true && loc && FUNNEL!==REFERRAL_FUNNEL && state.payment && localStorage.getItem('aw_sent_'+FUNNEL_KEY+'_'+loc)==='1'){
+    state.payment.paid=true;
+    if(!window.AIWILLS_WILL_ID && state.payment.willId) window.AIWILLS_WILL_ID=state.payment.willId;
+  }
+}catch(e){}
+/* Only land on the summary if there is something to summarise. Someone opening a service for the
    first time from their services page arrives in edit mode too, and was being dropped on a page
    of empty sections instead of question one. */
 function awAnyAnswers(){ try{ var _v=visible(); for(var _i=0;_i<_v.length;_i++){ var _s2=_v[_i]; if(!(_s2.fields&&_s2.fields.length)) continue; var _o=state[_s2.id]||{}; for(var _k2 in _o){ var _v2=_o[_k2]; if(_v2!=null && _v2!=='' && !(Array.isArray(_v2)&&!_v2.length)) return true; } } }catch(e){} return false; }
@@ -1559,6 +1586,7 @@ setTimeout(closeGaps,400); setTimeout(closeGaps,1200);
       if(_rst.get('aw_reset')==='1'){
         try{ Object.keys(localStorage).forEach(function(k){ if(k.indexOf('aw_draft_')===0||k.indexOf('aw_ident_')===0||k.indexOf('aw_sent_')===0) localStorage.removeItem(k); }); }catch(e){}
         try{ Object.keys(sessionStorage).forEach(function(k){ if(k.indexOf('aw_sess')===0) sessionStorage.removeItem(k); }); }catch(e){}
+        try{ Object.keys(localStorage).forEach(function(k){ if(k.indexOf('aw_sess2_')===0) localStorage.removeItem(k); }); }catch(e){}
         try{
           var _ckr=String(document.cookie||'').split(';');
           var _deadr='=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/';
@@ -1606,14 +1634,17 @@ setTimeout(closeGaps,400); setTimeout(closeGaps,1200);
       return fetch(API+'/api/state-load?t='+encodeURIComponent(sess)+'&funnel='+encodeURIComponent(String((window.AIWILLS_CONFIG||{}).funnel||'')))
         .then(function(r){return r.json();}).then(function(j){
           if(j&&j.ok){ window.AIWILLS_EDIT=true; window.AIWILLS_SUBMITTED=(j.submitted===true); window.AIWILLS_META={ paid:(j.paid===true), submitted:(j.submitted===true), docUrl:(j.docUrl||''), summary:(j.summaryText||'') }; window.AIWILLS_FILES=j.files||[]; if(j.state) window.AIWILLS_PREFILL=j.state; if(j.funnel==='wills'||j.funnel==='lpa'){ window.AIWILLS_CONTACT_ID=j.contactId; } else { window.AIWILLS_ETB_CID=j.contactId; } }
-          else { window.__awSessDead=true; try{ sessionStorage.removeItem(_sk); }catch(e){} }
+          else { window.__awSessDead=true; awSess2Clear(_qloc); try{ sessionStorage.removeItem(_sk); }catch(e){} }
         }).catch(function(){ window.__awSessDead=true; });
     }
-    var _sess=''; try{ _sess=sessionStorage.getItem(_sk)||''; }catch(e){}
-    /* A page that ran the previous engine stored the session under 'aw_sess_' with no location.
-       Adopt it so signing in on a stale services tab still carries into the funnels. */
-    if(!_sess && _qloc){
-      try{ var _legacy=sessionStorage.getItem('aw_sess_')||''; if(_legacy){ _sess=_legacy; sessionStorage.setItem(_sk,_legacy); sessionStorage.removeItem('aw_sess_'); } }catch(e){}
+    var _sess = awSess2Read(_qloc);
+    if(_sess==='EXPIRED'){ _sess=''; window.__awSessDead=true; }
+    /* Older engines kept the session per tab; adopt any copy a stale tab is still holding. */
+    if(!_sess){
+      try{
+        var _legacy = sessionStorage.getItem(_sk) || sessionStorage.getItem('aw_sess_') || '';
+        if(_legacy){ _sess=_legacy; awSess2Write(_qloc,_legacy); sessionStorage.removeItem(_sk); sessionStorage.removeItem('aw_sess_'); }
+      }catch(e){}
     }
     if(_tok){
       // Swap the emailed link for a session, then take it out of the address bar so the back
@@ -1621,7 +1652,7 @@ setTimeout(closeGaps,400); setTimeout(closeGaps,1200);
       fetch(API+'/api/session-start',{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({t:_tok})})
         .then(function(r){return r.json();}).then(function(j){
           _awStripToken();
-          if(j&&j.ok&&j.session){ try{ sessionStorage.setItem(_sk,j.session); }catch(e){} window.AIWILLS_TOKEN=j.session; return _awLoadState(j.session).then(_runBranded); }
+          if(j&&j.ok&&j.session){ awSess2Write(_qloc, j.session); window.AIWILLS_TOKEN=j.session; return _awLoadState(j.session).then(_runBranded); }
           _runBranded(); _awLinkDead(j&&j.message);
         }).catch(function(){ _awStripToken(); _runBranded(); });
     } else if(_sess){
