@@ -1287,24 +1287,6 @@ function awKeepSessionAlive(){
   }catch(e){}
 }
 function saveLocal(){ try{ if(window.AIWILLS_EDIT===true) return; var k=lsKey(); if(k){ localStorage.setItem(k, JSON.stringify(state)); try{ localStorage.setItem(k+'_ts', String(Date.now())); }catch(e4){} try{ localStorage.setItem(k+'_pos', JSON.stringify({c:cur,m:maxCur})); }catch(e2){} try{ document.cookie=k.replace('aw_draft_','aw_s_')+'=1;domain=.aiwills.co.uk;path=/;max-age=31536000;SameSite=Lax'; }catch(e3){} } }catch(e){} }
-/* Session v2: one session for the whole browser, not one per tab. It lives in localStorage with a
-   last-activity stamp; any page finding it more than ten idle minutes old treats it as signed out
-   and wipes it, so the ten-minute rule holds across every tab and even a closed browser. */
-var AW_IDLE_MS = 10*60*1000;
-function awSess2Key(l){ return 'aw_sess2_' + (l||''); }
-function awSess2Read(l){
-  try{
-    var raw = localStorage.getItem(awSess2Key(l)) || '';
-    if(!raw) return '';
-    var o = JSON.parse(raw);
-    if(!o || !o.t) return '';
-    if((Date.now() - (+o.ts||0)) > AW_IDLE_MS){ try{ localStorage.removeItem(awSess2Key(l)); }catch(e){} return 'EXPIRED'; }
-    return o.t;
-  }catch(e){ return ''; }
-}
-function awSess2Write(l, t){ try{ localStorage.setItem(awSess2Key(l), JSON.stringify({ t:t, ts:Date.now() })); }catch(e){} }
-function awSess2Touch(l){ try{ var raw=localStorage.getItem(awSess2Key(l)); if(!raw) return; var o=JSON.parse(raw); o.ts=Date.now(); localStorage.setItem(awSess2Key(l), JSON.stringify(o)); }catch(e){} }
-function awSess2Clear(l){ try{ localStorage.removeItem(awSess2Key(l)); }catch(e){} }
 function awLogout(reason){
   try{ var _b=document.getElementById('awsignedin'); if(_b&&_b.parentNode) _b.parentNode.removeChild(_b); }catch(e){}
   // Tell the server first, so the session is dead even if this browser keeps a copy of the page.
@@ -1441,6 +1423,24 @@ function awDoorGate(){
 /* Someone half way through a will had no way back to their own services page. The only route was the
    browser's back button, and the header nav is the firm's marketing menu, which sends them off to the
    website instead. Mirrors the Sign out control on the opposite corner so the two read as a pair. */
+/* Session v2: one session for the whole browser, not one per tab. It lives in localStorage with a
+   last-activity stamp; any page finding it more than ten idle minutes old treats it as signed out
+   and wipes it, so the ten-minute rule holds across every tab and even a closed browser. */
+var AW_IDLE_MS = 10*60*1000;
+function awSess2Key(l){ return 'aw_sess2_' + (l||''); }
+function awSess2Read(l){
+  try{
+    var raw = localStorage.getItem(awSess2Key(l)) || '';
+    if(!raw) return '';
+    var o = JSON.parse(raw);
+    if(!o || !o.t) return '';
+    if((Date.now() - (+o.ts||0)) > AW_IDLE_MS){ try{ localStorage.removeItem(awSess2Key(l)); }catch(e){} return 'EXPIRED'; }
+    return o.t;
+  }catch(e){ return ''; }
+}
+function awSess2Write(l, t){ try{ localStorage.setItem(awSess2Key(l), JSON.stringify({ t:t, ts:Date.now() })); }catch(e){} }
+function awSess2Touch(l){ try{ var raw=localStorage.getItem(awSess2Key(l)); if(!raw) return; var o=JSON.parse(raw); o.ts=Date.now(); localStorage.setItem(awSess2Key(l), JSON.stringify(o)); }catch(e){} }
+function awSess2Clear(l){ try{ localStorage.removeItem(awSess2Key(l)); }catch(e){} }
 function awHubUrl(){
   try{
     var CFGx = window.AIWILLS_CONFIG || {};
