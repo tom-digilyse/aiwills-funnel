@@ -23,6 +23,12 @@ function awSess2Read(l){
 function awSess2Write(l, t){ try{ localStorage.setItem(awSess2Key(l), JSON.stringify({ t:t, ts:Date.now() })); }catch(e){} }
 function awSess2Touch(l){ try{ var raw=localStorage.getItem(awSess2Key(l)); if(!raw) return; var o=JSON.parse(raw); o.ts=Date.now(); localStorage.setItem(awSess2Key(l), JSON.stringify(o)); }catch(e){} }
 function awSess2Clear(l){ try{ localStorage.removeItem(awSess2Key(l)); }catch(e){} }
+/* One click used to remove every draft on the device with no way back. The wipe now stashes what it
+   removed under a single key: undo is offered on the spot, the copy quietly expires after 7 days. */
+function awDraftNames(l){ var out=[]; var M={wills:'Will',lpa:'Lasting Power of Attorney',etb:'Executor Toolbox',probate:'Probate enquiry'}; try{ ['wills','lpa','etb','probate'].forEach(function(k){ if(localStorage.getItem('aw_draft_'+k+'_'+(l||''))) out.push(M[k]); }); }catch(e){} return out; }
+function awStashDrafts(l){ try{ var items={}; Object.keys(localStorage).forEach(function(k){ if(k.indexOf('aw_draft_')===0||k.indexOf('aw_ident_')===0||k.indexOf('aw_sent_')===0){ items[k]=localStorage.getItem(k); } }); if(Object.keys(items).length) localStorage.setItem('aw_trash_'+(l||''), JSON.stringify({ts:Date.now(),items:items})); }catch(e){} }
+function awTrashSweep(l){ try{ var raw=localStorage.getItem('aw_trash_'+(l||'')); if(!raw) return; var o=JSON.parse(raw); if(!o||!o.ts||(Date.now()-o.ts)>7*24*60*60*1000) localStorage.removeItem('aw_trash_'+(l||'')); }catch(e){ try{ localStorage.removeItem('aw_trash_'+(l||'')); }catch(e2){} } }
+function awTrashRestore(l){ try{ var raw=localStorage.getItem('aw_trash_'+(l||'')); if(!raw) return false; var o=JSON.parse(raw); if(!o||!o.items) return false; Object.keys(o.items).forEach(function(k){ try{ localStorage.setItem(k,o.items[k]); }catch(e){} }); localStorage.removeItem('aw_trash_'+(l||'')); return true; }catch(e){ return false; } }
 
   var CSS="\n:root{--primary:#444950;--primary-dark:#2f3338;--heading:#1B1D1F;--hdr-ink:#1B1D1F;--nav-ink:#1B1D1F;--body:#303133;--header-bg:#ffffff;--page-bg:#ffffff;--line:#e6e6e6;--muted:#6b6e72;--hf:Georgia,'Times New Roman',serif;--bf:Arial,sans-serif;--site-max:1200px;--nav-size:18px;--nav-weight:500;--logo-h:50px;--body-size:18px;--h-size:40px;--h-weight:900;--btn-weight:600;--footer-max:1140px;--btn-bg:var(--primary);--btn-hover:var(--primary-dark);--btn-ink:#fff;--btn-font:var(--bf);--btn-radius:180px;--ftr-bg:var(--heading);--ftr-ink:#fff}\n*{box-sizing:border-box}html,body{margin:0;padding:0;overflow-x:hidden}\n#aiwills-funnel{opacity:0}#aiwills-funnel.aw-ready{opacity:1;transition:opacity .12s}\nbody{background:var(--page-bg);}\n#aiwills-app,.main,.hubwrap{background:var(--page-bg);color:var(--body);font-family:var(--bf);font-size:var(--body-size);line-height:1.7;-webkit-font-smoothing:antialiased}\nh1{font-family:var(--hf);font-weight:var(--h-weight);font-size:var(--h-size);line-height:1.2;color:var(--heading);margin:0 0 14px}\nh3{font-family:var(--hf);font-weight:900;color:var(--heading);margin:0 0 8px}\np{margin:0 0 1em}\n.hdr{background:var(--header-bg);border-bottom:1px solid var(--line);margin-left:calc(50% - 50vw);margin-right:calc(50% - 50vw)}\n.hwrap{max-width:var(--site-max);margin:0 auto;padding:16px 24px;display:flex;align-items:center;justify-content:space-between;gap:20px}\n.logo img{height:var(--logo-h);width:auto;display:block}.logo .wordmark{font-family:var(--hf);font-weight:900;font-size:22px;color:var(--hdr-ink)}\n.hdr nav{display:flex;gap:22px;flex-wrap:wrap;justify-content:center;flex:1}\n.hdr nav a{font-family:var(--hf);font-weight:var(--nav-weight);font-size:var(--nav-size);color:var(--nav-ink);text-decoration:none;white-space:nowrap}\n.hdr nav a:hover{color:var(--primary)}\n.phone{font-weight:600;color:var(--hdr-ink);white-space:nowrap}\n@media(max-width:760px){.hdr nav{display:none}}@media(max-width:640px){.hwrap{padding:12px 16px;gap:10px;flex-wrap:wrap;justify-content:center}.mwrap{padding-left:16px;padding-right:16px}.prog{padding:16px 0 4px}.main{padding:10px 0 40px}h1{font-size:26px}.row{flex-direction:column;gap:12px}.choices{flex-direction:column}.choice{min-width:0;width:100%}input,select,textarea{font-size:16px}.btn{padding:15px 22px;font-size:16px}.navbtns{gap:10px}.fgrid{flex-direction:column;gap:22px}.fwrap{padding:26px 16px 32px}}\n.banner{background:#fff4f3;border-bottom:1px solid #f3c9c6;color:#7a1411;font-size:13px}\n.bwrap{max-width:760px;margin:0 auto;padding:8px 24px}\n.pwrap,.main .mwrap{max-width:760px;margin:0 auto;padding-left:24px;padding-right:24px}\n.prog{padding:26px 0 4px}\n.pmeta{display:flex;justify-content:space-between;font-size:13px;color:var(--muted);margin-bottom:8px}.pmeta strong{color:var(--heading);font-weight:600}\n.track{height:8px;border-radius:99px;background:#ececec;overflow:hidden}.track span{display:block;height:100%;background:var(--primary);width:0;transition:width .35s ease}\n.stepmenu{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}.stepmenu:empty{display:none}.stepmenu button{font-family:var(--bf);font-size:12px;line-height:1;padding:6px 11px;border-radius:99px;border:1px solid var(--line);background:#fff;color:var(--muted);cursor:default;white-space:nowrap}.stepmenu button.done{color:var(--heading);cursor:pointer}.stepmenu button.done:hover{border-color:var(--primary);color:var(--primary)}.stepmenu button.on{background:var(--primary);border-color:var(--primary);color:var(--btn-ink);font-weight:600}@media(max-width:640px){.stepmenu{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:4px}}\n.main{padding:14px 0 50px}\n.lead{color:var(--muted);margin:-.2em 0 1.4em;font-size:16px}\n.field{margin-bottom:18px}.field>label{display:block;font-weight:600;color:var(--heading);margin-bottom:6px;font-size:15px;font-family:var(--bf)}\n.opt{color:var(--muted);font-weight:400}\ninput,select,textarea{width:100%;padding:12px 14px;border:1px solid var(--line);border-radius:10px;background:#fff;font-family:var(--bf);font-size:15px;color:var(--body);outline:none}\ninput:focus,select:focus,textarea:focus{border-color:var(--primary);box-shadow:0 0 0 3px color-mix(in srgb,var(--primary) 15%,transparent)}\ntextarea{min-height:96px;resize:vertical}\n.invalid input,.invalid select,.invalid textarea{border-color:#D93025;box-shadow:0 0 0 3px rgba(217,48,37,.12)}\n.err{color:#D93025;font-size:13px;margin-top:5px;display:none}.req{color:#D93025;font-weight:700;margin-left:2px}.invalid .err{display:block}\n.row{display:flex;gap:14px;flex-wrap:wrap}.row>.field{flex:1;min-width:180px}\n.choices{display:flex;gap:10px;flex-wrap:wrap}\n.choice{flex:1;min-width:120px;border:1px solid var(--line);border-radius:12px;padding:13px 14px;cursor:pointer;display:flex;align-items:center;gap:10px;font-weight:500;background:#fff;font-family:var(--bf)}\n.choice.on{border-color:var(--primary);background:#f4f4f4;background:color-mix(in srgb,var(--primary) 8%,#fff)}.choice input{accent-color:var(--primary);width:18px;height:18px}\n.repitem{border:1px solid var(--line);border-radius:12px;padding:14px 14px 2px;margin-bottom:12px;background:#fff}\n.rephead{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}\n.rm{background:none;border:none;color:var(--primary);font-weight:600;cursor:pointer;font-size:13px;font-family:var(--bf)}\n.add{background:#fff;border:1.5px dashed var(--primary);color:var(--primary);padding:12px 18px;border-radius:12px;font-weight:600;cursor:pointer;font-family:var(--bf);font-size:15px;width:100%}\n.empty{color:var(--muted);font-size:14px;padding:6px 0 12px}\n.tot{margin:8px 0 4px;font-size:14px;font-weight:600}.tot.ok{color:#157a3f}.tot.bad{color:var(--primary)}\n.sum{border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:12px;background:#fff;scroll-margin-top:14px}\n.sum.justsaved{border-color:var(--primary);box-shadow:0 0 0 3px color-mix(in srgb,var(--primary) 14%,transparent)}\n.sum h3{display:flex;justify-content:space-between;align-items:center;font-size:18px}\n.edit{font-size:13px;font-weight:600;color:var(--primary);background:none;border:none;cursor:pointer;font-family:var(--bf)}\n.srow{display:flex;justify-content:space-between;gap:16px;padding:5px 0;border-top:1px solid #f0ece6;font-size:14px}.srow:first-of-type{border-top:none}\n.srow .k{color:var(--muted)}.srow .v{font-weight:500;text-align:right;color:var(--heading)}\n.navbtns{display:flex;justify-content:space-between;gap:12px;margin-top:30px}\n.btn{font-family:var(--btn-font);font-weight:var(--btn-weight);font-size:18px;border:none;cursor:pointer;border-radius:var(--btn-radius);padding:18px 44px;background:var(--btn-bg);color:var(--btn-ink)}\n.btn:hover{background:var(--btn-hover)}.btn.wide{width:100%}\n.btn.ghost{background:#fff;color:var(--heading);border:1px solid var(--line)}.btn.ghost:hover{border-color:#bbb}\n.mock{border:1px dashed var(--line);border-radius:14px;padding:24px;background:#fff;text-align:center}\n.price{font-family:var(--hf);font-weight:900;font-size:42px;color:var(--heading);margin:6px 0}\n.note{font-size:13px;color:var(--muted);margin-top:10px}\n.tick{width:64px;height:64px;border-radius:50%;background:#157a3f;color:#fff;display:flex;align-items:center;justify-content:center;font-size:34px;margin:0 auto 14px}\n.spin{width:46px;height:46px;border:4px solid #eee;border-top-color:var(--primary);border-radius:50%;margin:6px auto 14px;animation:sp 1s linear infinite}@keyframes sp{to{transform:rotate(360deg)}}\n.ftr{background:var(--ftr-bg);border-top:3px solid var(--primary);margin-top:44px;margin-left:calc(50% - 50vw);margin-right:calc(50% - 50vw)}\n.fwrap{max-width:var(--footer-max);margin:0 auto;padding:34px 24px 42px}\n.fgrid{display:flex;gap:40px;flex-wrap:wrap;justify-content:space-between;align-items:flex-start}.fgrid>div{flex:1;min-width:220px}\n.fh{font-family:var(--hf);font-weight:900;color:var(--ftr-ink);font-size:24px;margin:0 0 14px}\n.flinks{list-style:none;margin:0;padding:0}.flinks li{margin:0 0 9px}\n.flinks a{color:var(--ftr-ink);opacity:.88;font-size:15px;text-decoration:none}.flinks a:before{content:\"\\203A\";color:var(--primary);font-weight:700;margin-right:8px}\n.flinks a:hover{color:#fff}\n.fcta{font-family:var(--hf);font-weight:900;color:var(--ftr-ink);font-size:30px;line-height:1.18;margin:0 0 18px}\n.frule{border:none;border-top:1px solid #33363a;margin:28px 0 16px}\n.fsoc{margin:0 0 10px}.fsoc a{color:var(--ftr-ink);font-weight:600;font-size:13px;margin-right:14px;text-decoration:none}\n.fleg{font-size:11.5px;color:#8d9094;line-height:1.5;margin:0 0 6px}\n";
   var MARKUP="<header id=\"hdr\" class=\"hdr\"></header>\n<div class=\"pwrap\"><div class=\"prog\"><div class=\"pmeta\"><span id=\"stepName\"></span><strong id=\"stepCount\"></strong></div><div class=\"track\"><span id=\"bar\"></span></div><div class=\"stepmenu\" id=\"stepmenu\"></div></div></div>\n<main class=\"main\"><div class=\"mwrap\"><div id=\"step\"></div><div class=\"navbtns\"><button class=\"btn ghost\" id=\"back\" type=\"button\">Back</button><button class=\"btn\" id=\"next\" type=\"button\">Continue</button></div></div></main>\n<footer id=\"ftr\" class=\"ftr\"></footer>";
@@ -132,6 +138,7 @@ var CFG = window.AIWILLS_CONFIG || {}; (function(){ var _m='{'+'{'; for(var _k i
     function _awSignedIn(){ return window.AIWILLS_EDIT===true || !!(window.AIWILLS_TOKEN); }
     function _awHasLocal(){ try{ var n=0; ['wills','lpa','etb','probate'].forEach(function(k){ if(localStorage.getItem('aw_draft_'+k+'_'+loc) || document.cookie.indexOf('aw_s_'+k+'_'+loc+'=1')>=0) n++; }); return n>0; }catch(e){ return false; } }
     function _awForgetDevice(){
+      try{ awStashDrafts(loc); }catch(e){}
       try{ Object.keys(localStorage).forEach(function(k){ if(k.indexOf('aw_draft_')===0 || k.indexOf('aw_ident_')===0 || k.indexOf('aw_sent_')===0) localStorage.removeItem(k); }); }catch(e){}
       try{
         var _ck=String(document.cookie||'').split(';');
@@ -232,6 +239,7 @@ var CFG = window.AIWILLS_CONFIG || {}; (function(){ var _m='{'+'{'; for(var _k i
         var goNext=function(cid, sess){
         /* They have just told us who they are as a NEW customer. Whatever the previous person
            left on this device must not follow them into the funnel. */
+        try{ awStashDrafts(loc); }catch(e){}
         try{ Object.keys(localStorage).forEach(function(k){ if(k.indexOf('aw_draft_')===0||k.indexOf('aw_ident_')===0||k.indexOf('aw_sent_')===0) localStorage.removeItem(k); }); }catch(e){}
         try{
           var _ckg=String(document.cookie||'').split(';');
@@ -305,7 +313,13 @@ var CFG = window.AIWILLS_CONFIG || {}; (function(){ var _m='{'+'{'; for(var _k i
           + (_awHasLocal()
               ? '<p style="margin:-14px 0 20px;font-size:13px;color:var(--muted)">'+(_idfn?('Not '+esc(_idfn)+'? '):'There is saved progress on this device. ')+'<a href="#" id="awforget" style="color:var(--primary);font-weight:600;text-decoration:none">'+(_idfn?'Start fresh':'Not you? Remove it')+'</a></p>'
               : '');
-        var fg=document.getElementById('awforget'); if(fg) fg.addEventListener('click',function(ev){ ev.preventDefault(); _awForgetDevice(); });
+        var fg=document.getElementById('awforget'); if(fg) fg.addEventListener('click',function(ev){ ev.preventDefault();
+          var _pp=fg.parentNode; if(!_pp){ _awForgetDevice(); return; }
+          var _nms=[]; try{ _nms=awDraftNames(loc); }catch(e){}
+          _pp.innerHTML='Remove the saved answers on this device'+(_nms.length?(' for '+esc(_nms.join(', '))):'')+'? <a href="#" id="awforgetyes" style="color:#B3261E;font-weight:600;text-decoration:none">Yes, remove</a> &nbsp;\u00b7&nbsp; <a href="#" id="awforgetno" style="color:var(--primary);font-weight:600;text-decoration:none">Keep</a>';
+          var _fy=document.getElementById('awforgetyes'); if(_fy) _fy.addEventListener('click',function(e2){ e2.preventDefault(); _awForgetDevice(); });
+          var _fn=document.getElementById('awforgetno'); if(_fn) _fn.addEventListener('click',function(e2){ e2.preventDefault(); try{ awHubLoginUI(); }catch(e){} });
+        });
         var ll=document.getElementById('awloginlink'); if(ll) ll.addEventListener('click',function(ev){ ev.preventDefault(); awOpenLogin(); });
       }
     }
@@ -991,10 +1005,13 @@ function applyBrand(){
   var logo = CFG.logo_url ? '<img src="'+esc(CFG.logo_url)+'" alt="'+esc(CFG.company_name)+'" onerror="this.style.display=\'none\';this.nextSibling.style.display=\'inline\'"><span class="wordmark" style="display:none">'+esc(CFG.company_name)+'</span>' : '<span class="wordmark">'+esc(CFG.company_name||'Company')+'</span>';
   el('hdr').innerHTML='<div class="hwrap"><div class="logo">'+logo+'</div><nav>'+navHtml+'</nav><div class="phone">'+esc(CFG.phone||'')+'</div></div>';
   var links=fmenu.map(function(n){ return '<li>'+lnk(n.url,n.label)+'</li>'; }).join('');
-  if(CFG.privacy_url) links+='<li>'+lnk(CFG.privacy_url,'Privacy policy')+'</li>';
+  var _hasPriv=false; try{ _hasPriv=fmenu.some(function(mm){ return /privacy/i.test(String(mm.label||'')) || (CFG.privacy_url && String(mm.url||'')===String(CFG.privacy_url)); }); }catch(e){}
+  /* A firm that pastes its own footer usually includes its privacy link already; printing ours as
+     well put it there twice. Same reasoning for the registered office line below. */
+  if(CFG.privacy_url && !_hasPriv) links+='<li>'+lnk(CFG.privacy_url,'Privacy policy')+'</li>';
   var SOC=[['facebook_url','Facebook'],['instagram_url','Instagram'],['linkedin_url','LinkedIn'],['twitter_url','X'],['youtube_url','YouTube'],['tiktok_url','TikTok']];
   var soc=SOC.map(function(s){ return CFG[s[0]]?lnk(CFG[s[0]],s[1]):''; }).join('');
-  el('ftr').innerHTML='<div class="fwrap"><div class="fgrid"><div><div class="fh">Explore</div><ul class="flinks">'+links+'</ul></div><div><div class="fcta">Ready to protect your family’s future?</div><button class="btn" style="background:var(--btn2-bg);color:var(--btn2-ink);border:2px solid var(--btn2-ink)" onclick="window.scrollTo({top:0,behavior:\'smooth\'})">'+'Start here'+'</button></div></div><hr class="frule">'+(soc?'<div class="fsoc">'+soc+'</div>':'')+'<div class="fleg">'+awSafeHtml(CFG.legal_footer||'')+'</div>'+(CFG.address?'<p class="fleg">Registered office: '+esc(CFG.address)+'</p>':'')+'</div>';
+  el('ftr').innerHTML='<div class="fwrap"><div class="fgrid"><div><div class="fh">Explore</div><ul class="flinks">'+links+'</ul></div><div><div class="fcta">Ready to protect your family’s future?</div><button class="btn" style="background:var(--btn2-bg);color:var(--btn2-ink);border:2px solid var(--btn2-ink)" onclick="window.scrollTo({top:0,behavior:\'smooth\'})">'+'Start here'+'</button></div></div><hr class="frule">'+(soc?'<div class="fsoc">'+soc+'</div>':'')+'<div class="fleg">'+awSafeHtml(CFG.legal_footer||'')+'</div>'+((CFG.address&&!(function(){ try{ var _lg=String(CFG.legal_footer||''); if(/registered\s+office/i.test(_lg)) return true; var _a1=String(CFG.address||'').toLowerCase().replace(/[^a-z0-9]/g,''); var _l1=_lg.toLowerCase().replace(/[^a-z0-9]/g,''); return (_a1.length>8 && _l1.indexOf(_a1.slice(0,24))>=0); }catch(e){ return false; } })())?'<p class="fleg">Registered office: '+esc(CFG.address)+'</p>':'')+'</div>';
 }
 
 function fmtDate(v){ var m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(String(v||'')); return m?(m[3]+'/'+m[2]+'/'+m[1]):v; } function fmtVal(f,v){ return (f&&f.type==='date')?fmtDate(v):v; }
@@ -1370,6 +1387,7 @@ function awMaybeRegister(s){
     }
     if(j&&j.ok&&j.session&&j.contactId){
       if(_claimed){
+        try{ awStashDrafts(loc); }catch(e){}
         /* The draft on this device belonged to a different email. A new account starts with only
            what its owner typed: nothing of the previous journey may follow them in. This is how a
            whole will once travelled from one test identity to another inside one browser. */
@@ -1518,8 +1536,7 @@ function awDoorGate(){
              + '<a id="awdoorlogin" href="'+_hubA+'" target="_top" style="display:block;text-align:center;text-decoration:none;width:100%;background:var(--btn-bg,var(--primary));color:#fff;border:none;border-radius:var(--btn-radius,10px);padding:13px;font-weight:600;cursor:pointer;font-family:var(--bf);box-sizing:border-box">Log in to continue</a>')
           : ('<p style="color:var(--muted);font-size:14px;line-height:1.55;margin:0 0 18px">There are unfinished answers saved on this device. Pick up where you left off, or clear them and start again.</p>'
              + '<button type="button" id="awdoorgo" style="width:100%;background:var(--btn-bg,var(--primary));color:#fff;border:none;border-radius:var(--btn-radius,10px);padding:13px;font-weight:600;cursor:pointer;font-family:var(--bf)">Continue where I left off</button>'))
-      + '<button type="button" id="awdoornew" style="width:100%;margin-top:8px;background:#fff;color:var(--primary);border:1px solid var(--primary);border-radius:var(--btn-radius,10px);padding:12px;font-weight:600;cursor:pointer;font-family:var(--bf)">This is not me, start fresh</button>'
-      + '<p style="color:var(--muted);font-size:12.5px;line-height:1.5;margin:14px 0 0">Starting fresh removes those answers from this device for good.</p>'
+      + '<p style="text-align:center;margin:16px 0 0"><a href="#" id="awdoornew" style="color:var(--muted);font-size:13px;text-decoration:underline">This is not me, start fresh</a></p>'
       + '</div>';
     document.body.appendChild(m);
     var _dgo=document.getElementById('awdoorgo'); if(_dgo){ _dgo.onclick=function(){
@@ -1527,7 +1544,8 @@ function awDoorGate(){
       try{ restoreLocal(); }catch(e){}
       try{ render(); }catch(e){}
     }; }
-    document.getElementById('awdoornew').onclick=function(){
+    var _doorWipe=function(){
+      try{ awStashDrafts(loc); }catch(e){}
       try{ clearLocal(); }catch(e){}
       try{ Object.keys(localStorage).forEach(function(kk){ if(kk.indexOf('aw_draft_')===0 || kk.indexOf('aw_ident_')===0) localStorage.removeItem(kk); }); }catch(e){}
       try{
@@ -1544,6 +1562,18 @@ function awDoorGate(){
         }
       }catch(e){}
       try{ location.reload(); }catch(e){}
+    };
+    document.getElementById('awdoornew').onclick=function(ev){
+      try{ ev.preventDefault(); }catch(e){}
+      var _bx=m.firstElementChild||m;
+      var _nms=[]; try{ _nms=awDraftNames(loc); }catch(e){}
+      var _list=_nms.length?_nms.join(', '):'this service';
+      _bx.innerHTML='<h2 style="font-family:var(--hf,Georgia,serif);color:var(--heading);margin:0 0 8px;font-size:21px">Remove saved answers?</h2>'
+        + '<p style="color:var(--muted);font-size:14px;line-height:1.6;margin:0 0 18px">This removes the answers saved on this device for: <strong>'+esc(_list)+'</strong>. Anything already saved to an account is not affected. You can undo straight afterwards; the removed answers are then kept for 7 days before they are gone for good.</p>'
+        + '<button type="button" id="awdoorkeep" style="width:100%;background:var(--btn-bg,var(--primary));color:#fff;border:none;border-radius:var(--btn-radius,10px);padding:13px;font-weight:600;cursor:pointer;font-family:var(--bf)">Keep them</button>'
+        + '<button type="button" id="awdoorwipe" style="width:100%;margin-top:8px;background:#fff;color:#B3261E;border:1px solid #E3B4B0;border-radius:var(--btn-radius,10px);padding:12px;font-weight:600;cursor:pointer;font-family:var(--bf)">Remove and start fresh</button>';
+      var _kp=document.getElementById('awdoorkeep'); if(_kp) _kp.onclick=function(){ try{ location.reload(); }catch(e){} };
+      var _wp=document.getElementById('awdoorwipe'); if(_wp) _wp.onclick=_doorWipe;
     };
     return true;   // caller must not restore behind the panel
   }catch(e){ return false; }
@@ -1618,6 +1648,7 @@ function closeGaps(){
     if(g2>1 && g2<200) f.style.marginBottom=(-g2)+'px';
   }catch(e){}
 }
+try{ awTrashSweep(loc); }catch(e){}
 initState(); if(!awDoorGate()){ restoreLocal(); } applyBrand();
 try{ var _qp=new URLSearchParams(location.search); if(_qp.get('aw_paid')==='1' && _qp.get('aw_id')){ window.AIWILLS_WILL_ID=_qp.get('aw_id'); if(state.payment){ state.payment.paid=true; state.payment.willId=_qp.get('aw_id'); } try{ var _psid=_qp.get('aw_sid'); if(loc&&(_psid||_qp.get('aw_id'))) fetch(API+'/api/pay-confirm?locationId='+encodeURIComponent(loc)+(_psid?('&sid='+encodeURIComponent(_psid)):'')+('&aw_id='+encodeURIComponent(_qp.get('aw_id')))).catch(function(){}); }catch(e){} try{ if(loc) localStorage.setItem('aw_sent_'+FUNNEL_KEY+'_'+loc,'1'); }catch(e){} try{ saveLocal(); }catch(e){}   /* finished on this device: stop the services page offering them a blank form later */ var _vv=visible(); for(var _i=0;_i<_vv.length;_i++){ if(_vv[_i].id==='generate'){ cur=_i; break; } } try{ saveLocal(); }catch(e){} } if(_qp.get('aw_etb_paid')==='1' && FUNNEL===ETB_FUNNEL){ if(state.payment) state.payment.paid=true; try{ var _esid=_qp.get('aw_sid'); if(loc&&_esid) fetch(API+'/api/pay-confirm?locationId='+encodeURIComponent(loc)+'&sid='+encodeURIComponent(_esid)).catch(function(){}); }catch(e){} try{ if(loc) localStorage.setItem('aw_sent_'+FUNNEL_KEY+'_'+loc,'1'); }catch(e){} try{ saveLocal(); }catch(e){}   /* finished on this device: stop the services page offering them a blank form later */ var _ev=visible(); for(var _j=0;_j<_ev.length;_j++){ if(_ev[_j].id==='done'){ cur=_j; break; } } try{ saveLocal(); }catch(e){} } /* A device that recorded a purchase must never offer the payment step again, whatever survived in
    the draft. aw_sent is only ever written on a genuine paid return (or a sent probate quote). */
@@ -1686,6 +1717,8 @@ try{ (function(){
     .catch(function(){});
 })(); }catch(e){}
 render(); closeGaps();
+/* If a wipe just happened on this device, say so and offer the way back. */
+try{ (function(){ var raw=localStorage.getItem('aw_trash_'+(loc||'')); if(!raw) return; var o=JSON.parse(raw); if(!o||!o.ts||(Date.now()-o.ts)>15*60*1000) return; var h=document.querySelector('#aiwills-funnel h1'); if(!h) return; var b=document.createElement('div'); b.id='awundobar'; b.style.cssText='background:#F4F6F8;border:1px solid #D8DEE4;color:#333A40;border-radius:10px;padding:10px 14px;margin:10px 0 16px;font-size:14px'; b.innerHTML='Saved answers were just removed from this device. <a href="#" id="awundo" style="color:var(--primary);font-weight:600">Undo</a>'; h.parentNode.insertBefore(b,h.nextSibling); var u=document.getElementById('awundo'); if(u) u.onclick=function(ev){ ev.preventDefault(); if(awTrashRestore(loc)) location.reload(); }; })(); }catch(e){}
 window.addEventListener('load', closeGaps);
 setTimeout(closeGaps,400); setTimeout(closeGaps,1200);
 
