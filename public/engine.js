@@ -1652,7 +1652,7 @@ if(window.AIWILLS_EDIT===true && awAnyAnswers() && awAnswersBeyond()){ var _rv=v
 } else if(window.AIWILLS_EDIT===true){
   /* Signed in, nothing loadable, but the record says they bought or submitted something: a blank
      question one reads as \"your work is gone\". Show what we know instead. */
-  try{ var _mm=window.AIWILLS_META||{}; if(_mm.paid===true || _mm.submitted===true || _mm.docUrl){ window.__awStatusOnly=_mm; } }catch(e){}
+  try{ var _mm=window.AIWILLS_META||{}; if(_mm.paid===true || _mm.submitted===true || (_mm.docUrl && !awAnyAnswers())){ window.__awStatusOnly=_mm; } }catch(e){} /* the Document field holds a rolling link written on every save, so on its own it only means \u201csaved\u201d; with answers on file the journey itself is the status */
 } }catch(e){}
 
 /* Service URLs register themselves. When this engine runs on a real funnel page it already knows its
