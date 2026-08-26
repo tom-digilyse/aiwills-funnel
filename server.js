@@ -1596,7 +1596,7 @@ const server = http.createServer(async (req, res) => {
         const defs=await ghlContactFields(ht, hloc); const byName={}; defs.forEach(function(d){ byName[(d.name||'').toLowerCase()]=d.id; });
         const has=function(n){ var id=byName[n.toLowerCase()]; var v=id?byId[id]:''; return !!(v&&String(v).trim()); };
         const tags=(c.tags||[]).map(function(t){return String(t).toLowerCase();});
-        const services={ wills:{ started:has('Will State Json'), paid: tags.indexOf('ai-will-paid')>=0 }, lpa:{ started:has('LPA State Json'), paid:false }, etb:{ started:has('ETB State Json'), paid: tags.indexOf('etb-active')>=0 }, probate:{ started:has('Probate State Json'), paid:false, submitted: tags.indexOf('probate-lead')>=0 } };
+        const services={ wills:{ started:has('Will State Json'), paid: tags.indexOf('ai-will-paid')>=0 }, lpa:{ started:has('LPA State Json'), paid: tags.indexOf('ai-lpa-paid')>=0 }, etb:{ started:has('ETB State Json'), paid: tags.indexOf('etb-active')>=0 }, probate:{ started:has('Probate State Json'), paid:false, submitted: tags.indexOf('probate-lead')>=0 } };
         /* The same person can be split across duplicate contacts; their services page should show
            everything they have, whichever twin it sits on. */
         try {
@@ -1612,6 +1612,7 @@ const server = http.createServer(async (req, res) => {
               services.wills.started = services.wills.started || has2('Will State Json');
               services.wills.paid = services.wills.paid || tags2.indexOf('ai-will-paid')>=0;
               services.lpa.started = services.lpa.started || has2('LPA State Json');
+              services.lpa.paid = services.lpa.paid || tags2.indexOf('ai-lpa-paid')>=0;
               services.etb.started = services.etb.started || has2('ETB State Json');
               services.etb.paid = services.etb.paid || tags2.indexOf('etb-active')>=0;
               services.probate.started = services.probate.started || has2('Probate State Json');
@@ -1828,7 +1829,7 @@ const server = http.createServer(async (req, res) => {
         const sep = ret.indexOf('?') >= 0 ? '&' : '?';
         const sparams = {
           'mode': 'payment',
-          'success_url': ret + sep + 'aw_paid=1&aw_id=' + id,
+          'success_url': ret + sep + 'aw_paid=1&aw_id=' + id + '&aw_sid={CHECKOUT_SESSION_ID}',
           'cancel_url': ret + sep + 'aw_paid=0',
           'line_items[0][quantity]': isLpaOnly ? lpaQty : willQty,
           'line_items[0][price_data][currency]': 'gbp',
@@ -1871,6 +1872,7 @@ const server = http.createServer(async (req, res) => {
           console.error('checkout: ' + loc + ' refused on_behalf_of, retrying as a plain destination charge');
           sess = await stripeReq('POST', '/v1/checkout/sessions', sparams, awStripeKey(cv));
         }
+        try { const _r2 = willStoreGet(id); if (_r2){ _r2.sessionId = sess.id; willStorePut(id, _r2); } } catch(e){}
         return send(res, 200, { url: sess.url, id: id, routed: cxRouted });
       } catch(e){ return send(res, 200, { error: e.message }); }
     }
@@ -1910,7 +1912,7 @@ const server = http.createServer(async (req, res) => {
         const sep = ret.indexOf('?') >= 0 ? '&' : '?';
         const eparams = {
           'mode': (plan==='lifetime' ? 'payment' : 'subscription'),
-          'success_url': ret + sep + 'aw_etb_paid=1',
+          'success_url': ret + sep + 'aw_etb_paid=1&aw_sid={CHECKOUT_SESSION_ID}',
           'cancel_url': ret + sep + 'aw_etb_paid=0',
           'line_items[0][quantity]': 1,
           'metadata[kind]': 'etb',
@@ -1966,6 +1968,43 @@ const server = http.createServer(async (req, res) => {
       } catch(e){ return send(res, 200, { error: e.message }); }
     }
     // ----- payment: Stripe webhook (marks the will paid, tags the GHL contact) -----
+    // ----- payment confirmation at return time. The Stripe webhook is the primary record, but a
+    // webhook that is not configured (test mode especially) or is delayed leaves a paying customer
+    // untagged, so their services page and edit link treat them as unpaid. The success URL now
+    // carries the checkout session id; this asks Stripe directly and applies exactly what the
+    // webhook would. Nothing trusts the caller: the session is fetched with our own key and only
+    // its server-set metadata decides which contact gets tagged. -----
+    if (req.method === 'GET' && pathOnly === '/api/pay-confirm'){
+      res.setHeader('Access-Control-Allow-Origin','*');
+      try {
+        const pu = new URL(req.url,'http://x');
+        const ploc = (pu.searchParams.get('locationId')||'').replace(/[^A-Za-z0-9]/g,'');
+        let psid = (pu.searchParams.get('sid')||'').replace(/[^A-Za-z0-9_]/g,'');
+        const paw = (pu.searchParams.get('aw_id')||'').replace(/[^A-Za-z0-9]/g,'');
+        if (!psid && paw){ try { const _pr = willStoreGet(paw); psid = (_pr && _pr.sessionId) || ''; } catch(e){} }
+        if (!ploc || !/^cs_/.test(psid)) return send(res,400,{error:'locationId and sid required'});
+        const ptok = await getWriteToken(ploc);
+        const pcv = await getCustomValuesMap(ploc, ptok);
+        const pkey = awStripeKey(pcv);
+        if (!pkey) return send(res,500,{error:'stripe not configured'});
+        const psess = await stripeReq('GET','/v1/checkout/sessions/'+psid, null, pkey);
+        const pmd = (psess && psess.metadata) || {};
+        if (String(pmd.locationId||'') !== ploc) return send(res,403,{error:'session does not belong to this location'});
+        const paidNow = (psess.payment_status==='paid' || psess.payment_status==='no_payment_required');
+        if (!paidNow) return send(res,200,{ ok:true, paid:false });
+        if (pmd.aw_id){ try { const prec = willStoreGet(pmd.aw_id); if (prec && !prec.paid){ prec.paid = true; prec.paidAt = Date.now(); willStorePut(pmd.aw_id, prec); } } catch(e){} }
+        const ptags = [];
+        if (pmd.kind === 'etb') ptags.push('etb-active');
+        else {
+          const pwq = parseInt(pmd.will_qty, 10), plq = parseInt(pmd.lpa_qty, 10);
+          if (pwq > 0) ptags.push('ai-will-paid');
+          if (plq > 0) ptags.push('ai-lpa-paid');
+          if (!ptags.length) ptags.push('ai-will-paid');
+        }
+        if (pmd.contactId){ try { await ghl('POST','/contacts/'+pmd.contactId+'/tags', ptok, { tags: ptags }); } catch(e){ console.error('pay-confirm tag', e.message); } }
+        return send(res,200,{ ok:true, paid:true, tags:ptags });
+      } catch(e){ return send(res,500,{error:e.message}); }
+    }
     if (req.method === 'POST' && pathOnly === '/api/stripe-webhook'){
       const raw = await readBody(req);
       if (!awVerifyStripeHook(raw, req.headers['stripe-signature'])){
