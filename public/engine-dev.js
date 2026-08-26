@@ -1202,11 +1202,9 @@ function render(){
     for(var _q=0;_q<_secs.length;_q++){ if(_secs[_q].id===s.id){ _si=_q; break; } }
     el('stepCount').textContent=(_si>=0)?('Section '+(_si+1)+' of '+_secs.length):'';
     el('bar').style.width=(_si>=0)?(Math.round(((_si+1)/_secs.length)*100)+'%'):'100%';
-    try{ var _sb=el('awsignbar'); if(!_sb){ var _hh=el('hdr'); if(_hh&&_hh.parentNode){ _sb=document.createElement('div'); _sb.id='awsignbar'; _hh.parentNode.insertBefore(_sb,_hh); } } if(_sb){ _sb.style.cssText='display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:13.5px;color:var(--muted);margin:0 0 10px'; _sb.innerHTML='<span>You are signed in. Your answers save to your account.</span><a href="#" id="awsignout" style="color:var(--primary);font-weight:600;text-decoration:none;white-space:nowrap">Log out</a>'; var _lo=document.getElementById('awsignout'); if(_lo) _lo.onclick=function(ev2){ ev2.preventDefault(); awLogout('manual'); }; } }catch(e){}
   } else {
     el('stepCount').textContent='Step '+(cur+1)+' of '+vis.length;
     el('bar').style.width=Math.round(((cur+1)/vis.length)*100)+'%';
-    try{ var _sbx=el('awsignbar'); if(_sbx&&_sbx.parentNode) _sbx.parentNode.removeChild(_sbx); }catch(e){}
   }
   if(cur>maxCur) maxCur=cur; if(maxCur>vis.length-1) maxCur=vis.length-1;
   try{ var _smenu=el('stepmenu'); if(_smenu){ if(window.AIWILLS_EDIT===true){
@@ -1362,6 +1360,8 @@ function awMaybeRegister(s){
   if(!/.+@.+\..+/.test(em)) return;
   window.__awRegTried=true;
   var fn2=String(o.firstName||'').trim(), ln2=String(o.lastName||'').trim(), ph2=String(o.phone||o.mobile||'').trim();
+  var _oldid=null; try{ _oldid=JSON.parse(localStorage.getItem('aw_ident_'+loc)||'null'); }catch(e){}
+  var _claimed=(_oldid && _oldid.email && String(_oldid.email).toLowerCase()!==em.toLowerCase());
   fetch(API+'/api/register',{method:'POST',body:JSON.stringify({locationId:loc,firstName:fn2,lastName:ln2,email:em,phone:ph2,funnel:FUNNEL_KEY})}).then(function(r){return r.json();}).then(function(j){
     if(j&&j.ok&&j.existing===true){
       try{ fetch(API+'/api/edit-request',{method:'POST',body:JSON.stringify({locationId:loc,email:em,funnel:FUNNEL_KEY,channel:'email',returnBase:location.origin+location.pathname})}).catch(function(){}); }catch(e){}
@@ -1369,6 +1369,14 @@ function awMaybeRegister(s){
       return;
     }
     if(j&&j.ok&&j.session&&j.contactId){
+      if(_claimed){
+        /* The draft on this device belonged to a different email. A new account starts with only
+           what its owner typed: nothing of the previous journey may follow them in. This is how a
+           whole will once travelled from one test identity to another inside one browser. */
+        try{ visible().forEach(function(_vs){ if(_vs.fields&&_vs.fields.length&&_vs.id!==awRegSection()){ state[_vs.id]={}; } }); }catch(e){}
+        try{ if(state.payment) state.payment.paid=false; }catch(e){}
+        try{ Object.keys(localStorage).forEach(function(k){ if(k.indexOf('aw_draft_')===0||k.indexOf('aw_sent_')===0) localStorage.removeItem(k); }); }catch(e){}
+      }
       try{ awSess2Write(loc, j.session); }catch(e){}
       window.AIWILLS_TOKEN=j.session; window.AIWILLS_EDIT=true;
       if(!window.AIWILLS_META) window.AIWILLS_META={ paid:false, submitted:false, docUrl:'', summary:'' };
@@ -1458,7 +1466,10 @@ function awSignedInBar(){
     var bar = document.createElement('div');
     bar.id = 'awsignedin';
     bar.style.cssText = 'position:fixed;top:0;right:0;z-index:99998;display:flex;align-items:center;gap:10px;padding:7px 14px;background:rgba(255,255,255,.96);border:1px solid var(--line,#e6e6e6);border-top:0;border-right:0;border-radius:0 0 0 10px;font:14px/1.2 var(--bf,Arial,Helvetica,sans-serif);box-shadow:0 2px 10px rgba(0,0,0,.06)';
-    bar.innerHTML = '<span style="color:var(--muted,#6b6e72)">Signed in</span>'
+    var _who=''; try{ _who=String(window.AIWILLS_WHO||'').replace(/[<>&"]/g,''); }catch(e){}
+    /* \u201cSigned in\u201d alone left a tester with three test emails unable to tell WHICH account this was,
+       and read the wrong conclusion into what they saw. Name the account. */
+    bar.innerHTML = '<span style="color:var(--muted,#6b6e72)">'+(_who?('Signed in as '+_who):'Signed in')+'</span>'
       + '<button type="button" id="awsignout" style="background:none;border:0;padding:0;color:var(--primary,#0B3D2E);font:inherit;font-weight:600;text-decoration:underline;cursor:pointer">Sign out</button>';
     document.body.appendChild(bar);
     document.getElementById('awsignout').addEventListener('click', function(){ awLogout('manual'); });
@@ -1745,7 +1756,7 @@ setTimeout(closeGaps,400); setTimeout(closeGaps,1200);
     function _awLoadState(sess){
       return fetch(API+'/api/state-load?t='+encodeURIComponent(sess)+'&funnel='+encodeURIComponent(String((window.AIWILLS_CONFIG||{}).funnel||'')))
         .then(function(r){return r.json();}).then(function(j){
-          if(j&&j.ok){ window.AIWILLS_EDIT=true; window.AIWILLS_SUBMITTED=(j.submitted===true); window.AIWILLS_META={ paid:(j.paid===true), submitted:(j.submitted===true), docUrl:(j.docUrl||''), summary:(j.summaryText||'') }; window.AIWILLS_FILES=j.files||[]; if(j.state) window.AIWILLS_PREFILL=j.state; if(j.funnel==='wills'||j.funnel==='lpa'){ window.AIWILLS_CONTACT_ID=j.contactId; } else { window.AIWILLS_ETB_CID=j.contactId; } }
+          if(j&&j.ok){ window.AIWILLS_EDIT=true; window.AIWILLS_SUBMITTED=(j.submitted===true); window.AIWILLS_META={ paid:(j.paid===true), submitted:(j.submitted===true), docUrl:(j.docUrl||''), summary:(j.summaryText||'') }; window.AIWILLS_FILES=j.files||[]; try{ window.AIWILLS_WHO=(j.contact&&j.contact.email)||''; var _sb9=document.getElementById('awsignedin'); if(_sb9&&window.AIWILLS_WHO){ var _sp9=_sb9.querySelector('span'); if(_sp9) _sp9.textContent='Signed in as '+window.AIWILLS_WHO; } }catch(e){} if(j.state) window.AIWILLS_PREFILL=j.state; if(j.funnel==='wills'||j.funnel==='lpa'){ window.AIWILLS_CONTACT_ID=j.contactId; } else { window.AIWILLS_ETB_CID=j.contactId; } }
           else { window.__awSessDead=true; awSess2Clear(_qloc); try{ sessionStorage.removeItem(_sk); }catch(e){} }
         }).catch(function(){ window.__awSessDead=true; });
     }
