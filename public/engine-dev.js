@@ -1510,7 +1510,7 @@ function closeGaps(){
   }catch(e){}
 }
 initState(); if(!awDoorGate()){ restoreLocal(); } applyBrand();
-try{ var _qp=new URLSearchParams(location.search); if(_qp.get('aw_paid')==='1' && _qp.get('aw_id')){ window.AIWILLS_WILL_ID=_qp.get('aw_id'); if(state.payment){ state.payment.paid=true; state.payment.willId=_qp.get('aw_id'); } try{ if(loc) localStorage.setItem('aw_sent_'+FUNNEL_KEY+'_'+loc,'1'); }catch(e){} try{ saveLocal(); }catch(e){}   /* finished on this device: stop the services page offering them a blank form later */ var _vv=visible(); for(var _i=0;_i<_vv.length;_i++){ if(_vv[_i].id==='generate'){ cur=_i; break; } } } if(_qp.get('aw_etb_paid')==='1' && FUNNEL===ETB_FUNNEL){ if(state.payment) state.payment.paid=true; try{ if(loc) localStorage.setItem('aw_sent_'+FUNNEL_KEY+'_'+loc,'1'); }catch(e){} try{ saveLocal(); }catch(e){}   /* finished on this device: stop the services page offering them a blank form later */ var _ev=visible(); for(var _j=0;_j<_ev.length;_j++){ if(_ev[_j].id==='done'){ cur=_j; break; } } } /* A device that recorded a purchase must never offer the payment step again, whatever survived in
+try{ var _qp=new URLSearchParams(location.search); if(_qp.get('aw_paid')==='1' && _qp.get('aw_id')){ window.AIWILLS_WILL_ID=_qp.get('aw_id'); if(state.payment){ state.payment.paid=true; state.payment.willId=_qp.get('aw_id'); } try{ if(loc) localStorage.setItem('aw_sent_'+FUNNEL_KEY+'_'+loc,'1'); }catch(e){} try{ saveLocal(); }catch(e){}   /* finished on this device: stop the services page offering them a blank form later */ var _vv=visible(); for(var _i=0;_i<_vv.length;_i++){ if(_vv[_i].id==='generate'){ cur=_i; break; } } try{ saveLocal(); }catch(e){} } if(_qp.get('aw_etb_paid')==='1' && FUNNEL===ETB_FUNNEL){ if(state.payment) state.payment.paid=true; try{ if(loc) localStorage.setItem('aw_sent_'+FUNNEL_KEY+'_'+loc,'1'); }catch(e){} try{ saveLocal(); }catch(e){}   /* finished on this device: stop the services page offering them a blank form later */ var _ev=visible(); for(var _j=0;_j<_ev.length;_j++){ if(_ev[_j].id==='done'){ cur=_j; break; } } try{ saveLocal(); }catch(e){} } /* A device that recorded a purchase must never offer the payment step again, whatever survived in
    the draft. aw_sent is only ever written on a genuine paid return (or a sent probate quote). */
 try{
   if(window.AIWILLS_EDIT!==true && loc && FUNNEL!==REFERRAL_FUNNEL && state.payment && localStorage.getItem('aw_sent_'+FUNNEL_KEY+'_'+loc)==='1'){
@@ -1662,6 +1662,9 @@ setTimeout(closeGaps,400); setTimeout(closeGaps,1200);
         _runBranded();
         try{ if(window.__awSessDead && String((window.AIWILLS_CONFIG||{}).funnel||'')!=='hub') _awSessDeadNotice(); }catch(e){}
       });
-    } else { _runBranded(); }
+    } else {
+      _runBranded();
+      try{ if(window.__awSessDead && String((window.AIWILLS_CONFIG||{}).funnel||'')!=='hub') _awSessDeadNotice(); }catch(e){}
+    }
   })();
 })();
