@@ -196,21 +196,23 @@ var CFG = window.AIWILLS_CONFIG || {}; (function(){ var _m='{'+'{'; for(var _k i
     function awGateNew(m,url,svcKey){
       // Capture name + contact details up front so the firm can stay in touch even if the visitor
       // does not finish the form, then carry the details into the service pre-filled.
-      m.innerHTML='<div style="background:#fff;max-width:460px;width:100%;border-radius:16px;padding:28px 26px;box-shadow:0 10px 40px rgba(0,0,0,.2);max-height:88vh;overflow:auto"><h2 style="font-family:var(--hf,Georgia,serif);color:var(--heading);margin:0 0 6px;font-size:21px">First, a few details</h2><p style="color:var(--muted);font-size:14px;line-height:1.5;margin:0 0 16px">So we can save your progress and keep in touch as you go.</p><input id="awgfn" placeholder="First name" autocomplete="given-name" style="width:100%;box-sizing:border-box;padding:12px 14px;border:1px solid var(--line);border-radius:10px;font-size:15px;font-family:var(--bf);margin-bottom:10px"><input id="awgem" type="email" placeholder="Email" autocomplete="email" style="width:100%;box-sizing:border-box;padding:12px 14px;border:1px solid var(--line);border-radius:10px;font-size:15px;font-family:var(--bf);margin-bottom:10px"><input id="awgph" type="tel" placeholder="Mobile number" autocomplete="tel" style="width:100%;box-sizing:border-box;padding:12px 14px;border:1px solid var(--line);border-radius:10px;font-size:15px;font-family:var(--bf)"><div style="margin:18px 0 6px;text-align:left"><label style="display:flex;gap:11px;align-items:flex-start;cursor:pointer;font-size:14px;line-height:1.6;color:var(--body);font-family:var(--bf,inherit);margin:0 0 12px"><input type="checkbox" id="awgc1" style="margin:3px 0 0;width:17px;height:17px;flex:0 0 17px"><span style="flex:1 1 auto;min-width:0">'+awGateConsentText()+'</span></label><label style="display:flex;gap:11px;align-items:flex-start;cursor:pointer;font-size:14px;line-height:1.6;color:var(--muted);font-family:var(--bf,inherit);margin:0"><input type="checkbox" id="awgc2" style="margin:3px 0 0;width:17px;height:17px;flex:0 0 17px"><span style="flex:1 1 auto;min-width:0">'+esc((window.AIWILLS_CONFIG||{}).marketing_label||'I would also like helpful updates and offers by email or text.')+'</span></label></div><div id="awgmsg" style="font-size:13px;margin:4px 0 2px;min-height:18px;color:#c8100d"></div><button type="button" id="awgo" style="width:100%;margin-top:6px;background:var(--btn-bg,var(--primary));color:#fff;border:none;border-radius:var(--btn-radius,10px);padding:13px;font-weight:600;cursor:pointer;font-family:var(--bf)">Continue</button><button type="button" id="awgback" style="width:100%;margin-top:6px;background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px">Back</button></div>';
+      m.innerHTML='<div style="background:#fff;max-width:460px;width:100%;border-radius:16px;padding:28px 26px;box-shadow:0 10px 40px rgba(0,0,0,.2);max-height:88vh;overflow:auto"><h2 style="font-family:var(--hf,Georgia,serif);color:var(--heading);margin:0 0 6px;font-size:21px">First, a few details</h2><p style="color:var(--muted);font-size:14px;line-height:1.5;margin:0 0 16px">So we can set up your account and save your progress as you go.</p><input id="awgfn" placeholder="First name" autocomplete="given-name" style="width:100%;box-sizing:border-box;padding:12px 14px;border:1px solid var(--line);border-radius:10px;font-size:15px;font-family:var(--bf);margin-bottom:10px"><input id="awgln" placeholder="Last name" autocomplete="family-name" style="width:100%;box-sizing:border-box;padding:12px 14px;border:1px solid var(--line);border-radius:10px;font-size:15px;font-family:var(--bf);margin-bottom:10px"><input id="awgem" type="email" placeholder="Email" autocomplete="email" style="width:100%;box-sizing:border-box;padding:12px 14px;border:1px solid var(--line);border-radius:10px;font-size:15px;font-family:var(--bf);margin-bottom:10px"><input id="awgph" type="tel" placeholder="Mobile number" autocomplete="tel" style="width:100%;box-sizing:border-box;padding:12px 14px;border:1px solid var(--line);border-radius:10px;font-size:15px;font-family:var(--bf)"><div style="margin:18px 0 6px;text-align:left"><label style="display:flex;gap:11px;align-items:flex-start;cursor:pointer;font-size:14px;line-height:1.6;color:var(--body);font-family:var(--bf,inherit);margin:0 0 12px"><input type="checkbox" id="awgc1" style="margin:3px 0 0;width:17px;height:17px;flex:0 0 17px"><span style="flex:1 1 auto;min-width:0">'+awGateConsentText()+'</span></label><label style="display:flex;gap:11px;align-items:flex-start;cursor:pointer;font-size:14px;line-height:1.6;color:var(--muted);font-family:var(--bf,inherit);margin:0"><input type="checkbox" id="awgc2" style="margin:3px 0 0;width:17px;height:17px;flex:0 0 17px"><span style="flex:1 1 auto;min-width:0">'+esc((window.AIWILLS_CONFIG||{}).marketing_label||'I would also like helpful updates and offers by email or text.')+'</span></label></div><div id="awgmsg" style="font-size:13px;margin:4px 0 2px;min-height:18px;color:#c8100d"></div><button type="button" id="awgo" style="width:100%;margin-top:6px;background:var(--btn-bg,var(--primary));color:#fff;border:none;border-radius:var(--btn-radius,10px);padding:13px;font-weight:600;cursor:pointer;font-family:var(--bf)">Continue</button><button type="button" id="awgback" style="width:100%;margin-top:6px;background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px">Back</button></div>';
       document.getElementById('awgback').onclick=function(){ awGate(url,svcKey); };
       document.getElementById('awgo').onclick=function(){
         var fn=(document.getElementById('awgfn').value||'').trim();
+        var ln=(document.getElementById('awgln').value||'').trim();
         var em=(document.getElementById('awgem').value||'').trim();
         var ph=(document.getElementById('awgph').value||'').trim();
         var msg=document.getElementById('awgmsg');
         if(!fn){ msg.textContent='Please enter your first name.'; return; }
+        if(!ln){ msg.textContent='Please enter your last name.'; return; }
         if(!/.+@.+\..+/.test(em)){ msg.textContent='Please enter a valid email.'; return; }
         if(ph.replace(/[^0-9]/g,'').length<7){ msg.textContent='Please enter a valid mobile number.'; return; }
         var c1=document.getElementById('awgc1'), c2=document.getElementById('awgc2');
         if(c1 && !c1.checked){ msg.style.color='#c8100d'; msg.textContent='Please tick the box so we know we can contact you.'; return; }
         var btn=document.getElementById('awgo'); btn.disabled=true; msg.style.color='var(--muted)'; msg.textContent='One moment...';
         var section=(svcKey==='wills')?'personal':((svcKey==='probate')?'contact_details':'your_details');
-        var details={ firstName:fn, email:em, phone:ph };
+        var details={ firstName:fn, lastName:ln, email:em, phone:ph };
         var _cAt=new Date().toISOString(), _cMkt=(c2&&c2.checked)?'Yes':'No';
         var consent={ contact:'Yes', at:_cAt, marketing:_cMkt, firm:((window.AIWILLS_CONFIG||{}).company_name||'') };
         var consentDetail=[
@@ -227,7 +229,7 @@ var CFG = window.AIWILLS_CONFIG || {}; (function(){ var _m='{'+'{'; for(var _k i
         else if(svcKey==='etb'){ ep='/api/etb-save'; body={locationId:loc,contactId:_awCidEtb(),state:st,detail:consentDetail,status:'started',step:'gate'}; }
         else if(svcKey==='probate'){ ep='/api/referral-save'; body={locationId:loc,contactId:_awCid(),state:st,detail:consentDetail,key:'probate',step:'gate',status:'started'}; }
         else { ep='/api/will-save'; body={locationId:loc,contactId:_awCid(),state:st,detail:consentDetail,step:'gate'}; }
-        var goNext=function(cid){
+        var goNext=function(cid, sess){
         /* They have just told us who they are as a NEW customer. Whatever the previous person
            left on this device must not follow them into the funnel. */
         try{ Object.keys(localStorage).forEach(function(k){ if(k.indexOf('aw_draft_')===0||k.indexOf('aw_ident_')===0||k.indexOf('aw_sent_')===0) localStorage.removeItem(k); }); }catch(e){}
@@ -244,8 +246,27 @@ var CFG = window.AIWILLS_CONFIG || {}; (function(){ var _m='{'+'{'; for(var _k i
             try{ document.cookie=_ng+_deadg+';domain=.'+_rootg; }catch(eg3){}
           }
         }catch(e){}
-        try{ localStorage.setItem('aw_ident_'+loc, JSON.stringify({ firstName:fn, email:em, phone:ph, cid:cid||'', consent:consent })); }catch(e){} var u=url||''; /* the contact they just created stays in this browser, it does not travel in the link */ try{ m.parentNode.removeChild(m); }catch(e){} if(u) window.top.location.href=u; };
-        fetch(API+ep,{method:'POST',body:JSON.stringify(body)}).then(function(r){return r.json();}).then(function(j){ goNext((j&&j.contactId)||''); }).catch(function(){ goNext(''); });
+        try{ localStorage.setItem('aw_ident_'+loc, JSON.stringify({ firstName:fn, lastName:ln, email:em, phone:ph, cid:cid||'', consent:consent })); }catch(e){} try{ if(sess){ awSess2Write(loc, sess); window.AIWILLS_TOKEN=sess; } }catch(e){} var u=url||''; /* the contact they just created stays in this browser, it does not travel in the link */ try{ m.parentNode.removeChild(m); }catch(e){} if(u) window.top.location.href=u; };
+        /* Register them properly. A new email means an account and a live session on the spot; a known
+           email means the emailed sign-in link, never an instant session, so a typed address cannot
+           unlock someone else's answers. If registration is unavailable the old anonymous journey
+           still works exactly as before. */
+        var _fallback=function(){ fetch(API+ep,{method:'POST',body:JSON.stringify(body)}).then(function(r){return r.json();}).then(function(j2){ goNext((j2&&j2.contactId)||'',''); }).catch(function(){ goNext('',''); }); };
+        fetch(API+'/api/register',{method:'POST',body:JSON.stringify({locationId:loc,firstName:fn,lastName:ln,email:em,phone:ph,funnel:svcKey})}).then(function(r){return r.json();}).then(function(j){
+          if(j&&j.ok&&j.existing===true){
+            try{ fetch(API+'/api/edit-request',{method:'POST',body:JSON.stringify({locationId:loc,email:em,funnel:svcKey,channel:'email',returnBase:(url||(location.origin+location.pathname))})}).catch(function(){}); }catch(e){}
+            var _bx=m.firstElementChild||m;
+            _bx.innerHTML='<h2 style="font-family:var(--hf,Georgia,serif);color:var(--heading);margin:0 0 6px;font-size:21px">Welcome back</h2><p style="color:var(--muted);font-size:14px;line-height:1.6;margin:0 0 18px">You already have an account with us, so we have emailed you a secure sign-in link instead. Open it and you will carry on exactly where you left off, signed in.</p><button type="button" id="awgdone" style="width:100%;background:var(--btn-bg,var(--primary));color:#fff;border:none;border-radius:var(--btn-radius,10px);padding:13px;font-weight:600;cursor:pointer;font-family:var(--bf)">OK</button>';
+            var _dn=document.getElementById('awgdone'); if(_dn) _dn.onclick=function(){ try{ m.parentNode.removeChild(m); }catch(e){} };
+            return;
+          }
+          if(j&&j.ok&&j.session&&j.contactId){
+            body.contactId=j.contactId;
+            fetch(API+ep,{method:'POST',body:JSON.stringify(body)}).then(function(){ goNext(j.contactId, j.session); }).catch(function(){ goNext(j.contactId, j.session); });
+            return;
+          }
+          _fallback();
+        }).catch(function(){ _fallback(); });
       };
     }
     paint(localSt());
@@ -881,6 +902,12 @@ function total(lp,key){ return (getP(lp)||[]).reduce(function(s,it){ return s+(p
    they come back to finish, and stripping payment left them on the summary with no way to buy at
    all. So only hide them once the money is actually in. */
 function awPaidNow(){ try{ return !!(state && state.payment && state.payment.paid===true); }catch(e){ return false; } }
+/* Read the email-verified flag out of the session token. The payload is plain base64url, the
+   signature stays server-side; absent flag means a session minted from an emailed link, which is
+   proof of the address by definition. */
+function awSessEv(){ try{ var t=window.AIWILLS_TOKEN||''; if(!t) return 1; var p=String(t).split('.')[0]||''; p=p.replace(/-/g,'+').replace(/_/g,'/'); while(p.length%4)p+='='; var o=JSON.parse(atob(p)); return (o.ev===0)?0:1; }catch(e){ return 1; } }
+function awRegSection(){ return (FUNNEL===WILLS_FUNNEL)?'personal':((FUNNEL===REFERRAL_FUNNEL)?'contact_details':'your_details'); }
+function awRegEmail(){ try{ var em=String(((state||{})[awRegSection()]||{}).email||'').trim(); if(em) return em; var i=JSON.parse(localStorage.getItem('aw_ident_'+loc)||'null'); return (i&&i.email)||''; }catch(e){ return ''; } }
 function visible(){ var ed=(window.AIWILLS_EDIT===true) && awPaidNow(); return FUNNEL.filter(function(s){ if(ed && (s.kind==='payment'||s.kind==='generate'||s.kind==='done')) return false; return !s.showIf || s.showIf(state); }); }
 
 function fld(base,f){
@@ -1091,6 +1118,10 @@ function render(){
     var _isEtb=(FUNNEL===ETB_FUNNEL);
     if(getP('payment.paid')===true){
       html += '<div class="mock"><div class="tick">✓</div><h3>'+(_isEtb?'Subscription active':'Payment received')+'</h3><p class="note">'+(_isEtb?'Your Executor Toolbox is now active.':'Continue to download your will.')+'</p></div>';
+    } else if(window.AIWILLS_EDIT===true && awSessEv()===0){
+      /* Their documents and receipts go to the address they typed, so the address gets proven
+         before money changes hands. The emailed link signs them in verified and lands them back. */
+      html += '<div class="mock"><h3>Confirm your email first</h3><p class="note">Your documents and receipts go to <strong>'+esc(awRegEmail()||'your email address')+'</strong>, so before payment we need to be sure it reaches you. Press the button and we will email you a secure sign-in link. Opening it confirms your address and brings you straight back here.</p><button class="btn wide" type="button" id="awsendverify" style="margin-top:6px">Email me the link</button><p class="note" id="awverifymsg" style="margin-top:10px"></p></div>';
     } else if(_isEtb){
       var _plans=[];
       if(CFG.etb_price_monthly) _plans.push({k:'monthly',lbl:'Monthly',price:fmtPrice(CFG.etb_price_monthly)+' / month'});
@@ -1171,9 +1202,11 @@ function render(){
     for(var _q=0;_q<_secs.length;_q++){ if(_secs[_q].id===s.id){ _si=_q; break; } }
     el('stepCount').textContent=(_si>=0)?('Section '+(_si+1)+' of '+_secs.length):'';
     el('bar').style.width=(_si>=0)?(Math.round(((_si+1)/_secs.length)*100)+'%'):'100%';
+    try{ var _sb=el('awsignbar'); if(!_sb){ var _hh=el('hdr'); if(_hh&&_hh.parentNode){ _sb=document.createElement('div'); _sb.id='awsignbar'; _hh.parentNode.insertBefore(_sb,_hh); } } if(_sb){ _sb.style.cssText='display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:13.5px;color:var(--muted);margin:0 0 10px'; _sb.innerHTML='<span>You are signed in. Your answers save to your account.</span><a href="#" id="awsignout" style="color:var(--primary);font-weight:600;text-decoration:none;white-space:nowrap">Log out</a>'; var _lo=document.getElementById('awsignout'); if(_lo) _lo.onclick=function(ev2){ ev2.preventDefault(); awLogout('manual'); }; } }catch(e){}
   } else {
     el('stepCount').textContent='Step '+(cur+1)+' of '+vis.length;
     el('bar').style.width=Math.round(((cur+1)/vis.length)*100)+'%';
+    try{ var _sbx=el('awsignbar'); if(_sbx&&_sbx.parentNode) _sbx.parentNode.removeChild(_sbx); }catch(e){}
   }
   if(cur>maxCur) maxCur=cur; if(maxCur>vis.length-1) maxCur=vis.length-1;
   try{ var _smenu=el('stepmenu'); if(_smenu){ if(window.AIWILLS_EDIT===true){
@@ -1188,9 +1221,10 @@ function render(){
   var _ed=(window.AIWILLS_EDIT===true && awHasReview());   // no summary to go back to, no "Back to summary"
   el('back').textContent=_ed?(((typeof _si==='number')&&_si>0)?'Back':'Back to summary'):'Back';
   el('back').style.visibility=_ed?(s.kind==='review'?'hidden':'visible'):(cur===0?'hidden':'visible');
-  var next=el('next'); if(_ed){ var _epaid=awPaidNow(); next.style.display=(((s.kind==='review')&&_epaid)||s.kind==='payment'||s.kind==='generate'||s.kind==='done'||s.kind==='quote')?'none':''; next.textContent=(s.kind==='review'&&!_epaid)?((FUNNEL===ETB_FUNNEL)?'Continue to activate':'Continue to payment'):'Save'; } else { next.style.display=(s.kind==='generate'||s.kind==='done'||s.kind==='quote')?'none':''; next.textContent=(s.kind==='review')?((FUNNEL===ETB_FUNNEL)?'Continue to activate':'Continue to payment'):((FUNNEL===REFERRAL_FUNNEL&&vis[cur+1]&&vis[cur+1].kind==='quote')?(CFG.referral_submit_label||'Get my quote'):'Continue'); }
-  var pay=el('pay'); if(pay) pay.addEventListener('click',function(){ try{ collectVisible(); }catch(e){} if(!awConsentOk()) return; var _isEtb=(FUNNEL===ETB_FUNNEL); var _wb=(FUNNEL===WILLS_FUNNEL)?willBundle(state):null; var _isLpa=(FUNNEL===LPA_FUNNEL); var _lbl=_isEtb?'Subscribe':('Pay '+esc(fmtPrice(String(_isLpa?lpaTotal():(_wb?(Math.round(_wb.total*100)/100):CFG.will_price))))); pay.disabled=true; pay.textContent='Redirecting to secure payment...'; var _url=_isEtb?(API+'/api/etb-checkout'):(API+'/api/checkout'); var _body=_isEtb?{locationId:loc,contactId:(window.AIWILLS_ETB_CID||''),contact:(state.your_details||{}),returnUrl:_retUrl(),plan:(function(){ var r=document.querySelector('input[name=awetbplan]:checked'); return (r&&r.value)||'annual'; })()}:{locationId:loc,willJson:state,returnUrl:_retUrl(),pricingV:2,kind:(_isLpa?'lpa':'wills'),contactId:(window.AIWILLS_CONTACT_ID||'')}; fetch(_url,{method:'POST',body:JSON.stringify(_body)}).then(function(r){return r.json();}).then(function(j){ if(j&&j.url){ window.location.href=j.url; } else { pay.disabled=false; pay.textContent=_lbl; alert('Could not start payment: '+((j&&j.error)||'unknown')); } }).catch(function(e){ pay.disabled=false; pay.textContent=_lbl; alert('Payment error: '+e.message); }); });
+  var next=el('next'); if(_ed){ var _epaid=awPaidNow(); next.style.display=(((s.kind==='review')&&_epaid)||s.kind==='payment'||s.kind==='generate'||s.kind==='done'||s.kind==='quote')?'none':''; next.textContent=(s.kind==='review'&&!_epaid)?((FUNNEL===ETB_FUNNEL)?'Continue to activate':'Continue to payment'):((window.__awFromSummary===true)?'Save':'Continue'); } else { next.style.display=(s.kind==='generate'||s.kind==='done'||s.kind==='quote')?'none':''; next.textContent=(s.kind==='review')?((FUNNEL===ETB_FUNNEL)?'Continue to activate':'Continue to payment'):((FUNNEL===REFERRAL_FUNNEL&&vis[cur+1]&&vis[cur+1].kind==='quote')?(CFG.referral_submit_label||'Get my quote'):'Continue'); }
+  var pay=el('pay'); if(pay) pay.addEventListener('click',function(){ try{ collectVisible(); }catch(e){} if(!awConsentOk()) return; var _isEtb=(FUNNEL===ETB_FUNNEL); var _wb=(FUNNEL===WILLS_FUNNEL)?willBundle(state):null; var _isLpa=(FUNNEL===LPA_FUNNEL); var _lbl=_isEtb?'Subscribe':('Pay '+esc(fmtPrice(String(_isLpa?lpaTotal():(_wb?(Math.round(_wb.total*100)/100):CFG.will_price))))); pay.disabled=true; pay.textContent='Redirecting to secure payment...'; var _url=_isEtb?(API+'/api/etb-checkout'):(API+'/api/checkout'); var _body=_isEtb?{locationId:loc,contactId:(window.AIWILLS_ETB_CID||''),contact:(state.your_details||{}),returnUrl:_retUrl(),plan:(function(){ var r=document.querySelector('input[name=awetbplan]:checked'); return (r&&r.value)||'annual'; })(),t:(window.AIWILLS_TOKEN||'')}:{locationId:loc,willJson:state,returnUrl:_retUrl(),pricingV:2,kind:(_isLpa?'lpa':'wills'),contactId:(window.AIWILLS_CONTACT_ID||''),t:(window.AIWILLS_TOKEN||'')}; fetch(_url,{method:'POST',body:JSON.stringify(_body)}).then(function(r){return r.json();}).then(function(j){ if(j&&j.url){ window.location.href=j.url; } else { pay.disabled=false; pay.textContent=_lbl; alert('Could not start payment: '+((j&&j.error)||'unknown')); } }).catch(function(e){ pay.disabled=false; pay.textContent=_lbl; alert('Payment error: '+e.message); }); });
   var _dlp=el('dlp'); if(_dlp) _dlp.addEventListener('click',function(){ try{ window.print(); }catch(e){} });
+  var _vsb=el('awsendverify'); if(_vsb) _vsb.addEventListener('click',function(){ _vsb.disabled=true; _vsb.textContent='Sending...'; fetch(API+'/api/edit-request',{method:'POST',body:JSON.stringify({locationId:loc,email:awRegEmail(),funnel:FUNNEL_KEY,channel:'email',returnBase:location.origin+location.pathname})}).then(function(r){return r.json();}).then(function(){ _vsb.textContent='Link sent'; var mm=el('awverifymsg'); if(mm) mm.textContent='Check your inbox (and your spam folder). The link brings you straight back here, confirmed and ready to pay.'; }).catch(function(){ _vsb.disabled=false; _vsb.textContent='Email me the link'; var mm=el('awverifymsg'); if(mm) mm.textContent='That did not send just now. Please try again.'; }); });
   // payment redirects out to Stripe and returns to the generate step (see aw_paid handling on load); no auto-advance, no demo download.
   /* Save returns to the summary only for somebody who came FROM the summary to change one answer.
      A customer filling a will in for the first time is walking forward, and was being thrown onto a
@@ -1305,6 +1339,7 @@ function go(dir){
       }
     }
     saveToGhl(state, { pdf: (s.kind==='review' || s.kind==='payment' || window.AIWILLS_EDIT===true) });
+    try{ awMaybeRegister(s); }catch(e){}
     /* ...but NOT from the summary itself. Pressing Continue there was saving and re-rendering the
    summary, so the button looked dead and the customer could never reach payment. From the
    summary, Continue must behave like a normal Continue and move on to the payment step. */
@@ -1314,6 +1349,40 @@ function go(dir){
   render(); scrollTop(); try{ saveLocal(); }catch(e){}
 }
 
+/* Somebody who lands straight on a funnel page never meets the services-page gate, so the first
+   completed step, the one that carries their contact details, is where they become a customer with
+   an account rather than an anonymous visitor. A known email gets the sign-in link instead: a typed
+   address must never unlock someone else's saved answers. */
+function awMaybeRegister(s){
+  if(window.__awRegTried) return;
+  if(window.AIWILLS_EDIT===true || (window.AIWILLS_TOKEN||'')) return;
+  if(!loc) return;
+  if(!s || s.id!==awRegSection()) return;
+  var o=state[awRegSection()]||{}; var em=String(o.email||'').trim();
+  if(!/.+@.+\..+/.test(em)) return;
+  window.__awRegTried=true;
+  var fn2=String(o.firstName||'').trim(), ln2=String(o.lastName||'').trim(), ph2=String(o.phone||o.mobile||'').trim();
+  fetch(API+'/api/register',{method:'POST',body:JSON.stringify({locationId:loc,firstName:fn2,lastName:ln2,email:em,phone:ph2,funnel:FUNNEL_KEY})}).then(function(r){return r.json();}).then(function(j){
+    if(j&&j.ok&&j.existing===true){
+      try{ fetch(API+'/api/edit-request',{method:'POST',body:JSON.stringify({locationId:loc,email:em,funnel:FUNNEL_KEY,channel:'email',returnBase:location.origin+location.pathname})}).catch(function(){}); }catch(e){}
+      awRegNote('It looks like you already have an account with us, so we have emailed you a sign-in link. You can keep going here, or open the link to continue signed in with your saved answers.', 'info');
+      return;
+    }
+    if(j&&j.ok&&j.session&&j.contactId){
+      try{ awSess2Write(loc, j.session); }catch(e){}
+      window.AIWILLS_TOKEN=j.session; window.AIWILLS_EDIT=true;
+      if(!window.AIWILLS_META) window.AIWILLS_META={ paid:false, submitted:false, docUrl:'', summary:'' };
+      if(FUNNEL===ETB_FUNNEL){ window.AIWILLS_ETB_CID=j.contactId; } else { window.AIWILLS_CONTACT_ID=j.contactId; }
+      try{ localStorage.setItem('aw_ident_'+loc, JSON.stringify({ firstName:fn2, lastName:ln2, email:em, phone:ph2, cid:j.contactId })); }catch(e){}
+      try{ awKeepSessionAlive(); }catch(e){}
+      try{ saveToGhl(state); }catch(e){}
+      try{ collectVisible(); }catch(e){}
+      try{ render(); }catch(e){}
+      awRegNote('Your account is ready and you are signed in. Your answers now save to your account as you go.', 'ok');
+    }
+  }).catch(function(){});
+}
+function awRegNote(t, kind){ try{ var h=document.querySelector('#aiwills-funnel h1'); if(!h) return; var b=document.getElementById('awregnote'); if(!b){ b=document.createElement('div'); b.id='awregnote'; h.parentNode.insertBefore(b, h.nextSibling); } var ok=(kind==='ok'); b.style.cssText='background:'+(ok?'#EDF7ED':'#F4F6F8')+';border:1px solid '+(ok?'#BCE3BE':'#D8DEE4')+';color:'+(ok?'#1E4620':'#333A40')+';border-radius:10px;padding:12px 14px;margin:10px 0 16px;font-size:14.5px;line-height:1.5'; b.textContent=t; setTimeout(function(){ try{ b.parentNode.removeChild(b); }catch(e){} }, 15000); }catch(e){} }
 function lsKey(){ try{ var fn=((window.AIWILLS_CONFIG&&window.AIWILLS_CONFIG.funnel)||'wills'); return 'aw_draft_'+fn+'_'+(loc||''); }catch(e){ return ''; } }
 /* The session used to die exactly one hour after sign-in, so somebody still filling in a will was
    signed out mid-question. While the page is open and the customer is signed in, ask the server for
@@ -1560,7 +1629,11 @@ try{
    first time from their services page arrives in edit mode too, and was being dropped on a page
    of empty sections instead of question one. */
 function awAnyAnswers(){ try{ var _v=visible(); for(var _i=0;_i<_v.length;_i++){ var _s2=_v[_i]; if(!(_s2.fields&&_s2.fields.length)) continue; var _o=state[_s2.id]||{}; for(var _k2 in _o){ var _v2=_o[_k2]; if(_v2!=null && _v2!=='' && !(Array.isArray(_v2)&&!_v2.length)) return true; } } }catch(e){} return false; }
-if(window.AIWILLS_EDIT===true && awAnyAnswers()){ var _rv=visible(), _t=-1;
+/* Someone who has only just registered has a name and an email on file and nothing else. Dropping
+   them on a summary of empty sections reads as lost work; question one, pre-filled, reads as a
+   journey ready to continue. The summary is for people with real progress beyond their details. */
+function awAnswersBeyond(){ try{ var _v=visible(); for(var _i=0;_i<_v.length;_i++){ var _s2=_v[_i]; if(!(_s2.fields&&_s2.fields.length)) continue; if(_s2.id===awRegSection()) continue; var _o=state[_s2.id]||{}; for(var _k2 in _o){ var _v2=_o[_k2]; if(_v2!=null && _v2!=='' && !(Array.isArray(_v2)&&!_v2.length)) return true; } } }catch(e){} return false; }
+if(window.AIWILLS_EDIT===true && awAnyAnswers() && awAnswersBeyond()){ var _rv=visible(), _t=-1;
   for(var _k=0;_k<_rv.length;_k++){ if(_rv[_k].kind==='review'){ _t=_k; break; } }
   /* Probate has no summary, so signing back in dropped the customer on question one of a quote they
      had already sent. Where the quote is in, land on the outcome they already have. */
