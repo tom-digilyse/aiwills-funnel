@@ -272,12 +272,17 @@ var CFG = window.AIWILLS_CONFIG || {}; (function(){ var _m='{'+'{'; for(var _k i
           + '</div>';
         var lo=document.getElementById('awlogout'); if(lo) lo.addEventListener('click',function(ev){ ev.preventDefault(); awLogout('manual'); });
       } else {
+        /* \u201cThere is saved progress on this device. Not you?\u201d two minutes after someone typed in their
+           own name read as a warning about a stranger. When the device knows whose progress it is,
+           say so by name; the anonymous wording only remains for a truly unclaimed draft. */
+        var _idn=null; try{ _idn=JSON.parse(localStorage.getItem('aw_ident_'+loc)||'null'); }catch(e){}
+        var _idfn=(_idn&&_idn.firstName)?String(_idn.firstName):'';
         box.innerHTML='<div style="'+BAR+'">'
-          + '<span style="color:var(--body);font-size:15px">New here? Choose a service below, no account needed.</span>'
-          + '<a href="#" id="awloginlink" style="'+LINK+'">Already started? Log in</a>'
+          + '<span style="color:var(--body);font-size:15px">'+(_idfn?('You are continuing as '+esc(_idfn)+'. Your progress is saved on this device.'):'New here? Choose a service below, no account needed.')+'</span>'
+          + '<a href="#" id="awloginlink" style="'+LINK+'">'+(_idfn?'Log in':'Already started? Log in')+'</a>'
           + '</div>'
           + (_awHasLocal()
-              ? '<p style="margin:-14px 0 20px;font-size:13px;color:var(--muted)">There is saved progress on this device. <a href="#" id="awforget" style="color:var(--primary);font-weight:600;text-decoration:none">Not you? Remove it</a></p>'
+              ? '<p style="margin:-14px 0 20px;font-size:13px;color:var(--muted)">'+(_idfn?('Not '+esc(_idfn)+'? '):'There is saved progress on this device. ')+'<a href="#" id="awforget" style="color:var(--primary);font-weight:600;text-decoration:none">'+(_idfn?'Start fresh':'Not you? Remove it')+'</a></p>'
               : '');
         var fg=document.getElementById('awforget'); if(fg) fg.addEventListener('click',function(ev){ ev.preventDefault(); _awForgetDevice(); });
         var ll=document.getElementById('awloginlink'); if(ll) ll.addEventListener('click',function(ev){ ev.preventDefault(); awOpenLogin(); });
@@ -1025,10 +1030,26 @@ function review(){
        half-finished will could be downloaded for free. That is a lost sale and, worse, a legal
        document leaving the building that nobody has checked. */
     var _paid = (getP('payment.paid')===true);
-    var _dl = !(_isE || _isW) ? ''
-      : (_paid
+    var _isL=(FUNNEL===LPA_FUNNEL);
+    /* The LPA was the one purchase with no way to get the document back: its forms were only
+       offered on the Generate step, which a signed-in paid customer never sees. Their summary now
+       offers the same official forms the Generate step builds, plus the signing guide. */
+    var _dl='';
+    if(_isE || _isW){ _dl = _paid
         ? ('<a class="btn wide" href="'+API+(_isE?'/api/etb-pdf?t=':'/api/will-pdf?t=')+encodeURIComponent(_tok)+'" target="_blank" rel="noopener" style="display:block;text-align:center;text-decoration:none;margin-top:8px">'+(_isE?'Download summary (PDF)':'Download your will (PDF)')+'</a>')
-        : '<p class="note" style="text-align:center;margin-top:12px">You can download your '+(_isE?'summary':'will')+' here once payment is complete.</p>'); var _docs=[]; visible().forEach(function(s){ if(!s.fields) return; flat(s.fields).forEach(function(f){ if(f.type!=='file') return; var fp=s.id+'.'+f.key; var u=getP(fp+'_url'); if(u) _docs.push({name:(getP(fp)||f.label||'Document'), url:u}); }); }); var _fh=_docs.length?('<div class="sum" style="margin-top:12px"><h3>Your documents</h3>'+_docs.map(function(d){return '<div style="padding:4px 0"><a href="'+esc(d.url)+'" target="_blank" rel="noopener">'+esc(d.name)+'</a></div>';}).join('')+'</div>'):''; return awEditLead()+html+_dl+_fh; }
+        : '<p class="note" style="text-align:center;margin-top:12px">You can download your '+(_isE?'summary':'will')+' here once payment is complete.</p>'; }
+    else if(_isL){
+      if(_paid){
+        var _lty=String(((state||{}).lpa_type||{}).type||''), _lfs=[];
+        if(/Property|Both/i.test(_lty)) _lfs.push({k:'LP1F',label:'Download your Property & Financial Affairs LPA (LP1F)'});
+        if(/Health|Both/i.test(_lty)) _lfs.push({k:'LP1H',label:'Download your Health & Welfare LPA (LP1H)'});
+        if(!_lfs.length) _lfs.push({k:'',label:'Download your LPA (PDF)'});
+        _lfs.push({k:'GUIDE',label:'Download your signing guide (PDF)'});
+        _dl=_lfs.map(function(f){ return '<a class="btn wide" href="'+API+'/api/lpa-pdf?t='+encodeURIComponent(_tok)+(f.k?('&form='+f.k):'')+'" target="_blank" rel="noopener" style="display:block;text-align:center;text-decoration:none;margin-top:8px">'+esc(f.label)+'</a>'; }).join('');
+      } else {
+        _dl='<p class="note" style="text-align:center;margin-top:12px">You can download your LPA forms here once payment is complete.</p>';
+      }
+    } var _docs=[]; visible().forEach(function(s){ if(!s.fields) return; flat(s.fields).forEach(function(f){ if(f.type!=='file') return; var fp=s.id+'.'+f.key; var u=getP(fp+'_url'); if(u) _docs.push({name:(getP(fp)||f.label||'Document'), url:u}); }); }); var _fh=_docs.length?('<div class="sum" style="margin-top:12px"><h3>Your documents</h3>'+_docs.map(function(d){return '<div style="padding:4px 0"><a href="'+esc(d.url)+'" target="_blank" rel="noopener">'+esc(d.name)+'</a></div>';}).join('')+'</div>'):''; return awEditLead()+html+_dl+_fh; }
   var _lpaNote=''; try{ if(FUNNEL===WILLS_FUNNEL){ var _gb=willBundle(state); if(_gb.lpas>0){ _lpaNote='<div class="mock" style="margin-top:12px;text-align:left"><p style="font-weight:600;margin:0 0 6px">Your Lasting Power of Attorney'+(_gb.lpas>1?'s':'')+'</p><p class="note" style="margin:0">You added '+_gb.lpas+' LPA'+(_gb.lpas>1?'s':'')+' to your order. We will be in touch shortly to collect the attorney details and prepare '+(_gb.lpas>1?'them':'it')+'. There is nothing more you need to do right now.</p></div>'; } } }catch(e){}
   return html+((FUNNEL===WILLS_FUNNEL)?'<p class="note" style="margin-top:12px;text-align:center;color:var(--muted)">Your will is ready. You can download it on the next step, once payment is complete.</p>':'')+_lpaNote;
 }
@@ -1155,9 +1176,17 @@ function render(){
     el('bar').style.width=Math.round(((cur+1)/vis.length)*100)+'%';
   }
   if(cur>maxCur) maxCur=cur; if(maxCur>vis.length-1) maxCur=vis.length-1;
-  try{ var _smenu=el('stepmenu'); if(_smenu){ if(window.AIWILLS_EDIT===true){ _smenu.innerHTML=''; } else { _smenu.innerHTML=vis.map(function(v,i){ var _free=(FUNNEL===ETB_FUNNEL&&v.kind!=='payment'&&v.kind!=='done'); var ok=(i<=maxCur)||_free; var cls=(i===cur)?'on':(ok?'done':''); return '<button type="button" data-sj="'+i+'"'+(cls?(' class="'+cls+'"'):'')+(ok?'':' disabled')+'>'+esc(v.name)+'</button>'; }).join(''); _smenu.querySelectorAll('[data-sj]').forEach(function(b){ b.addEventListener('click',function(){ jumpIdx(parseInt(b.getAttribute('data-sj'),10)); }); }); } } }catch(e){}
+  try{ var _smenu=el('stepmenu'); if(_smenu){ if(window.AIWILLS_EDIT===true){
+    /* The section menu was hidden for a signed-in customer, leaving \u201cBack to summary\u201d as the only
+       way to move: fourteen Toolbox sections meant fourteen round trips through the summary. Their
+       answers are already in, so every section is open to them, with the summary alongside. */
+    var _pl=''; vis.forEach(function(v,i){ if(!(v.fields&&v.fields.length)) return; _pl+='<button type="button" data-sj="'+i+'"'+((i===cur)?' class="on"':' class="done"')+'>'+esc(v.name)+'</button>'; });
+    for(var _rj=0;_rj<vis.length;_rj++){ if(vis[_rj].kind==='review'){ _pl+='<button type="button" data-sj="'+_rj+'"'+((_rj===cur)?' class="on"':' class="done"')+'>Summary</button>'; break; } }
+    _smenu.innerHTML=_pl;
+    _smenu.querySelectorAll('[data-sj]').forEach(function(b){ b.addEventListener('click',function(){ jumpIdx(parseInt(b.getAttribute('data-sj'),10)); }); });
+  } else { _smenu.innerHTML=vis.map(function(v,i){ var _free=(FUNNEL===ETB_FUNNEL&&v.kind!=='payment'&&v.kind!=='done'); var ok=(i<=maxCur)||_free; var cls=(i===cur)?'on':(ok?'done':''); return '<button type="button" data-sj="'+i+'"'+(cls?(' class="'+cls+'"'):'')+(ok?'':' disabled')+'>'+esc(v.name)+'</button>'; }).join(''); _smenu.querySelectorAll('[data-sj]').forEach(function(b){ b.addEventListener('click',function(){ jumpIdx(parseInt(b.getAttribute('data-sj'),10)); }); }); } } }catch(e){}
   var _ed=(window.AIWILLS_EDIT===true && awHasReview());   // no summary to go back to, no "Back to summary"
-  el('back').textContent=_ed?'Back to summary':'Back';
+  el('back').textContent=_ed?(((typeof _si==='number')&&_si>0)?'Back':'Back to summary'):'Back';
   el('back').style.visibility=_ed?(s.kind==='review'?'hidden':'visible'):(cur===0?'hidden':'visible');
   var next=el('next'); if(_ed){ var _epaid=awPaidNow(); next.style.display=(((s.kind==='review')&&_epaid)||s.kind==='payment'||s.kind==='generate'||s.kind==='done'||s.kind==='quote')?'none':''; next.textContent=(s.kind==='review'&&!_epaid)?((FUNNEL===ETB_FUNNEL)?'Continue to activate':'Continue to payment'):'Save'; } else { next.style.display=(s.kind==='generate'||s.kind==='done'||s.kind==='quote')?'none':''; next.textContent=(s.kind==='review')?((FUNNEL===ETB_FUNNEL)?'Continue to activate':'Continue to payment'):((FUNNEL===REFERRAL_FUNNEL&&vis[cur+1]&&vis[cur+1].kind==='quote')?(CFG.referral_submit_label||'Get my quote'):'Continue'); }
   var pay=el('pay'); if(pay) pay.addEventListener('click',function(){ try{ collectVisible(); }catch(e){} if(!awConsentOk()) return; var _isEtb=(FUNNEL===ETB_FUNNEL); var _wb=(FUNNEL===WILLS_FUNNEL)?willBundle(state):null; var _isLpa=(FUNNEL===LPA_FUNNEL); var _lbl=_isEtb?'Subscribe':('Pay '+esc(fmtPrice(String(_isLpa?lpaTotal():(_wb?(Math.round(_wb.total*100)/100):CFG.will_price))))); pay.disabled=true; pay.textContent='Redirecting to secure payment...'; var _url=_isEtb?(API+'/api/etb-checkout'):(API+'/api/checkout'); var _body=_isEtb?{locationId:loc,contactId:(window.AIWILLS_ETB_CID||''),contact:(state.your_details||{}),returnUrl:_retUrl(),plan:(function(){ var r=document.querySelector('input[name=awetbplan]:checked'); return (r&&r.value)||'annual'; })()}:{locationId:loc,willJson:state,returnUrl:_retUrl(),pricingV:2,kind:(_isLpa?'lpa':'wills'),contactId:(window.AIWILLS_CONTACT_ID||'')}; fetch(_url,{method:'POST',body:JSON.stringify(_body)}).then(function(r){return r.json();}).then(function(j){ if(j&&j.url){ window.location.href=j.url; } else { pay.disabled=false; pay.textContent=_lbl; alert('Could not start payment: '+((j&&j.error)||'unknown')); } }).catch(function(e){ pay.disabled=false; pay.textContent=_lbl; alert('Payment error: '+e.message); }); });
@@ -1216,7 +1245,7 @@ function computeQuote(state){
 }
 function _retUrl(){ var r=location.href.split('#')[0].split('?')[0]; var q=[]; if(loc) q.push('aw_loc='+encodeURIComponent(loc)); var c=qp('aw_c')||window.AIWILLS_CONTACT_ID||window.AIWILLS_ETB_CID||''; if(c) q.push('aw_c='+encodeURIComponent(c)); return q.length? (r+'?'+q.join('&')) : r; }
 function jumpIdx(i){ var vis=visible(); if(isNaN(i)||i<0||i>vis.length-1||i===cur) return; try{ collectVisible(); stripEmptyRepeaters(); saveLocal(); }catch(e){}
-  var _tfree=(FUNNEL===ETB_FUNNEL && vis[i].kind!=='payment' && vis[i].kind!=='done');
+  var _tfree=((FUNNEL===ETB_FUNNEL||window.AIWILLS_EDIT===true) && vis[i].kind!=='payment' && vis[i].kind!=='done');
   if(i>cur && !_tfree){ for(var k=cur;k<i;k++){ var bad=validateStep(vis[k]); if(bad.length){ if(k!==cur){ cur=k; render(); scrollTop(); } awShowVal('Please complete this step before moving on.'); return; } } }
   cur=i; render(); scrollTop(); try{ saveLocal(); }catch(e){} }
 function jumpTo(id){ var vis=visible(); for(var i=0;i<vis.length;i++){ if(vis[i].id===id){ cur=i; render(); scrollTop(); try{ saveLocal(); }catch(e){} return; } } }
@@ -1496,7 +1525,7 @@ document.addEventListener('change', function(e){ try{ var t=e.target; if(t && t.
 document.addEventListener('change', function(e){ var u=e.target.closest&&e.target.closest('[data-upload]'); if(!u||!u.files||!u.files[0]) return; var file=u.files[0]; var fieldName=u.getAttribute('data-upload'); var nameKey=u.getAttribute('data-namekey'); var stat=u.parentElement.querySelector('.uplstat')||{}; if(file.size>10*1024*1024){ stat.textContent='File too large (max 10MB)'; return; } stat.textContent='Uploading...'; var rd=new FileReader(); rd.onload=function(){ var b64=String(rd.result).split(',')[1]||''; fetch(API+'/api/etb-save',{method:'POST',body:JSON.stringify({locationId:loc,state:state,status:'started',contactId:(window.AIWILLS_ETB_CID||'')})}).then(function(r){return r.json();}).then(function(j){ if(j&&j.contactId) window.AIWILLS_ETB_CID=j.contactId; return fetch(API+'/api/etb-upload',{method:'POST',body:JSON.stringify({locationId:loc,contactId:(window.AIWILLS_ETB_CID||''),fieldName:fieldName,filename:file.name,mimeType:file.type,dataBase64:b64})}); }).then(function(r){return r.json();}).then(function(j){ if(j&&j.ok){ stat.textContent='Uploaded: '+file.name; if(nameKey){ setP(nameKey,file.name); if(j.url) setP(nameKey+'_url',j.url); } try{ autosave(); }catch(e){} } else { stat.textContent='Upload failed: '+((j&&j.error)||'error'); } }).catch(function(){ stat.textContent='Upload failed'; }); }; rd.readAsDataURL(file); });
 document.addEventListener('click', function(e){ var rm=e.target.closest&&e.target.closest('.frm'); if(!rm) return; e.preventDefault(); var field=rm.getAttribute('data-frm'), nameKey=rm.getAttribute('data-namekey'); if(nameKey){ setP(nameKey,''); setP(nameKey+'_url',''); } var tok=window.AIWILLS_TOKEN||''; if(tok){ try{ fetch(API+'/api/etb-file-remove',{method:'POST',body:JSON.stringify({t:tok,field:field})}).catch(function(){}); }catch(e2){} } try{ autosave(); }catch(e3){} render(); });
 el('next').addEventListener('click', function(){ try{ go(1); }catch(err){ alert('Continue error: '+err.message); } });
-el('back').addEventListener('click', function(){ try{ if(window.AIWILLS_EDIT===true && awHasReview() && window.__awFromSummary===true){ window.__awFromSummary=false; stripEmptyRepeaters(); try{autosave();}catch(e){} try{ var _vb=visible()[cur]; awEditReturnTo(_vb&&_vb.id, 0); }catch(e2){} jumpTo('review'); return; } go(-1); }catch(err){ alert('Back error: '+err.message); } });
+el('back').addEventListener('click', function(){ try{ if(window.AIWILLS_EDIT===true && awHasReview()){ window.__awFromSummary=false; stripEmptyRepeaters(); try{autosave();}catch(e){} try{ var _vb=visible()[cur]; awEditReturnTo(_vb&&_vb.id, 0); }catch(e2){} var _vv3=visible(), _pi=-1; for(var _bq=cur-1;_bq>=0;_bq--){ if(_vv3[_bq].fields&&_vv3[_bq].fields.length){ _pi=_bq; break; } } if(_pi>=0){ jumpIdx(_pi); } else { jumpTo('review'); } return; } go(-1); }catch(err){ alert('Back error: '+err.message); } });
 window.addEventListener('error', function(ev){ try{ console.error('Engine error:', (ev&&ev.message)||'unknown'); }catch(e){} });
 function closeGaps(){
   try{
@@ -1510,12 +1539,21 @@ function closeGaps(){
   }catch(e){}
 }
 initState(); if(!awDoorGate()){ restoreLocal(); } applyBrand();
-try{ var _qp=new URLSearchParams(location.search); if(_qp.get('aw_paid')==='1' && _qp.get('aw_id')){ window.AIWILLS_WILL_ID=_qp.get('aw_id'); if(state.payment){ state.payment.paid=true; state.payment.willId=_qp.get('aw_id'); } try{ if(loc) localStorage.setItem('aw_sent_'+FUNNEL_KEY+'_'+loc,'1'); }catch(e){} try{ saveLocal(); }catch(e){}   /* finished on this device: stop the services page offering them a blank form later */ var _vv=visible(); for(var _i=0;_i<_vv.length;_i++){ if(_vv[_i].id==='generate'){ cur=_i; break; } } try{ saveLocal(); }catch(e){} } if(_qp.get('aw_etb_paid')==='1' && FUNNEL===ETB_FUNNEL){ if(state.payment) state.payment.paid=true; try{ if(loc) localStorage.setItem('aw_sent_'+FUNNEL_KEY+'_'+loc,'1'); }catch(e){} try{ saveLocal(); }catch(e){}   /* finished on this device: stop the services page offering them a blank form later */ var _ev=visible(); for(var _j=0;_j<_ev.length;_j++){ if(_ev[_j].id==='done'){ cur=_j; break; } } try{ saveLocal(); }catch(e){} } /* A device that recorded a purchase must never offer the payment step again, whatever survived in
+try{ var _qp=new URLSearchParams(location.search); if(_qp.get('aw_paid')==='1' && _qp.get('aw_id')){ window.AIWILLS_WILL_ID=_qp.get('aw_id'); if(state.payment){ state.payment.paid=true; state.payment.willId=_qp.get('aw_id'); } try{ var _psid=_qp.get('aw_sid'); if(loc&&(_psid||_qp.get('aw_id'))) fetch(API+'/api/pay-confirm?locationId='+encodeURIComponent(loc)+(_psid?('&sid='+encodeURIComponent(_psid)):'')+('&aw_id='+encodeURIComponent(_qp.get('aw_id')))).catch(function(){}); }catch(e){} try{ if(loc) localStorage.setItem('aw_sent_'+FUNNEL_KEY+'_'+loc,'1'); }catch(e){} try{ saveLocal(); }catch(e){}   /* finished on this device: stop the services page offering them a blank form later */ var _vv=visible(); for(var _i=0;_i<_vv.length;_i++){ if(_vv[_i].id==='generate'){ cur=_i; break; } } try{ saveLocal(); }catch(e){} } if(_qp.get('aw_etb_paid')==='1' && FUNNEL===ETB_FUNNEL){ if(state.payment) state.payment.paid=true; try{ var _esid=_qp.get('aw_sid'); if(loc&&_esid) fetch(API+'/api/pay-confirm?locationId='+encodeURIComponent(loc)+'&sid='+encodeURIComponent(_esid)).catch(function(){}); }catch(e){} try{ if(loc) localStorage.setItem('aw_sent_'+FUNNEL_KEY+'_'+loc,'1'); }catch(e){} try{ saveLocal(); }catch(e){}   /* finished on this device: stop the services page offering them a blank form later */ var _ev=visible(); for(var _j=0;_j<_ev.length;_j++){ if(_ev[_j].id==='done'){ cur=_j; break; } } try{ saveLocal(); }catch(e){} } /* A device that recorded a purchase must never offer the payment step again, whatever survived in
    the draft. aw_sent is only ever written on a genuine paid return (or a sent probate quote). */
 try{
   if(window.AIWILLS_EDIT!==true && loc && FUNNEL!==REFERRAL_FUNNEL && state.payment && localStorage.getItem('aw_sent_'+FUNNEL_KEY+'_'+loc)==='1'){
     state.payment.paid=true;
     if(!window.AIWILLS_WILL_ID && state.payment.willId) window.AIWILLS_WILL_ID=state.payment.willId;
+  }
+}catch(e){}
+/* Signed in and the account says paid: the tag on the contact is the till receipt. Whatever the
+   saved answers carry, the payment step must never be offered to them again. This was done for
+   wills through the status screen and missed here, so a paid LPA or Toolbox opened from the
+   services page still ended in \u201cContinue to payment\u201d. */
+try{
+  if(window.AIWILLS_EDIT===true && state.payment && window.AIWILLS_META && window.AIWILLS_META.paid===true){
+    state.payment.paid=true;
   }
 }catch(e){}
 /* Only land on the summary if there is something to summarise. Someone opening a service for the
