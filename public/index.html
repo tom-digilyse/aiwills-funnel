@@ -166,7 +166,7 @@ var FIELDS = [
   {k:'footer_bg_color', label:'Footer background colour', color:true, g:'footer'},
   {k:'footer_text_color', label:'Footer text colour (blank = automatic)', color:true, g:'footer'},
   {k:'footer_max_width', label:'Footer width (e.g. 1176px)', g:'footer', adv:true},
-  {k:'footer_menu_json', label:'Footer links (add or edit)', menu:true, g:'footer'},
+  {k:'footer_menu_json', label:'Footer links (add or edit). A Privacy policy link is added automatically, so leave that one out.', menu:true, g:'footer'},
   {k:'footer_phone', label:'Phone', g:'contact'},
   {k:'company_email', label:'Email', g:'contact'},
   {k:'company_website', label:'Website', g:'contact'},
@@ -192,7 +192,7 @@ var FIELDS = [
   {k:'etb_price', label:'Executor Toolbox annual price (per year - the standard option)', g:'pricing'},
   {k:'etb_price_monthly', label:'Executor Toolbox monthly price (optional - leave blank to hide the monthly option)', g:'pricing'},
   {k:'etb_price_oneoff', label:'Executor Toolbox one-off price (optional - pay once, lifetime access; leave blank to hide)', g:'pricing'},
-  {k:'legal_footer', label:'Small print (legal text at the bottom of every page). Paste it from your website - links and formatting are kept.', rich:true, g:'pricing'}
+  {k:'legal_footer', label:'Small print (legal text at the bottom of every page). Paste it from your website - links and formatting are kept. Leave out the privacy link and the registered office line: the engine adds its own privacy link, and prints the registered office from the Address field.', rich:true, g:'pricing'}
 ];
 var GROUPS = [['brand','Brand'],['header','Header & nav'],['buttons','Buttons'],['footer','Footer'],['contact','Contact & social'],['pricing','Pricing & legal']];
 
@@ -427,7 +427,8 @@ async function write(){
     el('writeStatus').className = (err.length || warn.length) ? 'status bad' : 'status ok';
     el('writeStatus').textContent = ok + ' value(s) written' + (err.length ? (', ' + err.length + ' failed') : '') + '.' + (warn.length ? (' ' + warn.join(' ')) : '');
     if (warn.length) loadConnectAccounts(true);
-    el('results').innerHTML = j.results.map(function(x){
+    var kept = j.results.filter(function(x){ return x.action === 'left as it was'; });
+    el('results').innerHTML = (kept.length ? ('<div style="background:#FFF6E5;border:1px solid #F0D9A8;color:#7A5A00;border-radius:8px;padding:10px 12px;margin:0 0 10px"><b>Not changed:</b> ' + kept.map(function(x){ return x.name; }).join(', ') + ' kept whatever was already saved. On a brand new client build, check these by hand - they may still hold the previous client\'s values.</div>') : '') + j.results.map(function(x){
       return '<div>' + x.name + ': ' + (x.action || (x.skipped?'not set':('<span style="color:#c8100d">'+x.error+'</span>'))) + '</div>';
     }).join('');
   } catch(e){ el('writeStatus').className='status bad'; el('writeStatus').textContent='Write failed: ' + e.message; }
