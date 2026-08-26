@@ -26,7 +26,7 @@ function awSess2Clear(l){ try{ localStorage.removeItem(awSess2Key(l)); }catch(e)
 /* One click used to remove every draft on the device with no way back. The wipe now stashes what it
    removed under a single key: undo is offered on the spot, the copy quietly expires after 7 days. */
 function awDraftNames(l){ var out=[]; var M={wills:'Will',lpa:'Lasting Power of Attorney',etb:'Executor Toolbox',probate:'Probate enquiry'}; try{ ['wills','lpa','etb','probate'].forEach(function(k){ if(localStorage.getItem('aw_draft_'+k+'_'+(l||''))) out.push(M[k]); }); }catch(e){} return out; }
-function awStashDrafts(l){ try{ var items={}; Object.keys(localStorage).forEach(function(k){ if(k.indexOf('aw_draft_')===0||k.indexOf('aw_ident_')===0||k.indexOf('aw_sent_')===0){ items[k]=localStorage.getItem(k); } }); if(Object.keys(items).length) localStorage.setItem('aw_trash_'+(l||''), JSON.stringify({ts:Date.now(),items:items})); }catch(e){} }
+function awStashDrafts(l, kind){ try{ var items={}; Object.keys(localStorage).forEach(function(k){ if(k.indexOf('aw_draft_')===0||k.indexOf('aw_ident_')===0||k.indexOf('aw_sent_')===0){ items[k]=localStorage.getItem(k); } }); if(Object.keys(items).length) localStorage.setItem('aw_trash_'+(l||''), JSON.stringify({ts:Date.now(),kind:((kind==='user')?'user':'auto'),items:items})); }catch(e){} }
 function awTrashSweep(l){ try{ var raw=localStorage.getItem('aw_trash_'+(l||'')); if(!raw) return; var o=JSON.parse(raw); if(!o||!o.ts||(Date.now()-o.ts)>7*24*60*60*1000) localStorage.removeItem('aw_trash_'+(l||'')); }catch(e){ try{ localStorage.removeItem('aw_trash_'+(l||'')); }catch(e2){} } }
 function awTrashRestore(l){ try{ var raw=localStorage.getItem('aw_trash_'+(l||'')); if(!raw) return false; var o=JSON.parse(raw); if(!o||!o.items) return false; Object.keys(o.items).forEach(function(k){ try{ localStorage.setItem(k,o.items[k]); }catch(e){} }); localStorage.removeItem('aw_trash_'+(l||'')); return true; }catch(e){ return false; } }
 
@@ -138,7 +138,7 @@ var CFG = window.AIWILLS_CONFIG || {}; (function(){ var _m='{'+'{'; for(var _k i
     function _awSignedIn(){ return window.AIWILLS_EDIT===true || !!(window.AIWILLS_TOKEN); }
     function _awHasLocal(){ try{ var n=0; ['wills','lpa','etb','probate'].forEach(function(k){ if(localStorage.getItem('aw_draft_'+k+'_'+loc) || document.cookie.indexOf('aw_s_'+k+'_'+loc+'=1')>=0) n++; }); return n>0; }catch(e){ return false; } }
     function _awForgetDevice(){
-      try{ awStashDrafts(loc); }catch(e){}
+      try{ awStashDrafts(loc, 'user'); }catch(e){}
       try{ Object.keys(localStorage).forEach(function(k){ if(k.indexOf('aw_draft_')===0 || k.indexOf('aw_ident_')===0 || k.indexOf('aw_sent_')===0) localStorage.removeItem(k); }); }catch(e){}
       try{
         var _ck=String(document.cookie||'').split(';');
@@ -1545,7 +1545,7 @@ function awDoorGate(){
       try{ render(); }catch(e){}
     }; }
     var _doorWipe=function(){
-      try{ awStashDrafts(loc); }catch(e){}
+      try{ awStashDrafts(loc, 'user'); }catch(e){}
       try{ clearLocal(); }catch(e){}
       try{ Object.keys(localStorage).forEach(function(kk){ if(kk.indexOf('aw_draft_')===0 || kk.indexOf('aw_ident_')===0) localStorage.removeItem(kk); }); }catch(e){}
       try{
@@ -1718,7 +1718,7 @@ try{ (function(){
 })(); }catch(e){}
 render(); closeGaps();
 /* If a wipe just happened on this device, say so and offer the way back. */
-try{ (function(){ var raw=localStorage.getItem('aw_trash_'+(loc||'')); if(!raw) return; var o=JSON.parse(raw); if(!o||!o.ts||(Date.now()-o.ts)>15*60*1000) return; var h=document.querySelector('#aiwills-funnel h1'); if(!h) return; var b=document.createElement('div'); b.id='awundobar'; b.style.cssText='background:#F4F6F8;border:1px solid #D8DEE4;color:#333A40;border-radius:10px;padding:10px 14px;margin:10px 0 16px;font-size:14px'; b.innerHTML='Saved answers were just removed from this device. <a href="#" id="awundo" style="color:var(--primary);font-weight:600">Undo</a>'; h.parentNode.insertBefore(b,h.nextSibling); var u=document.getElementById('awundo'); if(u) u.onclick=function(ev){ ev.preventDefault(); if(awTrashRestore(loc)) location.reload(); }; })(); }catch(e){}
+try{ (function(){ var raw=localStorage.getItem('aw_trash_'+(loc||'')); if(!raw) return; var o=JSON.parse(raw); if(!o||!o.ts||(Date.now()-o.ts)>15*60*1000) return; if(o.kind!=='user') return;   /* housekeeping stashes (a new registration clearing the previous identity) are a safety net, not news: announcing them read as data loss out of nowhere */ var h=document.querySelector('#aiwills-funnel h1'); if(!h) return; var b=document.createElement('div'); b.id='awundobar'; b.style.cssText='background:#F4F6F8;border:1px solid #D8DEE4;color:#333A40;border-radius:10px;padding:10px 14px;margin:10px 0 16px;font-size:14px'; b.innerHTML='Saved answers were just removed from this device. <a href="#" id="awundo" style="color:var(--primary);font-weight:600">Undo</a>'; h.parentNode.insertBefore(b,h.nextSibling); var u=document.getElementById('awundo'); if(u) u.onclick=function(ev){ ev.preventDefault(); if(awTrashRestore(loc)) location.reload(); }; })(); }catch(e){}
 window.addEventListener('load', closeGaps);
 setTimeout(closeGaps,400); setTimeout(closeGaps,1200);
 
