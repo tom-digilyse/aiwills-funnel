@@ -208,7 +208,24 @@ var CFG = window.AIWILLS_CONFIG || {}; (function(){ var _m='{'+'{'; for(var _k i
         else if(svcKey==='etb'){ ep='/api/etb-save'; body={locationId:loc,contactId:_awCidEtb(),state:st,detail:consentDetail,status:'started',step:'gate'}; }
         else if(svcKey==='probate'){ ep='/api/referral-save'; body={locationId:loc,contactId:_awCid(),state:st,detail:consentDetail,key:'probate',step:'gate',status:'started'}; }
         else { ep='/api/will-save'; body={locationId:loc,contactId:_awCid(),state:st,detail:consentDetail,step:'gate'}; }
-        var goNext=function(cid){ try{ localStorage.setItem('aw_ident_'+loc, JSON.stringify({ firstName:fn, email:em, phone:ph, cid:cid||'', consent:consent })); }catch(e){} var u=url||''; /* the contact they just created stays in this browser, it does not travel in the link */ try{ m.parentNode.removeChild(m); }catch(e){} if(u) window.top.location.href=u; };
+        var goNext=function(cid){
+        /* They have just told us who they are as a NEW customer. Whatever the previous person
+           left on this device must not follow them into the funnel. */
+        try{ Object.keys(localStorage).forEach(function(k){ if(k.indexOf('aw_draft_')===0||k.indexOf('aw_ident_')===0||k.indexOf('aw_sent_')===0) localStorage.removeItem(k); }); }catch(e){}
+        try{
+          var _ckg=String(document.cookie||'').split(';');
+          var _deadg='=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/';
+          var _pg=String(location.hostname||'').split('.');
+          var _rootg=_pg.length>2?_pg.slice(-2).join('.'):location.hostname;
+          for(var _gi=0;_gi<_ckg.length;_gi++){
+            var _ng=String(_ckg[_gi].split('=')[0]||'').replace(/^\s+/,'');
+            if(_ng.indexOf('aw_s_')!==0) continue;
+            try{ document.cookie=_ng+_deadg; }catch(eg1){}
+            try{ document.cookie=_ng+_deadg+';domain=.aiwills.co.uk'; }catch(eg2){}
+            try{ document.cookie=_ng+_deadg+';domain=.'+_rootg; }catch(eg3){}
+          }
+        }catch(e){}
+        try{ localStorage.setItem('aw_ident_'+loc, JSON.stringify({ firstName:fn, email:em, phone:ph, cid:cid||'', consent:consent })); }catch(e){} var u=url||''; /* the contact they just created stays in this browser, it does not travel in the link */ try{ m.parentNode.removeChild(m); }catch(e){} if(u) window.top.location.href=u; };
         fetch(API+ep,{method:'POST',body:JSON.stringify(body)}).then(function(r){return r.json();}).then(function(j){ goNext((j&&j.contactId)||''); }).catch(function(){ goNext(''); });
       };
     }
@@ -1536,6 +1553,28 @@ setTimeout(closeGaps,400); setTimeout(closeGaps,1200);
     if(!_qloc){ try{ var _dle=document.getElementById('aiwills-funnel'); if(_dle) _qloc=String(_dle.getAttribute('data-loc')||'').replace(/[^A-Za-z0-9]/g,''); }catch(e){} }
     try{ window.AIWILLS_LOC=_qloc; }catch(e){}
     var _sk='aw_sess_'+_qloc;
+    /* Testing helper: ?aw_reset=1 wipes everything this device remembers about the funnels. */
+    try{
+      var _rst=new URLSearchParams(location.search);
+      if(_rst.get('aw_reset')==='1'){
+        try{ Object.keys(localStorage).forEach(function(k){ if(k.indexOf('aw_draft_')===0||k.indexOf('aw_ident_')===0||k.indexOf('aw_sent_')===0) localStorage.removeItem(k); }); }catch(e){}
+        try{ Object.keys(sessionStorage).forEach(function(k){ if(k.indexOf('aw_sess')===0) sessionStorage.removeItem(k); }); }catch(e){}
+        try{
+          var _ckr=String(document.cookie||'').split(';');
+          var _deadr='=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/';
+          var _pr=String(location.hostname||'').split('.');
+          var _rootr=_pr.length>2?_pr.slice(-2).join('.'):location.hostname;
+          for(var _cri=0;_cri<_ckr.length;_cri++){
+            var _nr=String(_ckr[_cri].split('=')[0]||'').replace(/^\s+/,'');
+            if(_nr.indexOf('aw_s_')!==0) continue;
+            try{ document.cookie=_nr+_deadr; }catch(er1){}
+            try{ document.cookie=_nr+_deadr+';domain=.aiwills.co.uk'; }catch(er2){}
+            try{ document.cookie=_nr+_deadr+';domain=.'+_rootr; }catch(er3){}
+          }
+        }catch(e){}
+        try{ var _ur=new URL(location.href); _ur.searchParams.delete('aw_reset'); history.replaceState(null,'',_ur.pathname+(_ur.search||'')+(_ur.hash||'')); }catch(e){}
+      }
+    }catch(e){}
     function _awStripToken(){ try{ var u=new URL(location.href); u.searchParams.delete('aw_t'); history.replaceState(null,'',u.pathname+(u.search||'')+(u.hash||'')); }catch(e){} }
     function _awLinkDead(msg){
       try{
