@@ -516,7 +516,7 @@ function buildLpaPdf(state, brand){
       doc.font('Helvetica').fontSize(9).fillColor('#555').text('An LPA is only valid on the official Office of the Public Guardian forms LP1F (Property & Financial Affairs) and/or LP1H (Health & Welfare), signed by each person in the correct order, witnessed in person, then registered with the OPG (currently 92 pounds per LPA). Digital signatures and video witnessing are not accepted.');
       etbH(doc,'Donor (you)');
       etbLine(doc,'Name',[yd.firstName,yd.lastName].filter(Boolean).join(' '));
-      etbLine(doc,'Date of birth',yd.dob); etbLine(doc,'Email',yd.email); etbLine(doc,'Phone',yd.phone);
+      etbLine(doc,'Date of birth',ukDate(yd.dob)); etbLine(doc,'Email',yd.email); etbLine(doc,'Phone',yd.phone);
       etbLine(doc,'Address',[yd.address,yd.city,yd.postcode].filter(Boolean).join(', '));
       etbH(doc,'LPA type'); etbLine(doc,'Type',type||'Not chosen');
       var at=arr(state.attorneys&&state.attorneys.list);
@@ -551,6 +551,7 @@ function buildLpaPdf(state, brand){
   });
 }
 
+function ukDate(v){var m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(String(v||''));return m?(m[3]+'/'+m[2]+'/'+m[1]):v;}
 function dparts(iso){var m=/(\d{4})-(\d{2})-(\d{2})/.exec(iso||"");return m?{d:m[3],mo:m[2],y:m[1]}:{d:"",mo:"",y:""};}
 function ukPost(s){if(!s)return"";var m=/([A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\s*$/i.exec(String(s).trim());return m?m[1].toUpperCase().replace(/\s+/," "):"";}
 function stripPost(s,pc){if(!s)return s;s=String(s);if(pc){s=s.replace(new RegExp(pc.replace(/\s/g,"\\s*")+"\\s*$","i"),"");}return s.replace(/[,\s]+$/,"");}
