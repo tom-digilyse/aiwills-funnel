@@ -858,7 +858,10 @@ function awdVal(v){
   if(v===true) return 'Yes'; if(v===false) return 'No';
   if(v==null) return '';
   if(Array.isArray(v)) return '';
-  return String(v).trim();
+  var s=String(v).trim();
+  var dm=/^(\d{4})-(\d{2})-(\d{2})$/.exec(s);      // date inputs store ISO; people read DD/MM/YYYY
+  if(dm) return dm[3]+'/'+dm[2]+'/'+dm[1];
+  return s;
 }
 var _awSeq=0, _awApplied=0;
     function awAdopt(key){
