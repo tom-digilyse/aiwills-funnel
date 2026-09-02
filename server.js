@@ -767,7 +767,7 @@ function awHumanise(k){
   return String(k).replace(/([a-z0-9])([A-Z])/g,'$1 $2').replace(/_/g,' ').replace(/\b\w/g,function(c){return c.toUpperCase();});
 }
 var AW_SECTION={ personal:'Personal details', partner:'Spouse / partner', situation:'Circumstances', children:'Children', guardian:'Guardians', executors:'Executors', gifts:'Gifts & legacies', mirrorGifts:'Gifts (their mirror will)', residual:'Residual estate', funeral:'Funeral wishes', about:'About you', estate:'Estate', concerns:'Concerns', contact_details:'Contact details', your_details:'Your details' };
-function awMoney(k,v){ if(/share/i.test(k)) return v+'%'; if(/amount|price/i.test(k)) return '£'+v; return v; }
+function awMoney(k,v){ var dm=/^(\d{4})-(\d{2})-(\d{2})$/.exec(String(v||'')); if(dm) return dm[3]+'/'+dm[2]+'/'+dm[1]; if(/share/i.test(k)) return v+'%'; if(/amount|price/i.test(k)) return '£'+v; return v; }
 function awLines(obj, indent){
   var pad=''; for(var i=0;i<indent;i++) pad+='  '; var out=[];
   Object.keys(obj||{}).forEach(function(k){
