@@ -951,7 +951,7 @@ function awPaidNow(){ try{ return !!(state && state.payment && state.payment.pai
 function awSessEv(){ try{ var t=window.AIWILLS_TOKEN||''; if(!t) return 1; var p=String(t).split('.')[0]||''; p=p.replace(/-/g,'+').replace(/_/g,'/'); while(p.length%4)p+='='; var o=JSON.parse(atob(p)); return (o.ev===0)?0:1; }catch(e){ return 1; } }
 function awRegSection(){ return (FUNNEL===WILLS_FUNNEL)?'personal':((FUNNEL===REFERRAL_FUNNEL)?'contact_details':'your_details'); }
 function awRegEmail(){ try{ var em=String(((state||{})[awRegSection()]||{}).email||'').trim(); if(em) return em; var i=JSON.parse(localStorage.getItem('aw_ident_'+loc)||'null'); return (i&&i.email)||''; }catch(e){ return ''; } }
-function visible(){ var ed=(window.AIWILLS_EDIT===true) && awPaidNow(); return FUNNEL.filter(function(s){ if(ed && (s.kind==='payment'||s.kind==='generate'||s.kind==='done')) return false; return !s.showIf || s.showIf(state); }); }
+function visible(){ var ed=(window.AIWILLS_EDIT===true) && awPaidNow(); return FUNNEL.filter(function(s){ if(ed && s.kind==='payment') return false; if(ed && (s.kind==='generate'||s.kind==='done') && window.__awJustPaid!==true) return false; return !s.showIf || s.showIf(state); }); }   /* just paid: the thank-you screen with the document must still show, signed in or not */
 
 function fld(base,f){
   if(f.showIf && !f.showIf(state, base)) return '';
@@ -1679,7 +1679,7 @@ function closeGaps(){
 }
 try{ awTrashSweep(loc); }catch(e){}
 initState(); if(!awDoorGate()){ restoreLocal(); } applyBrand();
-try{ var _qp=new URLSearchParams(location.search); if(_qp.get('aw_paid')==='1' && _qp.get('aw_id')){ window.AIWILLS_WILL_ID=_qp.get('aw_id'); if(state.payment){ state.payment.paid=true; state.payment.willId=_qp.get('aw_id'); } try{ var _psid=_qp.get('aw_sid'); if(loc&&(_psid||_qp.get('aw_id'))) fetch(API+'/api/pay-confirm?locationId='+encodeURIComponent(loc)+(_psid?('&sid='+encodeURIComponent(_psid)):'')+('&aw_id='+encodeURIComponent(_qp.get('aw_id')))).catch(function(){}); }catch(e){} try{ if(loc) localStorage.setItem('aw_sent_'+FUNNEL_KEY+'_'+loc,'1'); }catch(e){} try{ saveLocal(); }catch(e){}   /* finished on this device: stop the services page offering them a blank form later */ var _vv=visible(); for(var _i=0;_i<_vv.length;_i++){ if(_vv[_i].id==='generate'){ cur=_i; break; } } try{ saveLocal(); }catch(e){} } if(_qp.get('aw_etb_paid')==='1' && FUNNEL===ETB_FUNNEL){ if(state.payment) state.payment.paid=true; try{ var _esid=_qp.get('aw_sid'); if(loc&&_esid) fetch(API+'/api/pay-confirm?locationId='+encodeURIComponent(loc)+'&sid='+encodeURIComponent(_esid)).catch(function(){}); }catch(e){} try{ if(loc) localStorage.setItem('aw_sent_'+FUNNEL_KEY+'_'+loc,'1'); }catch(e){} try{ saveLocal(); }catch(e){}   /* finished on this device: stop the services page offering them a blank form later */ var _ev=visible(); for(var _j=0;_j<_ev.length;_j++){ if(_ev[_j].id==='done'){ cur=_j; break; } } try{ saveLocal(); }catch(e){} } /* A device that recorded a purchase must never offer the payment step again, whatever survived in
+try{ var _qp=new URLSearchParams(location.search); if(_qp.get('aw_paid')==='1' && _qp.get('aw_id')){ window.AIWILLS_WILL_ID=_qp.get('aw_id'); if(state.payment){ state.payment.paid=true; state.payment.willId=_qp.get('aw_id'); } try{ var _psid=_qp.get('aw_sid'); if(loc&&(_psid||_qp.get('aw_id'))) fetch(API+'/api/pay-confirm?locationId='+encodeURIComponent(loc)+(_psid?('&sid='+encodeURIComponent(_psid)):'')+('&aw_id='+encodeURIComponent(_qp.get('aw_id')))).catch(function(){}); }catch(e){} try{ if(loc) localStorage.setItem('aw_sent_'+FUNNEL_KEY+'_'+loc,'1'); }catch(e){} try{ saveLocal(); }catch(e){}   /* finished on this device: stop the services page offering them a blank form later */ window.__awJustPaid=true; var _vv=visible(); for(var _i=0;_i<_vv.length;_i++){ if(_vv[_i].id==='generate'){ cur=_i; break; } } try{ saveLocal(); }catch(e){} } if(_qp.get('aw_etb_paid')==='1' && FUNNEL===ETB_FUNNEL){ if(state.payment) state.payment.paid=true; try{ var _esid=_qp.get('aw_sid'); if(loc&&_esid) fetch(API+'/api/pay-confirm?locationId='+encodeURIComponent(loc)+'&sid='+encodeURIComponent(_esid)).catch(function(){}); }catch(e){} try{ if(loc) localStorage.setItem('aw_sent_'+FUNNEL_KEY+'_'+loc,'1'); }catch(e){} try{ saveLocal(); }catch(e){}   /* finished on this device: stop the services page offering them a blank form later */ window.__awJustPaid=true; var _ev=visible(); for(var _j=0;_j<_ev.length;_j++){ if(_ev[_j].id==='done'){ cur=_j; break; } } try{ saveLocal(); }catch(e){} } /* A device that recorded a purchase must never offer the payment step again, whatever survived in
    the draft. aw_sent is only ever written on a genuine paid return (or a sent probate quote). */
 try{
   if(window.AIWILLS_EDIT!==true && loc && FUNNEL!==REFERRAL_FUNNEL && state.payment && localStorage.getItem('aw_sent_'+FUNNEL_KEY+'_'+loc)==='1'){
@@ -1704,7 +1704,7 @@ function awAnyAnswers(){ try{ var _v=visible(); for(var _i=0;_i<_v.length;_i++){
    them on a summary of empty sections reads as lost work; question one, pre-filled, reads as a
    journey ready to continue. The summary is for people with real progress beyond their details. */
 function awAnswersBeyond(){ try{ var _v=visible(); for(var _i=0;_i<_v.length;_i++){ var _s2=_v[_i]; if(!(_s2.fields&&_s2.fields.length)) continue; if(_s2.id===awRegSection()) continue; var _o=state[_s2.id]||{}; for(var _k2 in _o){ var _v2=_o[_k2]; if(_v2!=null && _v2!=='' && !(Array.isArray(_v2)&&!_v2.length)) return true; } } }catch(e){} return false; }
-if(window.AIWILLS_EDIT===true && awAnyAnswers() && awAnswersBeyond()){ var _rv=visible(), _t=-1;
+if(window.__awJustPaid===true){ /* fresh back from Stripe: cur already points at the thank-you step */ } else if(window.AIWILLS_EDIT===true && awAnyAnswers() && awAnswersBeyond()){ var _rv=visible(), _t=-1;
   for(var _k=0;_k<_rv.length;_k++){ if(_rv[_k].kind==='review'){ _t=_k; break; } }
   /* Probate has no summary, so signing back in dropped the customer on question one of a quote they
      had already sent. Where the quote is in, land on the outcome they already have. */
@@ -1723,7 +1723,13 @@ if(window.AIWILLS_EDIT===true && awAnyAnswers() && awAnswersBeyond()){ var _rv=v
 } else if(window.AIWILLS_EDIT===true){
   /* Signed in, nothing loadable, but the record says they bought or submitted something: a blank
      question one reads as \"your work is gone\". Show what we know instead. */
-  try{ var _mm=window.AIWILLS_META||{}; if(_mm.paid===true || _mm.submitted===true || (_mm.docUrl && !awAnyAnswers())){ window.__awStatusOnly=_mm; } }catch(e){} /* the Document field holds a rolling link written on every save, so on its own it only means \u201csaved\u201d; with answers on file the journey itself is the status */
+  try{ var _mm=window.AIWILLS_META||{};
+    if(FUNNEL===LPA_FUNNEL && _mm.paid===true && _mm.submitted!==true && awAnyAnswers()){
+      /* Bought with the will as an add-on: the LPA is paid for but its own sections are still
+         empty (only the seeded donor details are in). The promise on the add-on step is that we
+         collect the attorney details after payment, so open the form, not a dead-end status. */
+      window.__awLpaPending=true;
+    } else if(_mm.paid===true || _mm.submitted===true || (_mm.docUrl && !awAnyAnswers())){ window.__awStatusOnly=_mm; } }catch(e){} /* the Document field holds a rolling link written on every save, so on its own it only means \u201csaved\u201d; with answers on file the journey itself is the status */
 } }catch(e){}
 
 /* Service URLs register themselves. When this engine runs on a real funnel page it already knows its
@@ -1746,6 +1752,8 @@ try{ (function(){
     .catch(function(){});
 })(); }catch(e){}
 render(); closeGaps();
+/* Paid LPA still to be completed: say so, so the empty form reads as the next step, not a fault. */
+try{ if(window.__awLpaPending){ var _pn=document.createElement('div'); _pn.id='awlpapend'; _pn.setAttribute('style','margin:10px 0;padding:10px 14px;border:1px solid #cfe3d8;background:#f2faf6;border-radius:10px;font-size:14px;color:#0B3D2E'); _pn.textContent='Payment received. Your Lasting Power of Attorney is paid for. Complete the sections below and your official forms will be ready at the end.'; var _sp=document.getElementById('step'); if(_sp&&_sp.parentNode) _sp.parentNode.insertBefore(_pn,_sp); } }catch(e){}
 /* If a wipe just happened on this device, say so and offer the way back. */
 try{ (function(){ var raw=localStorage.getItem('aw_trash_'+(loc||'')); if(!raw) return; var o=JSON.parse(raw); if(!o||!o.ts||(Date.now()-o.ts)>15*60*1000) return; if(o.kind!=='user') return;   /* housekeeping stashes (a new registration clearing the previous identity) are a safety net, not news: announcing them read as data loss out of nowhere */ var h=document.querySelector('#aiwills-funnel h1'); if(!h) return; var b=document.createElement('div'); b.id='awundobar'; b.style.cssText='background:#F4F6F8;border:1px solid #D8DEE4;color:#333A40;border-radius:10px;padding:10px 14px;margin:10px 0 16px;font-size:14px'; b.innerHTML='Saved answers were just removed from this device. <a href="#" id="awundo" style="color:var(--primary);font-weight:600">Undo</a>'; h.parentNode.insertBefore(b,h.nextSibling); var u=document.getElementById('awundo'); if(u) u.onclick=function(ev){ ev.preventDefault(); if(awTrashRestore(loc)) location.reload(); }; })(); }catch(e){}
 window.addEventListener('load', closeGaps);
