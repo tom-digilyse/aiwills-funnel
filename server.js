@@ -787,6 +787,33 @@ function awLines(obj, indent){
   return out.join('\n');
 }
 function awSummarise(state){ try{ var s=awLines(state,0); return s||'(no details captured yet)'; }catch(e){ return '(summary unavailable)'; } }
+/* A will bought with the LPA add-on pays for an LPA the customer has not started. Seed their
+   LPA record with the donor details the will already holds, so the LPA opens with "you" filled
+   in and only the LPA's own sections left. Never touches an LPA they have started. */
+async function awSeedLpaFromWill(loc, contactId, willJson){
+  try{
+    if(!loc || !contactId || !willJson) return;
+    var p = willJson.personal || {};
+    if(!(p.firstName || p.lastName)) return;
+    var token = await getWriteToken(loc);
+    var map = await etbFieldMap(token, loc);
+    var fid = await awEnsureField(token, loc, map, 'LPA State Json');
+    if(!fid) return;
+    var got = await ghl('GET','/contacts/'+contactId, token); var c = got.contact || got;
+    var byId={}; (c.customFields||c.customField||[]).forEach(function(f){ byId[f.id]=(f.value!=null?f.value:f.fieldValue); });
+    var cur = byId[fid];
+    if(cur!=null && String(cur).trim()!==''){
+      try{
+        var ex=JSON.parse(cur);
+        for(var k in ex){ var v=ex[k]; if(v && typeof v==='object'){ for(var k2 in v){ if(v[k2]!=null && v[k2]!=='' && !(Array.isArray(v[k2])&&!v[k2].length)) return; } } }
+      }catch(e){ return; } // unreadable existing value: leave it alone
+    }
+    /* Donor details only. Seeding lpa_type too would count as "answers beyond registration" and
+       drop them on the summary of a form they have not filled; they re-pick the type in one click. */
+    var seeded = { your_details: { title:p.title||'', firstName:p.firstName||'', lastName:p.lastName||'', dob:p.dob||'', address:p.address||'', city:p.city||'', postcode:p.postcode||'', email:p.email||'', phone:p.phone||'' } };
+    await ghl('PUT','/contacts/'+contactId, token, { customFields:[{ id:fid, value: JSON.stringify(seeded) }] });
+  }catch(e){ console.error('lpa seed', e.message); }
+}
 /* ---------- Custom field folders ----------
    GHL drops a field created without a parentId into the sub-account's catch-all folder. Ours were
    all created that way, so 307 of them piled up in one list and a firm opening a contact could not
@@ -2028,6 +2055,7 @@ const server = http.createServer(async (req, res) => {
           if (!ptags.length) ptags.push('ai-will-paid');
         }
         if (pmd.contactId){ try { await ghl('POST','/contacts/'+pmd.contactId+'/tags', ptok, { tags: ptags }); } catch(e){ console.error('pay-confirm tag', e.message); } }
+        if (pmd.contactId && parseInt(pmd.will_qty,10)>0 && parseInt(pmd.lpa_qty,10)>0){ try{ var prec2=willStoreGet(pmd.aw_id||''); if(prec2 && prec2.willJson) await awSeedLpaFromWill(ploc, pmd.contactId, prec2.willJson); }catch(e){} }
         return send(res,200,{ ok:true, paid:true, tags:ptags });
       } catch(e){ return send(res,500,{error:e.message}); }
     }
@@ -2054,6 +2082,7 @@ const server = http.createServer(async (req, res) => {
           (async function(){
             try { const t = await getWriteToken(md.locationId); await ghl('POST', '/contacts/' + md.contactId + '/tags', t, { tags: tags }); }
             catch(e){ console.error('paid tag', e.message); }
+            try { if (parseInt(md.will_qty,10)>0 && parseInt(md.lpa_qty,10)>0){ const rec2 = willStoreGet(md.aw_id||''); if (rec2 && rec2.willJson) await awSeedLpaFromWill(md.locationId, md.contactId, rec2.willJson); } } catch(e){ console.error('lpa seed hook', e.message); }
           })();
         }
       }
