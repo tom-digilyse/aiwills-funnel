@@ -2311,10 +2311,25 @@ const server = http.createServer(async (req, res) => {
           const up = await ghl('POST','/contacts/', rtok, { locationId:rloc, firstName:rfirst, lastName:rlast, email:remail, phone:rphone });
           rcid = (up.contact && up.contact.id) || up.id || '';
         } catch(e){
-          /* GHL refuses a create that matches an existing contact by email or phone. That IS the
-             existing-account case, whatever the search said a moment ago. */
-          if (/duplicat/i.test(String(e.message||''))) return send(res, 200, { ok:true, existing:true });
-          throw e;
+          /* GHL refuses a create that matches an existing contact by email OR phone. Only an email
+             match is the existing-account case. A phone match means the number is on someone else's
+             record (a shared home phone, or a tester reusing a mobile): telling THIS email it has an
+             account was wrong, and it silently locked every such person out of registering. The
+             email is the person, so create the account without the phone and try to attach the
+             number afterwards - if it is genuinely someone else's, it simply stays off, the same
+             policy the save path already follows. */
+          if (!/duplicat/i.test(String(e.message||''))) throw e;
+          let byEmail = [];
+          try { byEmail = await findContactsByEmail(rloc, remail, rtok); } catch(e2){}
+          if (byEmail && byEmail.length) return send(res, 200, { ok:true, existing:true });
+          try {
+            const up2 = await ghl('POST','/contacts/', rtok, { locationId:rloc, firstName:rfirst, lastName:rlast, email:remail });
+            rcid = (up2.contact && up2.contact.id) || up2.id || '';
+            if (rcid && rphone){ try { await ghl('PUT','/contacts/'+rcid, rtok, { phone: rphone }); } catch(e3){ console.error('register: phone left off ' + rcid + ', it belongs to another contact (' + String(e3.message||'').slice(0,120) + ')'); } }
+          } catch(e2){
+            if (/duplicat/i.test(String(e2.message||''))) return send(res, 200, { ok:true, existing:true });
+            throw e2;
+          }
         }
         if (!rcid) return send(res, 500, { error:'could not create contact' });
         const rsess = signSession(rloc, rcid, rfunnel, 0);
