@@ -1107,21 +1107,39 @@ function review(){
     /* The LPA was the one purchase with no way to get the document back: its forms were only
        offered on the Generate step, which a signed-in paid customer never sees. Their summary now
        offers the same official forms the Generate step builds, plus the signing guide. */
-    var _dl='';
-    if(_isE || _isW){ _dl = _paid
-        ? ('<a class="btn wide" href="'+API+(_isE?'/api/etb-pdf?t=':'/api/will-pdf?t=')+encodeURIComponent(_tok)+'" target="_blank" rel="noopener" style="display:block;text-align:center;text-decoration:none;margin-top:8px">'+(_isE?'Download summary (PDF)':'Download your will (PDF)')+'</a>')
-        : '<p class="note" style="text-align:center;margin-top:12px">You can download your '+(_isE?'summary':'will')+' here once payment is complete.</p>'; }
+    var _dl='', _pv=[];   /* _pv: the documents shown in the viewer window below the buttons */
+    if(_isE || _isW){ if(_paid){
+        _dl = ('<a class="btn wide" href="'+API+(_isE?'/api/etb-pdf?t=':'/api/will-pdf?t=')+encodeURIComponent(_tok)+'" target="_blank" rel="noopener" style="display:block;text-align:center;text-decoration:none;margin-top:8px">'+(_isE?'Download summary (PDF)':'Download your will (PDF)')+'</a>');
+        _pv=[{u:API+(_isE?'/api/etb-pdf?t=':'/api/will-pdf?t=')+encodeURIComponent(_tok), s:(_isE?'Your Toolbox summary':'Your will')}];
+      } else { _dl='<p class="note" style="text-align:center;margin-top:12px">You can download your '+(_isE?'summary':'will')+' here once payment is complete.</p>'; } }
     else if(_isL){
       if(_paid){
         var _lty=String(((state||{}).lpa_type||{}).type||''), _lfs=[];
-        if(/Property|Both/i.test(_lty)) _lfs.push({k:'LP1F',label:'Download your Property & Financial Affairs LPA (LP1F)'});
-        if(/Health|Both/i.test(_lty)) _lfs.push({k:'LP1H',label:'Download your Health & Welfare LPA (LP1H)'});
-        if(!_lfs.length) _lfs.push({k:'',label:'Download your LPA (PDF)'});
-        _lfs.push({k:'GUIDE',label:'Download your signing guide (PDF)'});
+        if(/Property|Both/i.test(_lty)) _lfs.push({k:'LP1F',label:'Download your Property & Financial Affairs LPA (LP1F)',s:'Property & Financial (LP1F)'});
+        if(/Health|Both/i.test(_lty)) _lfs.push({k:'LP1H',label:'Download your Health & Welfare LPA (LP1H)',s:'Health & Welfare (LP1H)'});
+        if(!_lfs.length) _lfs.push({k:'',label:'Download your LPA (PDF)',s:'Your LPA'});
+        _lfs.push({k:'GUIDE',label:'Download your signing guide (PDF)',s:'Signing guide'});
         _dl=_lfs.map(function(f){ return '<a class="btn wide" href="'+API+'/api/lpa-pdf?t='+encodeURIComponent(_tok)+(f.k?('&form='+f.k):'')+'" target="_blank" rel="noopener" style="display:block;text-align:center;text-decoration:none;margin-top:8px">'+esc(f.label)+'</a>'; }).join('');
+        _pv=_lfs.map(function(f){ return { u: API+'/api/lpa-pdf?t='+encodeURIComponent(_tok)+(f.k?('&form='+f.k):''), s:f.s }; });
       } else {
         _dl='<p class="note" style="text-align:center;margin-top:12px">You can download your LPA forms here once payment is complete.</p>';
       }
+    }
+    /* The document itself, in a window on the page. Chris: a paid customer should SEE their
+       document in the funnel, the way the thank-you step shows it, not only get a download.
+       The endpoints serve inline PDFs, so a plain iframe displays them. */
+    if(_pv.length){
+      if(_pv.length>1){ _dl+='<div id="awpvtabs" style="margin-top:16px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap">'+_pv.map(function(d,i){ return '<button type="button" data-awpv="'+i+'" style="padding:7px 14px;border-radius:999px;border:1px solid var(--line);background:'+(i===0?'var(--btn-bg)':'#fff')+';color:'+(i===0?'var(--btn-ink)':'var(--body)')+';cursor:pointer;font-size:13px;font-family:var(--bf)">'+esc(d.s)+'</button>'; }).join('')+'</div>'; }
+      _dl+='<div style="margin-top:'+(_pv.length>1?'10':'16')+'px"><iframe id="awpdfframe" src="'+_pv[0].u+'" style="width:100%;height:560px;border:1px solid #e0e0e0;border-radius:10px;background:#fff" title="'+esc(_pv[0].s)+'"></iframe></div>';
+      if(_pv.length>1){ setTimeout(function(){ try{
+        var _bs=document.querySelectorAll('#awpvtabs [data-awpv]');
+        for(var _bi=0;_bi<_bs.length;_bi++){ (function(b){ b.addEventListener('click', function(){
+          var d=_pv[parseInt(b.getAttribute('data-awpv'),10)]; var fr=document.getElementById('awpdfframe'); if(!d||!fr) return;
+          fr.src=d.u; fr.setAttribute('title', d.s);
+          for(var _bj=0;_bj<_bs.length;_bj++){ _bs[_bj].style.background='#fff'; _bs[_bj].style.color='var(--body)'; }
+          b.style.background='var(--btn-bg)'; b.style.color='var(--btn-ink)';
+        }); })(_bs[_bi]); }
+      }catch(e){} },60); }
     } var _docs=[]; visible().forEach(function(s){ if(!s.fields) return; flat(s.fields).forEach(function(f){ if(f.type!=='file') return; var fp=s.id+'.'+f.key; var u=getP(fp+'_url'); if(u) _docs.push({name:(getP(fp)||f.label||'Document'), url:u}); }); }); var _fh=_docs.length?('<div class="sum" style="margin-top:12px"><h3>Your documents</h3>'+_docs.map(function(d){return '<div style="padding:4px 0"><a href="'+esc(d.url)+'" target="_blank" rel="noopener">'+esc(d.name)+'</a></div>';}).join('')+'</div>'):''; return awEditLead()+html+_dl+_fh; }
   var _lpaNote=''; try{ if(FUNNEL===WILLS_FUNNEL){ var _gb=willBundle(state); if(_gb.lpas>0){ _lpaNote='<div class="mock" style="margin-top:12px;text-align:left"><p style="font-weight:600;margin:0 0 6px">Your Lasting Power of Attorney'+(_gb.lpas>1?'s':'')+'</p><p class="note" style="margin:0">You added '+_gb.lpas+' LPA'+(_gb.lpas>1?'s':'')+' to your order. We will be in touch shortly to collect the attorney details and prepare '+(_gb.lpas>1?'them':'it')+'. There is nothing more you need to do right now.</p></div>'; } } }catch(e){}
   return html+((FUNNEL===WILLS_FUNNEL)?'<p class="note" style="margin-top:12px;text-align:center;color:var(--muted)">Your will is ready. You can download it on the next step, once payment is complete.</p>':'')+_lpaNote;
