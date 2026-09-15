@@ -1838,11 +1838,20 @@ const server = http.createServer(async (req, res) => {
         /* tagdebug=1: show the location tag list and try a probe create - temporary diagnostics
            for the silent-drop investigation, reads tag names only. */
         if (fu.searchParams.get('tagdebug') === '1'){
-          let tl = null, createTry = null;
-          try { tl = await ghl('GET','/locations/'+floc+'/tags', ftok); } catch(e){ tl = { _err: String(e.message||'').slice(0,300) }; }
-          try { createTry = await ghl('POST','/locations/'+floc+'/tags', ftok, { name: 'aiw-tagprobe' }); } catch(e){ createTry = { _err: String(e.message||'').slice(0,300) }; }
-          const names = ((tl && tl.tags) || []).map(t => (t && t.name) || '').filter(n => /^(ai-|etb-|aiw-)/i.test(n));
-          return send(res, 200, { ok:true, tagCount: ((tl && tl.tags) || []).length, ours: names, listErr: tl && tl._err, createTry: createTry });
+          const probeCid = fu.searchParams.get('cid') || '';
+          const out = {};
+          const read = async () => { const g = await ghl('GET','/contacts/'+probeCid, ftok); const c = g.contact||g; return c.tags||[]; };
+          try { out.before = await read(); } catch(e){ out.before = String(e.message||'').slice(0,200); }
+          try { out.postAdd = await ghl('POST','/contacts/'+probeCid+'/tags', ftok, { tags: ['aiw-probe-x'] }); } catch(e){ out.postAdd = { _err: String(e.message||'').slice(0,300) }; }
+          try { out.afterPost = await read(); } catch(e){}
+          try {
+            const cur = await read();
+            out.putRes = await ghl('PUT','/contacts/'+probeCid, ftok, { tags: cur.concat(['aiw-probe-y']) });
+            out.putResTags = (out.putRes && (out.putRes.contact||out.putRes).tags) || null;
+            out.putRes = 'ok';
+          } catch(e){ out.putRes = String(e.message||'').slice(0,300); }
+          try { out.afterPut = await read(); } catch(e){}
+          return send(res, 200, out);
         }
         const femail = (fu.searchParams.get('email')||'').trim();
         if (femail){
