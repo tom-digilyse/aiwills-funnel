@@ -857,39 +857,14 @@ async function awPurchaseCF(loc, contactId, facts){
     if (cf.length) await ghl('PUT', '/contacts/' + contactId, token, { customFields: cf });
   }catch(e){ console.error('purchase cf', e.message); }
 }
-/* GHL's contact-tag endpoint silently DROPS any tag that does not already exist in the
-   sub-account's tag list (proven live 15 Sep 2026: ai-will-mirror-paid was posted on a paid
-   contact and never applied, while the pre-existing base tags stuck). So before tagging a
-   purchase, the tag names are created at location level once and remembered. */
-var AW_TAGS_KNOWN = {};
-async function awEnsureTags(token, loc, tags){
-  try{
-    if (!AW_TAGS_KNOWN[loc]){
-      var known = {};
-      try{
-        var r = await ghl('GET', '/locations/' + loc + '/tags', token);
-        (r.tags || []).forEach(function(t){ if (t && t.name) known[String(t.name).toLowerCase()] = true; });
-      }catch(e){ console.error('tag list ' + loc, e.message); }
-      AW_TAGS_KNOWN[loc] = known;
-    }
-    for (var i = 0; i < (tags || []).length; i++){
-      var nm = String(tags[i] || '').toLowerCase();
-      if (!nm || AW_TAGS_KNOWN[loc][nm]) continue;
-      try{ await ghl('POST', '/locations/' + loc + '/tags', token, { name: nm }); AW_TAGS_KNOWN[loc][nm] = true; }
-      catch(e){
-        if (/exist|duplicat/i.test(String(e.message || ''))) AW_TAGS_KNOWN[loc][nm] = true;
-        else console.error('ensure tag ' + nm + ' on ' + loc, e.message);
-      }
-    }
-  }catch(e){}
-}
-/* Apply purchase tags so they actually stick. The contact-tag endpoint drops names missing from
-   the location's tag list, and this token cannot create location tags (401, scope not granted).
-   A full contact update with a merged tag array DOES create tags under the contact scope, so:
-   try the normal add, verify what stuck, and push the stragglers in via update. */
+/* Apply purchase tags and prove they stuck. The plain contact-tag endpoint does create and
+   apply new tag names (verified live 15 Sep 2026) - the earlier "missing tags" were GHL's
+   contact SEARCH index lagging behind, not a write failure. The read-back-and-retry stays as
+   cheap insurance: these tags drive the firm's letters and invoices, so a silent miss is the
+   one failure we can never accept. (Location-level tag pre-creation is not possible for this
+   app: the token lacks the locations/tags scope and 401s.) */
 async function awApplyPurchaseTags(token, loc, contactId, tags){
   if (!contactId || !(tags && tags.length)) return;
-  try{ await awEnsureTags(token, loc, tags); }catch(e){}
   try{ await ghl('POST','/contacts/'+contactId+'/tags', token, { tags: tags }); }catch(e){ console.error('tag add', e.message); }
   try{
     var got = await ghl('GET','/contacts/'+contactId, token); var c = got.contact || got;
@@ -1835,24 +1810,6 @@ const server = http.createServer(async (req, res) => {
         const ftok = await getWriteToken(floc);
         /* email=: list this person's duplicate contacts and which service data sits where.
            Fill state and lengths only, never the answers themselves. */
-        /* tagdebug=1: show the location tag list and try a probe create - temporary diagnostics
-           for the silent-drop investigation, reads tag names only. */
-        if (fu.searchParams.get('tagdebug') === '1'){
-          const probeCid = fu.searchParams.get('cid') || '';
-          const out = {};
-          const read = async () => { const g = await ghl('GET','/contacts/'+probeCid, ftok); const c = g.contact||g; return c.tags||[]; };
-          try { out.before = await read(); } catch(e){ out.before = String(e.message||'').slice(0,200); }
-          try { out.postAdd = await ghl('POST','/contacts/'+probeCid+'/tags', ftok, { tags: ['aiw-probe-x'] }); } catch(e){ out.postAdd = { _err: String(e.message||'').slice(0,300) }; }
-          try { out.afterPost = await read(); } catch(e){}
-          try {
-            const cur = await read();
-            out.putRes = await ghl('PUT','/contacts/'+probeCid, ftok, { tags: cur.concat(['aiw-probe-y']) });
-            out.putResTags = (out.putRes && (out.putRes.contact||out.putRes).tags) || null;
-            out.putRes = 'ok';
-          } catch(e){ out.putRes = String(e.message||'').slice(0,300); }
-          try { out.afterPut = await read(); } catch(e){}
-          return send(res, 200, out);
-        }
         const femail = (fu.searchParams.get('email')||'').trim();
         if (femail){
           const twinsOut = [];
@@ -1866,7 +1823,7 @@ const server = http.createServer(async (req, res) => {
             stateNames.forEach(function(n){ const id=map0[n.toLowerCase()]; const v=id?byId[id]:''; fill[n]=(v&&String(v).length)||0; });
             twinsOut.push({ id: tw.id, name: ((full.firstName||'')+' '+(full.lastName||'')).trim(),
               added: full.dateAdded||'', updated: full.dateUpdated||'',
-              tags: (full.tags||[]).filter(function(t){ return /^(ai-will-paid|ai-lpa-paid|etb-active|probate-lead|send-edit-link|aiw-login-email|aiw-login-sms)$/i.test(String(t)); }),
+              tags: (full.tags||[]).filter(function(t){ return /^(ai-|etb-|probate-lead|send-edit-link|aiw-)/i.test(String(t)); }),
               fill: fill });
           }
           let pick=null; try { const b=await findBestContactByEmail(floc, femail); pick=b&&b.id; } catch(e){}
