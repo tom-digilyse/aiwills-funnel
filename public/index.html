@@ -193,8 +193,13 @@ var FIELDS = [
   {k:'etb_price_monthly', label:'Executor Toolbox monthly price (optional - leave blank to hide the monthly option)', g:'pricing'},
   {k:'etb_price_oneoff', label:'Executor Toolbox one-off price (optional - pay once, lifetime access; leave blank to hide)', g:'pricing'},
   {k:'legal_footer', label:'Small print (legal text at the bottom of every page). Paste it from your website - links and formatting are kept. Leave out the privacy link and the registered office line: the engine adds its own privacy link, and prints the registered office from the Address field.', rich:true, g:'pricing'}
+,
+  {k:'invoice_prefix', label:'Receipt number prefix (goes in front of the payment reference on receipt emails, e.g. INV-. Leave blank for none)', g:'receipts'},
+  {k:'vat_line', label:'VAT line on receipts (e.g. "Includes VAT at 20%. VAT no. GB123456789". Leave blank if not VAT registered - the line is hidden)', g:'receipts'},
+  {k:'adviser_name', label:'Sign-off name on receipt emails (e.g. the adviser or firm principal). Leave blank to sign off with the company name only', g:'receipts'},
+  {k:'business_hours', label:'Opening hours shown on receipt emails (e.g. Monday to Friday, 9am to 5pm)', g:'receipts'}
 ];
-var GROUPS = [['brand','Brand'],['header','Header & nav'],['buttons','Buttons'],['footer','Footer'],['contact','Contact & social'],['pricing','Pricing & legal']];
+var GROUPS = [['brand','Brand'],['header','Header & nav'],['buttons','Buttons'],['footer','Footer'],['contact','Contact & social'],['pricing','Pricing & legal'],['receipts','Receipts & invoices']];
 
 function el(id){ return document.getElementById(id); }
 function fieldHtml(f){
