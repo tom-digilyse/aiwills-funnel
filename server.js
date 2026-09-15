@@ -1814,6 +1814,15 @@ const server = http.createServer(async (req, res) => {
         const ftok = await getWriteToken(floc);
         /* email=: list this person's duplicate contacts and which service data sits where.
            Fill state and lengths only, never the answers themselves. */
+        /* tagdebug=1: show the location tag list and try a probe create - temporary diagnostics
+           for the silent-drop investigation, reads tag names only. */
+        if (fu.searchParams.get('tagdebug') === '1'){
+          let tl = null, createTry = null;
+          try { tl = await ghl('GET','/locations/'+floc+'/tags', ftok); } catch(e){ tl = { _err: String(e.message||'').slice(0,300) }; }
+          try { createTry = await ghl('POST','/locations/'+floc+'/tags', ftok, { name: 'aiw-tagprobe' }); } catch(e){ createTry = { _err: String(e.message||'').slice(0,300) }; }
+          const names = ((tl && tl.tags) || []).map(t => (t && t.name) || '').filter(n => /^(ai-|etb-|aiw-)/i.test(n));
+          return send(res, 200, { ok:true, tagCount: ((tl && tl.tags) || []).length, ours: names, listErr: tl && tl._err, createTry: createTry });
+        }
         const femail = (fu.searchParams.get('email')||'').trim();
         if (femail){
           const twinsOut = [];
