@@ -857,6 +857,32 @@ async function awPurchaseCF(loc, contactId, facts){
     if (cf.length) await ghl('PUT', '/contacts/' + contactId, token, { customFields: cf });
   }catch(e){ console.error('purchase cf', e.message); }
 }
+/* GHL's contact-tag endpoint silently DROPS any tag that does not already exist in the
+   sub-account's tag list (proven live 15 Sep 2026: ai-will-mirror-paid was posted on a paid
+   contact and never applied, while the pre-existing base tags stuck). So before tagging a
+   purchase, the tag names are created at location level once and remembered. */
+var AW_TAGS_KNOWN = {};
+async function awEnsureTags(token, loc, tags){
+  try{
+    if (!AW_TAGS_KNOWN[loc]){
+      var known = {};
+      try{
+        var r = await ghl('GET', '/locations/' + loc + '/tags', token);
+        (r.tags || []).forEach(function(t){ if (t && t.name) known[String(t.name).toLowerCase()] = true; });
+      }catch(e){ console.error('tag list ' + loc, e.message); }
+      AW_TAGS_KNOWN[loc] = known;
+    }
+    for (var i = 0; i < (tags || []).length; i++){
+      var nm = String(tags[i] || '').toLowerCase();
+      if (!nm || AW_TAGS_KNOWN[loc][nm]) continue;
+      try{ await ghl('POST', '/locations/' + loc + '/tags', token, { name: nm }); AW_TAGS_KNOWN[loc][nm] = true; }
+      catch(e){
+        if (/exist|duplicat/i.test(String(e.message || ''))) AW_TAGS_KNOWN[loc][nm] = true;
+        else console.error('ensure tag ' + nm + ' on ' + loc, e.message);
+      }
+    }
+  }catch(e){}
+}
 /* ---------- Custom field folders ----------
    GHL drops a field created without a parentId into the sub-account's catch-all folder. Ours were
    all created that way, so 307 of them piled up in one list and a firm opening a contact could not
@@ -2097,7 +2123,7 @@ const server = http.createServer(async (req, res) => {
         if (pmd.aw_id){ try { const prec = willStoreGet(pmd.aw_id); if (prec && !prec.paid){ prec.paid = true; prec.paidAt = Date.now(); willStorePut(pmd.aw_id, prec); } } catch(e){} }
         const pfacts = awPurchaseFacts(pmd, psess && psess.amount_total);
         const ptags = pfacts.tags;
-        if (pmd.contactId){ try { await ghl('POST','/contacts/'+pmd.contactId+'/tags', ptok, { tags: ptags }); } catch(e){ console.error('pay-confirm tag', e.message); } }
+        if (pmd.contactId){ try { await awEnsureTags(ptok, ploc, ptags); await ghl('POST','/contacts/'+pmd.contactId+'/tags', ptok, { tags: ptags }); } catch(e){ console.error('pay-confirm tag', e.message); } }
         if (pmd.contactId){ try { await awPurchaseCF(ploc, pmd.contactId, pfacts); } catch(e){} }
         if (pmd.contactId && parseInt(pmd.will_qty,10)>0 && parseInt(pmd.lpa_qty,10)>0){ try{ var prec2=willStoreGet(pmd.aw_id||''); if(prec2 && prec2.willJson) await awSeedLpaFromWill(ploc, pmd.contactId, prec2.willJson); }catch(e){} }
         return send(res,200,{ ok:true, paid:true, tags:ptags });
@@ -2118,7 +2144,7 @@ const server = http.createServer(async (req, res) => {
           const wfacts = awPurchaseFacts(md, evt.data && evt.data.object && evt.data.object.amount_total);
           const tags = wfacts.tags;
           (async function(){
-            try { const t = await getWriteToken(md.locationId); await ghl('POST', '/contacts/' + md.contactId + '/tags', t, { tags: tags }); }
+            try { const t = await getWriteToken(md.locationId); await awEnsureTags(t, md.locationId, tags); await ghl('POST', '/contacts/' + md.contactId + '/tags', t, { tags: tags }); }
             catch(e){ console.error('paid tag', e.message); }
             try { await awPurchaseCF(md.locationId, md.contactId, wfacts); } catch(e){}
             try { if (parseInt(md.will_qty,10)>0 && parseInt(md.lpa_qty,10)>0){ const rec2 = willStoreGet(md.aw_id||''); if (rec2 && rec2.willJson) await awSeedLpaFromWill(md.locationId, md.contactId, rec2.willJson); } } catch(e){ console.error('lpa seed hook', e.message); }
