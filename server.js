@@ -883,6 +883,27 @@ async function awEnsureTags(token, loc, tags){
     }
   }catch(e){}
 }
+/* Apply purchase tags so they actually stick. The contact-tag endpoint drops names missing from
+   the location's tag list, and this token cannot create location tags (401, scope not granted).
+   A full contact update with a merged tag array DOES create tags under the contact scope, so:
+   try the normal add, verify what stuck, and push the stragglers in via update. */
+async function awApplyPurchaseTags(token, loc, contactId, tags){
+  if (!contactId || !(tags && tags.length)) return;
+  try{ await awEnsureTags(token, loc, tags); }catch(e){}
+  try{ await ghl('POST','/contacts/'+contactId+'/tags', token, { tags: tags }); }catch(e){ console.error('tag add', e.message); }
+  try{
+    var got = await ghl('GET','/contacts/'+contactId, token); var c = got.contact || got;
+    var have = (c.tags||[]).map(function(x){ return String(x).toLowerCase(); });
+    var missing = tags.filter(function(t){ return have.indexOf(String(t).toLowerCase()) < 0; });
+    if (missing.length){
+      await ghl('PUT','/contacts/'+contactId, token, { tags: (c.tags||[]).concat(missing) });
+      var g2 = await ghl('GET','/contacts/'+contactId, token); var c2 = g2.contact || g2;
+      var have2 = (c2.tags||[]).map(function(x){ return String(x).toLowerCase(); });
+      var still = tags.filter(function(t){ return have2.indexOf(String(t).toLowerCase()) < 0; });
+      if (still.length) console.error('purchase tags STILL missing on ' + contactId + ': ' + still.join(','));
+    }
+  }catch(e){ console.error('tag verify', e.message); }
+}
 /* ---------- Custom field folders ----------
    GHL drops a field created without a parentId into the sub-account's catch-all folder. Ours were
    all created that way, so 307 of them piled up in one list and a firm opening a contact could not
@@ -2132,7 +2153,7 @@ const server = http.createServer(async (req, res) => {
         if (pmd.aw_id){ try { const prec = willStoreGet(pmd.aw_id); if (prec && !prec.paid){ prec.paid = true; prec.paidAt = Date.now(); willStorePut(pmd.aw_id, prec); } } catch(e){} }
         const pfacts = awPurchaseFacts(pmd, psess && psess.amount_total);
         const ptags = pfacts.tags;
-        if (pmd.contactId){ try { await awEnsureTags(ptok, ploc, ptags); await ghl('POST','/contacts/'+pmd.contactId+'/tags', ptok, { tags: ptags }); } catch(e){ console.error('pay-confirm tag', e.message); } }
+        if (pmd.contactId){ try { await awApplyPurchaseTags(ptok, ploc, pmd.contactId, ptags); } catch(e){ console.error('pay-confirm tag', e.message); } }
         if (pmd.contactId){ try { await awPurchaseCF(ploc, pmd.contactId, pfacts); } catch(e){} }
         if (pmd.contactId && parseInt(pmd.will_qty,10)>0 && parseInt(pmd.lpa_qty,10)>0){ try{ var prec2=willStoreGet(pmd.aw_id||''); if(prec2 && prec2.willJson) await awSeedLpaFromWill(ploc, pmd.contactId, prec2.willJson); }catch(e){} }
         return send(res,200,{ ok:true, paid:true, tags:ptags });
@@ -2153,7 +2174,7 @@ const server = http.createServer(async (req, res) => {
           const wfacts = awPurchaseFacts(md, evt.data && evt.data.object && evt.data.object.amount_total);
           const tags = wfacts.tags;
           (async function(){
-            try { const t = await getWriteToken(md.locationId); await awEnsureTags(t, md.locationId, tags); await ghl('POST', '/contacts/' + md.contactId + '/tags', t, { tags: tags }); }
+            try { const t = await getWriteToken(md.locationId); await awApplyPurchaseTags(t, md.locationId, md.contactId, tags); }
             catch(e){ console.error('paid tag', e.message); }
             try { await awPurchaseCF(md.locationId, md.contactId, wfacts); } catch(e){}
             try { if (parseInt(md.will_qty,10)>0 && parseInt(md.lpa_qty,10)>0){ const rec2 = willStoreGet(md.aw_id||''); if (rec2 && rec2.willJson) await awSeedLpaFromWill(md.locationId, md.contactId, rec2.willJson); } } catch(e){ console.error('lpa seed hook', e.message); }
