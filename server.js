@@ -814,6 +814,49 @@ async function awSeedLpaFromWill(loc, contactId, willJson){
     await ghl('PUT','/contacts/'+contactId, token, { customFields:[{ id:fid, value: JSON.stringify(seeded) }] });
   }catch(e){ console.error('lpa seed', e.message); }
 }
+/* One place that turns a paid Stripe session's metadata into contact tags and a readable
+   purchase line, shared by the webhook and pay-confirm so the two paths can never drift.
+   The firm's letter and invoice automations key off these tags and fields, so the names
+   are contract: ai-will-paid, ai-will-mirror-paid, ai-lpa-paid, ai-lpa-pf-paid,
+   ai-lpa-hw-paid, etb-active, etb-monthly, etb-annual, etb-lifetime. */
+function awPurchaseFacts(md, amountPence){
+  md = md || {};
+  var tags = [], parts = [];
+  if (String(md.kind||'') === 'etb'){
+    tags.push('etb-active');
+    var plan = String(md.plan||'').toLowerCase();
+    if (['monthly','annual','lifetime'].indexOf(plan) >= 0){ tags.push('etb-' + plan); parts.push('Executor Toolbox (' + plan + ')'); }
+    else parts.push('Executor Toolbox');
+  } else {
+    var wq = parseInt(md.will_qty, 10), lq = parseInt(md.lpa_qty, 10);
+    if (wq > 0){ tags.push('ai-will-paid'); if (wq > 1){ tags.push('ai-will-mirror-paid'); parts.push('Mirror wills'); } else parts.push('Will'); }
+    if (lq > 0){
+      tags.push('ai-lpa-paid');
+      var pf = String(md.lpa_pf||'') === '1', hw = String(md.lpa_hw||'') === '1';
+      if (pf){ tags.push('ai-lpa-pf-paid'); parts.push('Property & Financial LPA' + (wq > 1 ? ' x2' : '')); }
+      if (hw){ tags.push('ai-lpa-hw-paid'); parts.push('Health & Welfare LPA' + (wq > 1 ? ' x2' : '')); }
+      if (!pf && !hw) parts.push(lq > 1 ? (lq + ' LPAs') : 'LPA');   // sessions minted before the type metadata existed
+    }
+    if (!tags.length){ tags.push('ai-will-paid'); parts.push('Will'); }  // very old sessions carry no quantities
+  }
+  var amt = (Number.isInteger(amountPence) && amountPence > 0) ? ('\u00a3' + (amountPence/100).toFixed(2)) : '';
+  return { tags: tags, summary: parts.join(' + '), amount: amt };
+}
+/* The invoice needs content, not just a trigger: what they bought and what they paid, written
+   as plain contact fields the automation can merge straight into the message. */
+async function awPurchaseCF(loc, contactId, facts){
+  try{
+    if (!loc || !contactId || !facts) return;
+    var token = await getWriteToken(loc);
+    var map = await etbFieldMap(token, loc);
+    var cf = [];
+    var f1 = await awEnsureField(token, loc, map, 'Last Purchase');
+    if (f1 && facts.summary) cf.push({ id: f1, value: facts.summary });
+    var f2 = await awEnsureField(token, loc, map, 'Last Purchase Amount');
+    if (f2 && facts.amount) cf.push({ id: f2, value: facts.amount });
+    if (cf.length) await ghl('PUT', '/contacts/' + contactId, token, { customFields: cf });
+  }catch(e){ console.error('purchase cf', e.message); }
+}
 /* ---------- Custom field folders ----------
    GHL drops a field created without a parentId into the sub-account's catch-all folder. Ours were
    all created that way, so 307 of them piled up in one list and a firm opening a contact could not
@@ -1860,6 +1903,11 @@ const server = http.createServer(async (req, res) => {
         const lpaQty = isLpaOnly
           ? (/both/i.test(String((wj.lpa_type || {}).type || '')) ? 2 : 1)
           : ((bundleOn && lpP > 0) ? (lpaTypes * willQty) : 0);
+        /* Which LPA type(s) are in the basket - the paid tags need to say WHICH forms were
+           bought, so the firm sends the right signing instructions. */
+        const _lpaSrc = isLpaOnly ? String((wj.lpa_type || {}).type || '') : ((bundleOn && lpaQty > 0) ? String(al.want || '') : '');
+        const lpaPF = lpaQty > 0 && /both|property|financial/i.test(_lpaSrc);
+        const lpaHW = lpaQty > 0 && /both|health|welfare/i.test(_lpaSrc);
         const amount = wpP * willQty + lpP * lpaQty;
         // Last gate before money: refuse anything that is not a positive whole number of pence,
         // and say which firm and which setting, rather than sending Stripe a nonsense figure.
@@ -1891,6 +1939,8 @@ const server = http.createServer(async (req, res) => {
           'metadata[contactId]': contactId,
           'metadata[will_qty]': String(willQty),
           'metadata[lpa_qty]': String(lpaQty),
+          'metadata[lpa_pf]': lpaPF ? '1' : '0',
+          'metadata[lpa_hw]': lpaHW ? '1' : '0',
           'customer_email': person.email || ''
         };
         if (lpaQty > 0 && !isLpaOnly) {
@@ -2045,15 +2095,10 @@ const server = http.createServer(async (req, res) => {
         const paidNow = (psess.payment_status==='paid' || psess.payment_status==='no_payment_required');
         if (!paidNow) return send(res,200,{ ok:true, paid:false });
         if (pmd.aw_id){ try { const prec = willStoreGet(pmd.aw_id); if (prec && !prec.paid){ prec.paid = true; prec.paidAt = Date.now(); willStorePut(pmd.aw_id, prec); } } catch(e){} }
-        const ptags = [];
-        if (pmd.kind === 'etb') ptags.push('etb-active');
-        else {
-          const pwq = parseInt(pmd.will_qty, 10), plq = parseInt(pmd.lpa_qty, 10);
-          if (pwq > 0) ptags.push('ai-will-paid');
-          if (plq > 0) ptags.push('ai-lpa-paid');
-          if (!ptags.length) ptags.push('ai-will-paid');
-        }
+        const pfacts = awPurchaseFacts(pmd, psess && psess.amount_total);
+        const ptags = pfacts.tags;
         if (pmd.contactId){ try { await ghl('POST','/contacts/'+pmd.contactId+'/tags', ptok, { tags: ptags }); } catch(e){ console.error('pay-confirm tag', e.message); } }
+        if (pmd.contactId){ try { await awPurchaseCF(ploc, pmd.contactId, pfacts); } catch(e){} }
         if (pmd.contactId && parseInt(pmd.will_qty,10)>0 && parseInt(pmd.lpa_qty,10)>0){ try{ var prec2=willStoreGet(pmd.aw_id||''); if(prec2 && prec2.willJson) await awSeedLpaFromWill(ploc, pmd.contactId, prec2.willJson); }catch(e){} }
         return send(res,200,{ ok:true, paid:true, tags:ptags });
       } catch(e){ return send(res,500,{error:e.message}); }
@@ -2070,17 +2115,12 @@ const server = http.createServer(async (req, res) => {
         if (md.locationId && md.contactId){
           // Tag what they actually bought. A will and an LPA can be in the same basket, so one
           // shared "paid" tag would leave the firm unable to tell the two jobs apart.
-          const tags = [];
-          if (md.kind === 'etb') tags.push('etb-active');
-          else {
-            const wq = parseInt(md.will_qty, 10), lq = parseInt(md.lpa_qty, 10);
-            if (wq > 0) tags.push('ai-will-paid');
-            if (lq > 0) tags.push('ai-lpa-paid');
-            if (!tags.length) tags.push('ai-will-paid');   // older sessions carry no quantities
-          }
+          const wfacts = awPurchaseFacts(md, evt.data && evt.data.object && evt.data.object.amount_total);
+          const tags = wfacts.tags;
           (async function(){
             try { const t = await getWriteToken(md.locationId); await ghl('POST', '/contacts/' + md.contactId + '/tags', t, { tags: tags }); }
             catch(e){ console.error('paid tag', e.message); }
+            try { await awPurchaseCF(md.locationId, md.contactId, wfacts); } catch(e){}
             try { if (parseInt(md.will_qty,10)>0 && parseInt(md.lpa_qty,10)>0){ const rec2 = willStoreGet(md.aw_id||''); if (rec2 && rec2.willJson) await awSeedLpaFromWill(md.locationId, md.contactId, rec2.willJson); } } catch(e){ console.error('lpa seed hook', e.message); }
           })();
         }
