@@ -844,6 +844,14 @@ function awPurchaseFacts(md, amountPence){
 }
 /* The invoice needs content, not just a trigger: what they bought and what they paid, written
    as plain contact fields the automation can merge straight into the message. */
+/* A unique reference per payment for the receipt email and support lookups: the Stripe
+   payment intent (one-off), or the invoice/subscription id (Toolbox), prefix stripped. */
+function awPurchaseRef(obj){
+  try{
+    var raw = (obj && (obj.payment_intent || obj.invoice || obj.subscription || obj.id)) || '';
+    return String(raw).replace(/^[a-z]+_/, '');
+  }catch(e){ return ''; }
+}
 async function awPurchaseCF(loc, contactId, facts){
   try{
     if (!loc || !contactId || !facts) return;
@@ -854,6 +862,8 @@ async function awPurchaseCF(loc, contactId, facts){
     if (f1 && facts.summary) cf.push({ id: f1, value: facts.summary });
     var f2 = await awEnsureField(token, loc, map, 'Last Purchase Amount');
     if (f2 && facts.amount) cf.push({ id: f2, value: facts.amount });
+    var f3 = await awEnsureField(token, loc, map, 'Last Purchase Ref');
+    if (f3 && facts.ref) cf.push({ id: f3, value: facts.ref });
     if (cf.length) await ghl('PUT', '/contacts/' + contactId, token, { customFields: cf });
   }catch(e){ console.error('purchase cf', e.message); }
 }
@@ -2118,6 +2128,7 @@ const server = http.createServer(async (req, res) => {
         if (!paidNow) return send(res,200,{ ok:true, paid:false });
         if (pmd.aw_id){ try { const prec = willStoreGet(pmd.aw_id); if (prec && !prec.paid){ prec.paid = true; prec.paidAt = Date.now(); willStorePut(pmd.aw_id, prec); } } catch(e){} }
         const pfacts = awPurchaseFacts(pmd, psess && psess.amount_total);
+        pfacts.ref = awPurchaseRef(psess);
         const ptags = pfacts.tags;
         if (pmd.contactId){ try { await awApplyPurchaseTags(ptok, ploc, pmd.contactId, ptags); } catch(e){ console.error('pay-confirm tag', e.message); } }
         if (pmd.contactId){ try { await awPurchaseCF(ploc, pmd.contactId, pfacts); } catch(e){} }
@@ -2138,6 +2149,7 @@ const server = http.createServer(async (req, res) => {
           // Tag what they actually bought. A will and an LPA can be in the same basket, so one
           // shared "paid" tag would leave the firm unable to tell the two jobs apart.
           const wfacts = awPurchaseFacts(md, evt.data && evt.data.object && evt.data.object.amount_total);
+          wfacts.ref = awPurchaseRef(evt.data && evt.data.object);
           const tags = wfacts.tags;
           (async function(){
             try { const t = await getWriteToken(md.locationId); await awApplyPurchaseTags(t, md.locationId, md.contactId, tags); }
