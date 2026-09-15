@@ -1824,7 +1824,7 @@ const server = http.createServer(async (req, res) => {
         if (femail){
           const twinsOut = [];
           const map0 = await etbFieldMap(ftok, floc);
-          const stateNames = ['Will State Json','LPA State Json','ETB State Json','Probate State Json','Will Document','Will Summary','Edit Link','Last Purchase','Last Purchase Amount'];
+          const stateNames = ['Will State Json','LPA State Json','ETB State Json','Probate State Json','Will Document','Will Summary','Edit Link','Last Purchase','Last Purchase Amount','Last Purchase Ref'];
           const twins = await findContactsByEmail(floc, femail, ftok);
           for (const tw of twins){
             let full=null; try { const g=await ghl('GET','/contacts/'+tw.id, ftok); full=g.contact||g; } catch(e){ continue; }
