@@ -1202,7 +1202,7 @@ function render(){
       html += '<div class="mock"><p>Executor Toolbox</p>'+_pick+awConsentHtml()+'<button class="btn wide" id="pay" type="button">'+(_plans.length>1?'Continue to secure payment':(_plans[0].k==='lifetime'?'Pay once':'Subscribe'))+'</button><p class="note">Secure card payment. '+(_plans.length>1?'Subscriptions can be cancelled any time. The one-off option is a single payment for lifetime access.':'Your subscription keeps your Toolbox stored and available to your executors. You can cancel any time.')+'</p></div>';
     } else if(FUNNEL===WILLS_FUNNEL){
       var _b=willBundle(state); var _m=function(n){ return fmtPrice(String(Math.round(n*100)/100)); }; var _rows='';
-      _rows+='<div class="srow"><span class="k">'+(_b.wills>1?'Mirror wills (x'+_b.wills+')':'Will')+'</span><span class="v">'+esc(_m(_b.wills*_b.wp))+'</span></div>';
+      _rows+='<div class="srow"><span class="k">'+(_b.wills>1?'Mirror wills (x'+_b.wills+')':'Will')+'</span><span class="v">'+esc(_m(_b.wtotal))+'</span></div>';
       if(_b.lpas>0){ _rows+='<div class="srow"><span class="k">Lasting Power of Attorney (x'+_b.lpas+')</span><span class="v">'+esc(_m(_b.lpas*_b.lp))+'</span></div>'; }
       html += '<div class="mock"><p>Your order</p><div class="sum" style="text-align:left;margin:0 0 14px">'+_rows+'<div class="srow" style="border-top:2px solid var(--line);font-weight:700"><span class="k" style="color:var(--heading)">Total</span><span class="v">'+esc(_m(_b.total))+'</span></div></div>'+awConsentHtml()+'<button class="btn wide" id="pay" type="button">Pay '+esc(_m(_b.total))+'</button><p class="note">Secure card payment. You will be returned here to download your will'+(_b.lpas>0?'. Your LPA'+(_b.lpas>1?'s':'')+' will be prepared separately and we will be in touch to complete '+(_b.lpas>1?'them':'it')+'.':'.')+'</p></div>';
     } else {
@@ -1304,7 +1304,11 @@ function willBundle(state){
   var lpas=types*wills;
   var wp=parseFloat(String(CFG.will_price||'').replace(/[^0-9.]/g,''))||0;
   var lp=parseFloat(String(CFG.lpa_price||'').replace(/[^0-9.]/g,''))||0;
-  return { wills:wills, types:types, lpas:lpas, wp:wp, lp:lp, total:(wills*wp)+(lpas*lp) };
+  /* mirror_price is the headline TOTAL for the pair of mirror wills. Blank means the
+     firm has not set one, so the pair falls back to twice the single-will price. */
+  var mp=parseFloat(String(CFG.mirror_price||'').replace(/[^0-9.]/g,''))||0;
+  var wtotal=(wills===2&&mp>0)?mp:wills*wp;
+  return { wills:wills, types:types, lpas:lpas, wp:wp, lp:lp, wtotal:wtotal, total:wtotal+(lpas*lp) };
 }
 function computeQuote(state){
   var raw=(window.AIWILLS_CONFIG||{}).probate_quote_rules_json; if(!raw) return null;
@@ -1778,7 +1782,7 @@ window.addEventListener('load', closeGaps);
 setTimeout(closeGaps,400); setTimeout(closeGaps,1200);
 
   }
-  try{ if(rootEl){ var _KEYS=['company_name','logo_url','primary_color','heading_color','body_color','header_bg_color','page_bg_color','nav_text_color','heading_font','body_font','site_max_width','footer_max_width','nav_font_size','nav_weight','body_font_size','logo_height','heading_font_size','heading_weight','button_weight','phone','email','address','privacy_url','terms_url','consent_label','marketing_label','legal_footer','nav_menu_json','footer_menu_json','font_css_links','wills_url','lpa_url','etb_url','wills_title','wills_blurb','lpa_title','lpa_blurb','etb_title','etb_blurb','will_price','button_color','button_hover_color','button_text_color','button_secondary_color','button_secondary_text_color','button_font','button_radius','footer_bg_color','footer_text_color','facebook_url','instagram_url','linkedin_url','twitter_url','youtube_url','tiktok_url']; var _pc={}, _mm='{'+'{'; _KEYS.forEach(function(k){ var v=rootEl.getAttribute('data-'+k); if(v!=null && v!=='' && v.indexOf(_mm)<0) _pc[k]=v; }); if(Object.keys(_pc).length) window.AIWILLS_CONFIG=Object.assign({}, window.AIWILLS_CONFIG||{}, _pc); } }catch(e){}
+  try{ if(rootEl){ var _KEYS=['company_name','logo_url','primary_color','heading_color','body_color','header_bg_color','page_bg_color','nav_text_color','heading_font','body_font','site_max_width','footer_max_width','nav_font_size','nav_weight','body_font_size','logo_height','heading_font_size','heading_weight','button_weight','phone','email','address','privacy_url','terms_url','consent_label','marketing_label','legal_footer','nav_menu_json','footer_menu_json','font_css_links','wills_url','lpa_url','etb_url','wills_title','wills_blurb','lpa_title','lpa_blurb','etb_title','etb_blurb','will_price','mirror_price','button_color','button_hover_color','button_text_color','button_secondary_color','button_secondary_text_color','button_font','button_radius','footer_bg_color','footer_text_color','facebook_url','instagram_url','linkedin_url','twitter_url','youtube_url','tiktok_url']; var _pc={}, _mm='{'+'{'; _KEYS.forEach(function(k){ var v=rootEl.getAttribute('data-'+k); if(v!=null && v!=='' && v.indexOf(_mm)<0) _pc[k]=v; }); if(Object.keys(_pc).length) window.AIWILLS_CONFIG=Object.assign({}, window.AIWILLS_CONFIG||{}, _pc); } }catch(e){}
   (function(){
     var _pcfg = window.AIWILLS_CONFIG || {};
     var _brandKeys = Object.keys(_pcfg).filter(function(k){ return k!=='funnel'; });
