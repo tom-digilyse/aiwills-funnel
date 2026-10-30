@@ -76,9 +76,11 @@ function H(doc, t){ doc.moveDown(0.7); doc.font('Times-Bold').fontSize(12.5).fil
 function P(doc, t){ doc.font('Times-Roman').fontSize(11).fillColor('black').text(t, { align:'justify', lineGap:2.5 }); doc.moveDown(0.45); }
 
 /* ---------- shared clause builders ----------
-   Clause wording follows the precedents supplied by Nicola ("basic will precedents", 28 Sep 2026,
-   v2). Where her document said to keep ours (domicile, pets, the five residuary variants, the
-   young-beneficiary trust and the final fallback) ours is kept. Clauses are numbered in the order
+   Clause wording is the precedents supplied by Nicola ("basic will precedents", 28 Sep 2026, v2),
+   used as sent. Where her document said to keep ours (domicile, pets, the five residuary variants,
+   the young-beneficiary trust and the final fallback) ours is kept. The only choices made here are
+   the ones her templates leave to the facts (husband / wife / partner, his / her, one executor or
+   several), and they are taken from the customer's own answers. Clauses are numbered in the order
    they print, and a clause the customer gave no answers for is left out, never printed blank. */
 var _awN = 0;
 /* A numbered heading never sits alone at the foot of a page: if there is not room for the
@@ -86,6 +88,13 @@ var _awN = 0;
 function HN(doc, t){ _awN++; try{ if (doc.y + 95 > doc.page.height - doc.page.margins.bottom) doc.addPage(); }catch(e){} H(doc, _awN + '. ' + t); }
 /* Appointments name the person and their address, as the precedents do; relationship is not used. */
 function pName(p){ p = p || {}; return tcNA(p.firstName) + ' ' + tcNA(p.lastName); }
+function roman(i){ return '(' + ['i','ii','iii','iv','v','vi','vii','viii','ix','x','xi','xii'][i % 12] + ') '; }
+function femTitle(t){ return /^(mrs|miss|ms)$/i.test(esc(t).replace(/\./g,'')); }
+function mascTitle(t){ return /^mr$/i.test(esc(t).replace(/\./g,'')); }
+/* The precedent reads "husband/wife/partner": married and titled Mr is husband, married and titled
+   Mrs, Miss or Ms is wife, anything else is partner. */
+function spouseWord(other, status){ if (/married/i.test(esc(status))){ if (mascTitle(other && other.title)) return 'husband'; if (femTitle(other && other.title)) return 'wife'; } return 'partner'; }
+function possessive(t){ return mascTitle(t) ? 'his' : (femTitle(t) ? 'her' : 'the Testator\u2019s'); }
 function lettered(i){ return '(' + String.fromCharCode(97 + (i % 26)) + ') '; }
 function joinAnd(a){ return a.length <= 1 ? (a[0] || '') : a.slice(0, -1).join(', ') + ' and ' + a[a.length - 1]; }
 
@@ -104,17 +113,17 @@ function execClause(doc, d, isMirror){
   if (!execs.length) execs = [{}]; // a will always names at least one executor
   var who = joinAnd(execs.map(function(e){ return pName(e) + ' of ' + paddr(e); }));
   HN(doc, 'Appointment of Executors and Trustees');
-  P(doc, 'I appoint ' + who + ' to be my ' + (execs.length === 1 ? 'executor and trustee' : 'executors and trustees') + '.');
+  P(doc, 'I appoint ' + who + ' to be ' + (execs.length === 1 ? 'executor and trustee' : 'my executors and trustees') + '.');
   return execs.length;
 }
 
 /* Guardians. The precedent makes the appointment conditional on the testator's spouse or partner
    dying first; somebody with no partner simply appoints. */
-function guardianClause(doc, d, hasSpouse){
+function guardianClause(doc, d, hasSpouse, spouseW){
   var ch = d.children || {};
   if (!yes(ch.appointGuardians)) return;
   var g = d.guardian || {}, sub = g.substitute || {};
-  var s = (hasSpouse ? 'If my spouse or partner dies before me then I appoint ' : 'I appoint ') +
+  var s = (hasSpouse ? 'IF my ' + (spouseW || 'partner') + ' dies before me then I appoint ' : 'I appoint ') +
           pName(g) + ' of ' + paddr(g) + ' to be the guardian of my minor children in the event of my death';
   if (yes(sub.has)){
     s += ' but if ' + pName(g) + ' shall pre-decease me or declines to act then I appoint ' +
@@ -126,7 +135,7 @@ function guardianClause(doc, d, hasSpouse){
 
 function adminClause(doc){
   HN(doc, 'Administration of the Estate');
-  P(doc, 'My Trustees shall hold the rest of my estate on trust for sale with power to postpone such sale on the following terms: (i) to pay debts and testamentary expenses; (ii) to pay inheritance tax in respect of property passing under this Will.');
+  P(doc, 'My Trustees shall hold the rest of my estate on trust for sale with power to postpone such sale on the following terms: (i) to pay debts and testamentary expenses (ii) to pay inheritance tax in respect of property passing under this Will.');
 }
 
 /* Gift recipients used to be captured as one free-text name. They are now first and last, but a
@@ -148,23 +157,23 @@ function giftsClauses(doc, gifts){
     P(doc, 'I leave the following specific legacies free of inheritance tax:');
     items.forEach(function(x, i){
       P(doc, lettered(i) + 'my ' + NA(esc(x.description)) + ' to my ' + relWord(x.recipientRelationship) +
-             tcNA(giftPersonName(x, 'recipient')) + ' of ' + paddr({address:x.recipientAddress,city:x.recipientCity,postcode:x.recipientPostcode}) + ';');
+             tcNA(giftPersonName(x, 'recipient')) + (i === items.length - 1 ? '.' : ';'));
     });
   }
 
   if (cash.length){
     HN(doc, 'Pecuniary Legacies');
-    P(doc, 'I leave the following cash ' + (cash.length === 1 ? 'gift:' : 'gifts:'));
+    P(doc, 'I leave the following ' + (cash.length === 1 ? 'Cash Gift:' : 'Cash Gifts:'));
     cash.forEach(function(x, i){
       P(doc, lettered(i) + '£' + esc(x.amount) + ' to my ' + relWord(x.beneficiaryRelationship) +
-             tcNA(giftPersonName(x, 'beneficiary')) + ' of ' + paddr({address:x.beneficiaryAddress,city:x.beneficiaryCity,postcode:x.beneficiaryPostcode}) + ';');
+             tcNA(giftPersonName(x, 'beneficiary')) + ' of ' + paddr({address:x.beneficiaryAddress,city:x.beneficiaryCity,postcode:x.beneficiaryPostcode}) + (i === cash.length - 1 ? '.' : ';'));
     });
   }
 
   if (char.length){
     HN(doc, 'Charitable Donations');
     char.forEach(function(x, i){
-      var s = (char.length > 1 ? lettered(i) : '') + 'I leave £' + esc(x.amount) + ' to ' + NA(esc(x.name));   // charity names as registered: title-casing printed "Rnli"
+      var s = roman(i) + '£' + esc(x.amount) + ' to ' + NA(esc(x.name));   // charity names as registered: title-casing printed "Rnli"
       if (esc(x.number)) s += ' (registered Charity Number ' + esc(x.number) + ')';
       s += ' and I declare that the receipt of the treasurer or other proper officer for the time being of the charity shall be a sufficient discharge for my trustees and that my Trustees shall exercise their discretion to appoint such other charitable institution in place of the foregoing in the event of their ceasing to exist on the understanding that my Trustees would in that event appoint another charity or charities with similar objectives.';
       P(doc, s);
@@ -183,7 +192,7 @@ function giftsClauses(doc, gifts){
 
 function survivorshipClause(doc){
   HN(doc, 'Survivorship');
-  P(doc, 'Every beneficiary under this Will who survives me but fails to do so by the period of twenty-eight days shall be treated for the purposes of this Will (but not for the purposes of the Wills Act 1837 section 33) as having died in my lifetime and the gift bequeathed to any such beneficiary and its intermediate income shall devolve accordingly.');
+  P(doc, 'EVERY beneficiary under this will who survives me but fails to do so by the period of twenty-eight days shall be treated for the purposes of this will (but not for the purposes of the Wills Act 1837 section 33) as having died in my lifetime and the gift bequeathed to any such beneficiary and its intermediate income shall devolve accordingly.');
 }
 
 /* residuary estate; spouseName is who fills the "spouse/partner" slot for this will */
@@ -244,31 +253,30 @@ function residuaryClause(doc, d, spouseName){
 }
 
 
-/* Funeral wishes, built from the precedent's list. Only what the customer told us goes in. */
+/* Funeral wishes: the precedent's own lines, filled from the customer's answers. Anything else they
+   wrote (readings, where the funeral should be) goes under the precedent's "Other Funeral requests". */
 function funeralClause(doc, f, isMirror){
   f = f || {};
   var lines = [];
-  var how = esc(f.arrangements).toLowerCase(), where = esc(f.location);
-  if (/cremat/.test(how)) lines.push(where ? 'I wish that my body be cremated and my ashes be scattered at ' + where + '.' : 'I wish to be cremated.');
-  else if (/buri|burial/.test(how)) lines.push(where ? 'I wish to be buried at ' + where + '.' : 'I wish to be buried.');
+  var how = esc(f.arrangements).toLowerCase();
+  if (/cremat/.test(how)) lines.push('I wish to be cremated;');
+  else if (/buri|burial/.test(how)) lines.push('I wish to be buried;');
   var plan = f.plan || {};
-  if (yes(plan.has)) lines.push('For all further funeral arrangements please refer to my prepaid funeral plan' + (esc(plan.details) ? ' (' + esc(plan.details) + ')' : '') + '.');
-  if (esc(f.music)) lines.push('I wish that ' + esc(f.music) + ' be played at my funeral.');
-  var rd = esc(isMirror ? f.readings : f.additional);
-  if (rd) lines.push('I wish that ' + rd + ' be read at my funeral.');
-  var answered = !!how || lines.length;
-  if (!answered) return;
+  if (yes(plan.has)) lines.push('For all further Funeral arrangements please refer to my ' + (esc(plan.details) ? esc(plan.details) + ' ' : '') + 'prepaid Funeral plan;');
+  if (esc(f.music)) lines.push('I wish that ' + esc(f.music) + ' be played at my funeral;');
+  var other = [esc(f.location), esc(isMirror ? f.readings : f.additional)].filter(Boolean);
+  if (!how && !lines.length && !other.length) return;
   HN(doc, 'Funeral Wishes');
-  if (lines.length){
-    lines.forEach(function(t){ P(doc, t); });
-    P(doc, 'I have no further specific requests with regard to a funeral service and ask that any further arrangements made by my executors reflect the general wishes of my family.');
-  } else {
-    P(doc, 'I have no specific requests with regard to a funeral service and ask that any arrangements made by my executors reflect the general wishes of my family.');
+  lines.forEach(function(t){ P(doc, t); });
+  if (other.length){
+    P(doc, 'Other Funeral requests:-');
+    other.forEach(function(t){ P(doc, t + ';'); });
   }
+  P(doc, 'I have no further specific requests with regard to a funeral service and ask that any further arrangements made by my executors reflect the general wishes of my family.');
 }
 
 /* The closing words of the will and the signing area belong on one page. */
-var AW_WITNESS_WORDS = 'IN WITNESS whereof I have set my hand to this my Will this __________ day of ____________________ 20____';
+var AW_WITNESS_WORDS = 'IN WITNESS whereof I have set my hand to this my will this __________ day of ____________________ two thousand and ______________';
 function sigNeedA(doc, usableW){
   doc.font('Helvetica').fontSize(12); var lh12 = doc.currentLineHeight();
   var wH = doc.font('Helvetica').fontSize(11.5).heightOfString(AW_WITNESS_WORDS, { width: usableW, lineGap: 3 });
@@ -293,13 +301,14 @@ function organClause(doc, v){
   P(doc, t);
 }
 
-function signatureBlock(doc, whose){
+function signatureBlock(doc, whose, pron){
   doc.moveDown(1);
   var usableW = doc.page.width - doc.page.margins.left - doc.page.margins.right;
   var floor = function(){ return doc.page.height - doc.page.margins.bottom; };
   var sn = sigNeedA(doc, usableW), lh12 = sn.lh12;
   doc.font('Helvetica').fontSize(11); var lh11 = doc.currentLineHeight();
-  var jointH = doc.font('Helvetica').fontSize(11.5).heightOfString('Signed by the Testator in our joint presence and then by us in the presence of the Testator:', { width: usableW, lineGap: 3 });
+  var jointLine = 'in our joint presence and then by us in ' + (pron || 'the Testator\u2019s') + ' presence';
+  var jointH = doc.font('Helvetica').fontSize(11.5).heightOfString(jointLine, { width: usableW, lineGap: 3 });
   var perWitness = lh12 + (0.35 * lh12) + 4 * (lh11 + 5) + (0.9 * lh12);
   /* Testator and both witnesses sign at one sitting: never split the signing area across pages, and
      head a fresh page with the testator's name so it is tied to this will on its face. */
@@ -313,15 +322,14 @@ function signatureBlock(doc, whose){
   }
   doc.font('Helvetica').fontSize(11.5).fillColor('black').text(AW_WITNESS_WORDS, { lineGap:3 });
   doc.moveDown(0.9);
-  doc.font('Helvetica').fontSize(12).fillColor('black').text('Signed by the Testator: ___________________________');
-  doc.moveDown(1.1);
-  doc.font('Helvetica').fontSize(11.5).text('Signed by the Testator in our joint presence and then by us in the presence of the Testator:', { lineGap:3 });
+  doc.font('Helvetica').fontSize(12).fillColor('black').text('Signed by the Testator ___________________________');
+  doc.moveDown(0.5);
+  doc.font('Helvetica').fontSize(11.5).text(jointLine, { lineGap:3 });
   doc.moveDown(0.8);
   [['Witness 1'],['Witness 2']].forEach(function(w){
-    doc.font('Helvetica-Bold').fontSize(12).fillColor('black').text(w[0]);
     doc.moveDown(0.35);
     doc.font('Helvetica').fontSize(11).fillColor('#222')
-       .text('Signature: __________________________________________', { lineGap:5 })
+       .text('Witness signature: __________________________________', { lineGap:5 })
        .text('Name: ______________________________________________', { lineGap:5 })
        .text('Address: ____________________________________________', { lineGap:5 })
        .text('____________________________________________________', { lineGap:5 });
@@ -353,7 +361,7 @@ function renderWill(doc, d, isMirror){
   var hasSpouse = yes(personal.hasPartner) || !!isMirror;
 
   willTitle(doc, testatorName);
-  P(doc, 'This is the last WILL AND TESTAMENT of me ' + testatorName + (akaIntro ? ' (' + akaIntro + ')' : '') + ' of ' + testatorAddr + '.');
+  P(doc, 'This is the last WILL AND TESTAMENT of me ' + testatorName + ' of ' + testatorAddr + '.');
 
   HN(doc, 'Revocation');
   P(doc, 'I revoke all former wills and codicils.');
@@ -363,13 +371,13 @@ function renderWill(doc, d, isMirror){
 
   execClause(doc, d, isMirror);
   funeralClause(doc, isMirror ? d.mirrorFuneral : d.funeral, isMirror);
-  guardianClause(doc, d, hasSpouse);
+  guardianClause(doc, d, hasSpouse, spouseWord(isMirror ? personal : partner, partner.status));
   adminClause(doc);
   giftsClauses(doc, isMirror ? d.mirrorGifts : d.gifts);
   survivorshipClause(doc);
   residuaryClause(doc, d, spouseSlotName);
   organClause(doc, (isMirror ? (d.mirrorFuneral || {}) : (d.funeral || {})).organDonation);
-  signatureBlock(doc, testatorName);
+  signatureBlock(doc, testatorName, possessive((isMirror ? partner : personal).title));
 }
 
 
