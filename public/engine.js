@@ -1381,6 +1381,7 @@ function validateStep(s){
 }
 function go(dir){
   var vis=visible(), s=vis[cur];
+  if(dir>0 && window.__awNeedSignin && window.AIWILLS_EDIT!==true){ try{ awSigninWall(window.__awNeedSignin); }catch(e){} return; }
   if(dir>0){
     collectVisible();
     stripEmptyRepeaters(); // drop blank add-cards so empty items never reach the review/summary
@@ -1404,8 +1405,12 @@ function go(dir){
         return;
       }
     }
-    saveToGhl(state, { pdf: (s.kind==='review' || s.kind==='payment' || window.AIWILLS_EDIT===true) });
-    try{ awMaybeRegister(s); }catch(e){}
+    /* The anonymous save used to go first and race the registration call. When it won, it had
+       already created the contact, so registration found the email "existing" and a brand new
+       customer was told they already had an account and never got signed in. When registration is
+       about to run, it does the saving itself once the account exists. */
+    var _awRegFired=false; try{ _awRegFired=!!awMaybeRegister(s); }catch(e){}
+    if(!_awRegFired) saveToGhl(state, { pdf: (s.kind==='review' || s.kind==='payment' || window.AIWILLS_EDIT===true) });
     /* ...but NOT from the summary itself. Pressing Continue there was saving and re-rendering the
    summary, so the button looked dead and the customer could never reach payment. From the
    summary, Continue must behave like a normal Continue and move on to the payment step. */
@@ -1423,7 +1428,11 @@ function awMaybeRegister(s){
   if(window.__awRegTried) return;
   if(window.AIWILLS_EDIT===true || (window.AIWILLS_TOKEN||'')) return;
   if(!loc) return;
-  if(!s || s.id!==awRegSection()) return;
+  if(!s) return;
+  /* Was: only on leaving the details step itself. A page reload, or a draft resumed further in,
+     walked past it and carried on anonymously with nothing saving to any account. Any forward
+     step at or after the details step now counts. */
+  try{ var _vv=visible(), _ri=-1, _si=-1; for(var _q=0;_q<_vv.length;_q++){ if(_vv[_q].id===awRegSection()) _ri=_q; if(_vv[_q].id===s.id) _si=_q; } if(_ri<0 || _si<_ri) return; }catch(e){ if(s.id!==awRegSection()) return; }
   var o=state[awRegSection()]||{}; var em=String(o.email||'').trim();
   if(!/.+@.+\..+/.test(em)) return;
   window.__awRegTried=true;
@@ -1433,7 +1442,8 @@ function awMaybeRegister(s){
   fetch(API+'/api/register',{method:'POST',body:JSON.stringify({locationId:loc,firstName:fn2,lastName:ln2,email:em,phone:ph2,funnel:FUNNEL_KEY})}).then(function(r){return r.json();}).then(function(j){
     if(j&&j.ok&&j.existing===true){
       try{ fetch(API+'/api/edit-request',{method:'POST',body:JSON.stringify({locationId:loc,email:em,funnel:FUNNEL_KEY,channel:'email',returnBase:location.origin+location.pathname})}).catch(function(){}); }catch(e){}
-      awRegNote('It looks like you already have an account with us, so we have emailed you a sign-in link. You can keep going here, or open the link to continue signed in with your saved answers.', 'info');
+      window.__awNeedSignin=em;
+      try{ awSigninWall(em); }catch(e){}
       return;
     }
     if(j&&j.ok&&j.session&&j.contactId){
@@ -1456,9 +1466,57 @@ function awMaybeRegister(s){
       try{ collectVisible(); }catch(e){}
       try{ render(); }catch(e){}
       awRegNote('Your account is ready and you are signed in. Your answers now save to your account as you go.', 'ok');
+      return;
     }
-  }).catch(function(){});
+    window.__awRegTried=false;   // refused or malformed reply: the next Continue tries again
+    try{ saveToGhl(state); }catch(e){}   // and meanwhile save the way it always did
+  }).catch(function(){ window.__awRegTried=false; try{ saveToGhl(state); }catch(e){} });
+  return true;
 }
+/* Somebody who arrives on a funnel link directly, and whose email already has an account here, has
+   to sign in before going any further. Letting them carry on built a full will on a page that was
+   never signed in, so nothing tied it to their account and they could not pick it up again. Their
+   answers could also be written over the record of whoever owns that email. The wording never says the
+   address "has an account": it says a link was sent, which is true either way. */
+function awSigninWall(em){
+  try{
+    var old=document.getElementById('awsigninwall'); if(old && old.parentNode) old.parentNode.removeChild(old);
+    var _hubL=''; try{ _hubL=awHubUrl(); }catch(e){}
+    if(_hubL) _hubL += (_hubL.indexOf('?')>=0?'&':'?')+'aw_login=1';
+    var _hubA=String(_hubL).replace(/"/g,'&quot;');
+    var btn='display:block;width:100%;box-sizing:border-box;text-align:center;text-decoration:none;border-radius:var(--btn-radius,10px);padding:13px;font-weight:600;cursor:pointer;font-family:var(--bf);font-size:15px;margin-top:10px';
+    var m=document.createElement('div');
+    m.id='awsigninwall';
+    m.style.cssText='position:fixed;inset:0;background:rgba(20,20,20,.45);z-index:99997;display:flex;align-items:center;justify-content:center;padding:20px;font-family:var(--bf,Arial,sans-serif)';
+    m.innerHTML='<div role="dialog" aria-modal="true" style="background:#fff;max-width:440px;width:100%;border-radius:16px;padding:26px 24px;box-shadow:0 10px 40px rgba(0,0,0,.2)">'
+      + '<h2 style="font-family:var(--hf,Georgia,serif);color:var(--heading);margin:0 0 8px;font-size:21px">Check your email to continue</h2>'
+      + '<p style="color:var(--muted);font-size:14px;line-height:1.55;margin:0 0 6px">To keep your details safe, we have sent a secure sign-in link to <strong style="color:var(--heading)">'+esc(em)+'</strong>. Open it to carry on, signed in, so everything you enter is saved to your account.</p>'
+      + (_hubL ? '<a id="awwalllogin" href="'+_hubA+'" target="_top" style="'+btn+';background:var(--btn-bg,var(--primary));color:#fff;border:none">Log in another way</a>' : '')
+      + '<button type="button" id="awwallresend" style="'+btn+';background:#fff;color:var(--primary);border:1px solid var(--line,#d8dee4)">Send the link again</button>'
+      + '<p id="awwallmsg" style="color:var(--muted);font-size:13px;text-align:center;margin:10px 0 0;min-height:1em"></p>'
+      + '<p style="text-align:center;margin:8px 0 0"><a href="#" id="awwalldiff" style="color:var(--muted);font-size:13px;text-decoration:underline">Use a different email address</a></p>'
+      + '</div>';
+    document.body.appendChild(m);
+    var _sent=0;
+    var rs=document.getElementById('awwallresend'); if(rs) rs.onclick=function(){
+      var msg=document.getElementById('awwallmsg');
+      if(Date.now()-_sent < 30000){ if(msg) msg.textContent='Sent. Please allow a minute or two, and check your junk folder.'; return; }
+      _sent=Date.now();
+      try{ fetch(API+'/api/edit-request',{method:'POST',body:JSON.stringify({locationId:loc,email:em,funnel:FUNNEL_KEY,channel:'email',returnBase:location.origin+location.pathname})}).catch(function(){}); }catch(e){}
+      if(msg) msg.textContent='We have sent it again. Please allow a minute or two, and check your junk folder.';
+    };
+    var df=document.getElementById('awwalldiff'); if(df) df.onclick=function(ev){
+      ev.preventDefault();
+      window.__awNeedSignin=null; window.__awRegTried=false;
+      try{ if(state[awRegSection()]) state[awRegSection()].email=''; }catch(e){}
+      try{ saveLocal(); }catch(e){}
+      try{ if(m.parentNode) m.parentNode.removeChild(m); }catch(e){}
+      try{ jumpTo(awRegSection()); }catch(e){ try{ render(); }catch(e2){} }
+      try{ var f=document.querySelector('[data-f="'+awRegSection()+'.email"] input, [data-f="email"] input, input[type="email"]'); if(f && f.focus) f.focus(); }catch(e){}
+    };
+  }catch(e){}
+}
+
 function awRegNote(t, kind){ try{ var h=document.querySelector('#aiwills-funnel h1'); if(!h) return; var b=document.getElementById('awregnote'); if(!b){ b=document.createElement('div'); b.id='awregnote'; h.parentNode.insertBefore(b, h.nextSibling); } var ok=(kind==='ok'); b.style.cssText='background:'+(ok?'#EDF7ED':'#F4F6F8')+';border:1px solid '+(ok?'#BCE3BE':'#D8DEE4')+';color:'+(ok?'#1E4620':'#333A40')+';border-radius:10px;padding:12px 14px;margin:10px 0 16px;font-size:14.5px;line-height:1.5'; b.textContent=t; setTimeout(function(){ try{ b.parentNode.removeChild(b); }catch(e){} }, 15000); }catch(e){} }
 function lsKey(){ try{ var fn=((window.AIWILLS_CONFIG&&window.AIWILLS_CONFIG.funnel)||'wills'); return 'aw_draft_'+fn+'_'+(loc||''); }catch(e){ return ''; } }
 /* The session used to die exactly one hour after sign-in, so somebody still filling in a will was
