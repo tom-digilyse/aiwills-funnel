@@ -81,7 +81,9 @@ function P(doc, t){ doc.font('Times-Roman').fontSize(11).fillColor('black').text
    young-beneficiary trust and the final fallback) ours is kept. Clauses are numbered in the order
    they print, and a clause the customer gave no answers for is left out, never printed blank. */
 var _awN = 0;
-function HN(doc, t){ _awN++; H(doc, _awN + '. ' + t); }
+/* A numbered heading never sits alone at the foot of a page: if there is not room for the
+   heading and the first few lines of its clause, it starts the next page. */
+function HN(doc, t){ _awN++; try{ if (doc.y + 95 > doc.page.height - doc.page.margins.bottom) doc.addPage(); }catch(e){} H(doc, _awN + '. ' + t); }
 /* Appointments name the person and their address, as the precedents do; relationship is not used. */
 function pName(p){ p = p || {}; return tcNA(p.firstName) + ' ' + tcNA(p.lastName); }
 function lettered(i){ return '(' + String.fromCharCode(97 + (i % 26)) + ') '; }
@@ -226,7 +228,7 @@ function residuaryClause(doc, d, spouseName){
   } else if (distrib === 'Between other persons who are listed below'){
     P(doc, 'I give the whole of my residuary estate to the following individuals, in the shares specified:');
     arr(r.beneficiaries).forEach(function(b){
-      P(doc, '- ' + esc(b.share) + '% to my ' + tcNA(b.relationship) + ', ' + tcNA(b.name) + ', of ' + paddr(b) + ';');
+      P(doc, '- ' + esc(b.share) + '% to ' + (relWord(b.relationship) ? 'my ' + relWord(b.relationship).trim() + ', ' : '') + tcNA(b.name) + ', of ' + paddr(b) + ';');
     });
     P(doc, 'If any such beneficiary dies before me, that share shall pass to their issue in equal shares per stirpes.');
     P(doc, 'If any such beneficiary shall predecease me leaving no issue who survive me, their share shall accrue to the surviving beneficiaries in proportion to their respective shares.');
