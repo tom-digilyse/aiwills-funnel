@@ -1500,15 +1500,15 @@ var AW_CV_MAP = { company_name:'company_name', company_email:'company_email', co
 var AW_CV_SKIP = /^(aiwills_brand_json|pipeline_map|field_folders)$|_source$/;
 async function awSyncCompanyValue(token, loc){
   try {
-    if (!loc || !token) return;
+    if (!loc || !token) return { done: 0, failed: 0 };
     var now = Date.now();
-    if (AW_CV_SYNCED[loc] && (now - AW_CV_SYNCED[loc]) < 10 * 60 * 1000) return;
+    if (AW_CV_SYNCED[loc] && (now - AW_CV_SYNCED[loc]) < 10 * 60 * 1000) return { done: 0, failed: 0, throttled: true };
     AW_CV_SYNCED[loc] = now;
     var b = await getCustomValuesMap(loc, token);   // GHL underneath, our store on top
     var r = await ghl('GET', '/locations/' + loc + '/customValues', token);
     var list = r.customValues || r.customValue || [];
     var byName = {}; list.forEach(function(cv){ byName[String(cv.name || '').toLowerCase()] = cv; });
-    var done = 0;
+    var done = 0, failed = 0;
     /* 1. Correct every custom value the account already has. A stale wills_url or will_price in a
        workflow email sends the customer to the wrong site or quotes the wrong price, and the
        account inherits those from whatever snapshot it was built from. We only ever correct what
@@ -1520,7 +1520,7 @@ async function awSyncCompanyValue(token, loc){
       want = String(want); if (!want.trim()) continue;              // blank never overwrites
       if (String(cv.value || '') === want) continue;
       try { await ghl('PUT', '/locations/' + loc + '/customValues/' + cv.id, token, { name: cv.name, value: want }); done++; }
-      catch(e){ console.error('sync ' + nm, e.message); }
+      catch(e){ failed++; console.error('sync ' + nm, e.message); }
     }
     /* 2. The headline company details get created if the account has never had them, because these
        are the ones a client's emails are most likely to want and the most obviously wrong. */
@@ -1531,10 +1531,11 @@ async function awSyncCompanyValue(token, loc){
       var cval = String(b[AW_CV_MAP[cname]] || '').trim();
       if (!cval) continue;
       try { await ghl('POST', '/locations/' + loc + '/customValues', token, { name: cname, value: cval }); done++; }
-      catch(e){ console.error('sync create ' + cname, e.message); }
+      catch(e){ failed++; console.error('sync create ' + cname, e.message); }
     }
     if (done) console.log('custom values synced for ' + loc + ': ' + done);
-  } catch(e){ console.error('awSyncCompanyValue', e.message); }
+    return { done: done, failed: failed };
+  } catch(e){ console.error('awSyncCompanyValue', e.message); return { done: 0, failed: 0, error: e.message }; }
 }
 async function getCustomValuesMap(locationId, token){
   const byName = {};
@@ -2716,6 +2717,17 @@ const server = http.createServer(async (req, res) => {
         if (problem){ delete vals.stripe_account_id; warnings.push(problem); }
       }
       const wres = await handleWrite(parsed.locationId, vals, { allowClear: !!parsed.allowClear, confirmClear: !!parsed.confirmClear });
+      /* The save used to update only our brand store, and GHL's custom values caught up whenever a
+         customer next used a funnel on the account. Any workflow email sent in that gap carried the
+         previous client's brand. Sync GHL NOW, and report what happened instead of implying it. */
+      try {
+        AW_CV_SYNCED[parsed.locationId] = 0;               // a rebrand must not wait out the throttle
+        const stok = await getWriteToken(parsed.locationId);
+        const sy = (await awSyncCompanyValue(stok, parsed.locationId)) || {};
+        if (sy.error) wres.push({ name: 'GHL custom values', error: 'sync failed: ' + sy.error });
+        else if (sy.failed) wres.push({ name: 'GHL custom values', error: (sy.done || 0) + ' updated in GHL, ' + sy.failed + ' failed; check the server log' });
+        else wres.push({ name: 'GHL custom values', action: 'synced (' + (sy.done || 0) + ' updated in GHL)' });
+      } catch(e){ wres.push({ name: 'GHL custom values', error: 'sync failed: ' + e.message }); }
       /* Getting the firm ready in Stripe used to be a separate thing somebody had to remember, and
          forgetting it meant the first customer could not pay. A Stripe failure must never fail the
          save, so it is reported alongside the other results rather than thrown. */
