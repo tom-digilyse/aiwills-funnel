@@ -427,7 +427,7 @@ async function write(){
     var r = await fetch('/api/write', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ locationId: locationId, values: getValues(), allowClear: (_loadedLoc === locationId) }) });
     var j = await r.json();
     if (j.error) throw new Error(j.error);
-    var ok = j.results.filter(function(x){return x.action;}).length;
+    var ok = j.results.filter(function(x){return x.action === 'saved' || x.action === 'cleared';}).length;
     var err = j.results.filter(function(x){return x.error;});
     var warn = j.warnings || [];
     el('writeStatus').className = (err.length || warn.length) ? 'status bad' : 'status ok';
