@@ -78,9 +78,38 @@ var CFG = window.AIWILLS_CONFIG || {}; (function(){ var _m='{'+'{'; for(var _k i
   try{ if(window.AIWILLS_EDIT===true || !!(window.AIWILLS_TOKEN)){ awStartAutoLogout(); awSignedInBar(); awKeepSessionAlive(); } }catch(e){}
   if(String((window.AIWILLS_CONFIG||{}).funnel||'').toLowerCase()==='hub'){ renderHub(); return; }
   try{ awServicesBar(); }catch(e){}
+  try{ if(awLoginGateNeeded()){ var _gk=String((CFG.funnel)||window.AIWILLS_FUNNEL||'').toLowerCase(); window.__awFunnelGate=(_gk==='etb'||_gk==='lpa')?_gk:((_gk==='probate'||_gk==='referral')?'probate':'wills'); renderHub(); return; } }catch(e){}
   try{ var _psf=String(CFG.plan_services||'').toLowerCase().split(',').map(function(x){return x.trim();}).filter(Boolean); var _fk=(function(){var f=String((CFG.funnel)||window.AIWILLS_FUNNEL||'').toLowerCase();return (f==='etb'||f==='lpa')?f:((f==='probate'||f==='referral')?'probate':'wills');})(); if(_psf.length && _psf.indexOf(_fk)<0){ mount.innerHTML='<div class="aw-ready" style="max-width:640px;margin:60px auto;padding:32px;border:1px solid var(--line);border-radius:14px;background:#fff;text-align:center;font-family:var(--bf)"><h3 style="font-family:var(--hf);color:var(--heading)">This service is not part of your plan</h3><p style="color:var(--muted)">Please speak to your adviser about adding it, or go back to your services page.</p></div>'; try{ mount.classList.add('aw-ready'); }catch(e){} return; } }catch(e){}
   function renderHub(){
     var enc=encodeURIComponent;
+    if(window.__awFunnelGate){ awFunnelGate(window.__awFunnelGate); return; }
+    /* Login first. A funnel page opened without being signed in (a shared or guessed link, an old
+       bookmark, an automation pointing straight at it) shows this instead of the questions, so
+       nothing can be started that is not tied to an account. New customers set up their account
+       here, returning ones log in, and both come straight back to this page signed in. */
+    function awFunnelGate(svcKey){
+      var here=location.origin+location.pathname;
+      try{ var _hu=new URL(location.href); ['aw_t','aw_c','aw_paid','aw_id','aw_sid','aw_etb_paid','aw_login','aw_reset'].forEach(function(k){ _hu.searchParams.delete(k); }); _hu.hash=''; here=_hu.href; }catch(e){}
+      var note=String(window.__awGateNote||'');
+      var B='display:block;width:100%;box-sizing:border-box;text-align:center;border-radius:var(--btn-radius,10px);padding:14px;font-weight:600;cursor:pointer;font-family:var(--bf);font-size:15px;margin-top:10px';
+      mount.innerHTML='<header id="hdr" class="hdr"></header><main class="main"><div style="max-width:520px;margin:0 auto;padding:48px 20px 70px">'
+        + '<div id="awfgate" style="background:#fff;border:1px solid var(--line);border-radius:16px;padding:30px 26px;text-align:center;font-family:var(--bf)">'
+        + (note ? '<p id="awfgnote" style="background:#F4F6F8;border:1px solid #D8DEE4;border-radius:10px;padding:10px 14px;font-size:14px;line-height:1.5;color:#333A40;margin:0 0 18px;text-align:left">'+esc(note)+'</p>' : '')
+        + '<h1 style="font-family:var(--hf);color:var(--heading);font-size:26px;line-height:1.25;margin:0 0 10px">Log in to continue</h1>'
+        + '<p style="color:var(--muted);font-size:15px;line-height:1.6;margin:0 0 14px">To keep your details safe, everything you enter is saved to your own account. Log in, or set up your account in under a minute.</p>'
+        + '<button type="button" id="awfgnew" style="'+B+';background:var(--btn-bg,var(--primary));color:var(--btn-text,#fff);border:none">I\'m new, get started</button>'
+        + '<button type="button" id="awfglogin" style="'+B+';background:#fff;color:var(--heading);border:1px solid var(--line)">I\'ve been here before, log in</button>'
+        + '</div></div></main><footer id="ftr" class="ftr"></footer>';
+      try{ applyBrand(); }catch(e){} try{ closeGaps(); }catch(e){}
+      try{ mount.classList.add('aw-ready'); }catch(e){}
+      var nb=document.getElementById('awfgnew'); if(nb) nb.onclick=function(){
+        var m=document.getElementById('awgatemodal'); if(!m){ m=document.createElement('div'); m.id='awgatemodal'; document.body.appendChild(m); }
+        m.style.cssText='position:fixed;inset:0;background:rgba(20,20,20,.45);z-index:99998;display:flex;align-items:center;justify-content:center;padding:20px;font-family:var(--bf,Arial,sans-serif)';
+        m.onclick=function(ev){ if(ev.target===m){ try{ m.parentNode.removeChild(m); }catch(e){} } };
+        awGateNew(m, here, svcKey||'wills');
+      };
+      var lb=document.getElementById('awfglogin'); if(lb) lb.onclick=function(){ awOpenLogin(); };
+    }
     /* So a service can offer a way back without anyone having to configure the address by hand. */
     try{
       if(loc){
@@ -166,7 +195,6 @@ var CFG = window.AIWILLS_CONFIG || {}; (function(){ var _m='{'+'{'; for(var _k i
       g.querySelectorAll('a.btn').forEach(function(a){ a.addEventListener('click', function(ev){
         if(window.AIWILLS_EDIT===true) return; // logged in: straight through
         var known=null; try{ known=JSON.parse(localStorage.getItem('aw_ident_'+loc)||'null'); }catch(e){}
-        if(known && (known.email||known.phone)){ ev.preventDefault(); awKnownGo(a.getAttribute('href'), a.getAttribute('data-k')||'wills', known); return; } // already gave details on this device: no gate
         ev.preventDefault(); awGate(a.getAttribute('href'), a.getAttribute('data-k')||'wills');
       }); });
     }
@@ -264,7 +292,7 @@ var CFG = window.AIWILLS_CONFIG || {}; (function(){ var _m='{'+'{'; for(var _k i
           if(j&&j.ok&&j.existing===true){
             try{ fetch(API+'/api/edit-request',{method:'POST',body:JSON.stringify({locationId:loc,email:em,funnel:svcKey,channel:'email',returnBase:(url||(location.origin+location.pathname))})}).catch(function(){}); }catch(e){}
             var _bx=m.firstElementChild||m;
-            _bx.innerHTML='<h2 style="font-family:var(--hf,Georgia,serif);color:var(--heading);margin:0 0 6px;font-size:21px">Welcome back</h2><p style="color:var(--muted);font-size:14px;line-height:1.6;margin:0 0 18px">You already have an account with us, so we have emailed you a secure sign-in link instead. Open it and you will carry on exactly where you left off, signed in.</p><button type="button" id="awgdone" style="width:100%;background:var(--btn-bg,var(--primary));color:#fff;border:none;border-radius:var(--btn-radius,10px);padding:13px;font-weight:600;cursor:pointer;font-family:var(--bf)">OK</button>';
+            _bx.innerHTML='<h2 style="font-family:var(--hf,Georgia,serif);color:var(--heading);margin:0 0 6px;font-size:21px">Check your email</h2><p style="color:var(--muted);font-size:14px;line-height:1.6;margin:0 0 18px">To keep your details safe, we have sent a secure sign-in link to <strong>'+esc(em)+'</strong>. Open it to carry on, signed in. Nothing after a couple of minutes? Check your junk folder.</p><button type="button" id="awgdone" style="width:100%;background:var(--btn-bg,var(--primary));color:#fff;border:none;border-radius:var(--btn-radius,10px);padding:13px;font-weight:600;cursor:pointer;font-family:var(--bf)">OK</button>';
             var _dn=document.getElementById('awgdone'); if(_dn) _dn.onclick=function(){ try{ m.parentNode.removeChild(m); }catch(e){} };
             return;
           }
@@ -307,7 +335,7 @@ var CFG = window.AIWILLS_CONFIG || {}; (function(){ var _m='{'+'{'; for(var _k i
         var _idn=null; try{ _idn=JSON.parse(localStorage.getItem('aw_ident_'+loc)||'null'); }catch(e){}
         var _idfn=(_idn&&_idn.firstName)?String(_idn.firstName):'';
         box.innerHTML='<div style="'+BAR+'">'
-          + '<span style="color:var(--body);font-size:15px">'+(_idfn?('You are continuing as '+esc(_idfn)+'. Your progress is saved on this device.'):'New here? Choose a service below, no account needed.')+'</span>'
+          + '<span style="color:var(--body);font-size:15px">'+(_idfn?('Welcome back, '+esc(_idfn)+'. Log in to pick up where you left off.'):'New here? Choose a service below and we will set up your account.')+'</span>'
           + '<a href="#" id="awloginlink" style="'+LINK+'">'+(_idfn?'Log in':'Already started? Log in')+'</a>'
           + '</div>'
           + (_awHasLocal()
@@ -1720,6 +1748,20 @@ function awHubButtonHtml(label){
   var u=awHubUrl(); if(!u) return '';
   return '<a class="btn wide ghost" href="'+esc(u)+'" target="_top" style="display:block;text-align:center;text-decoration:none;margin-top:14px">'+esc(label||'Back to my services')+'</a>';
 }
+/* Signed in, or exempt from the login-first rule. The only exemption is the return from Stripe,
+   which carries the checkout session and must always reach its thank-you screen. */
+function awLoginGateNeeded(){
+  try{
+    var f=String((window.AIWILLS_CONFIG||{}).funnel||window.AIWILLS_FUNNEL||'').toLowerCase();
+    if(f==='hub') return false;
+    if(window.AIWILLS_EDIT===true) return false;
+    if(window.AIWILLS_TOKEN && window.__awSessDead!==true) return false;
+    var q=new URLSearchParams(location.search);
+    if(q.get('aw_paid')==='1' && q.get('aw_id') && q.get('aw_sid')) return false;
+    if(q.get('aw_etb_paid')==='1' && q.get('aw_sid')) return false;
+    return true;
+  }catch(e){ return true; }
+}
 function awServicesBar(){
   try{
     if (document.getElementById('awservices')) return;
@@ -1933,17 +1975,18 @@ setTimeout(closeGaps,400); setTimeout(closeGaps,1200);
         .then(function(r){return r.json();}).then(function(j){
           _awStripToken();
           if(j&&j.ok&&j.session){ awSess2Write(_qloc, j.session); window.AIWILLS_TOKEN=j.session; return _awLoadState(j.session).then(_runBranded); }
-          _runBranded(); _awLinkDead(j&&j.message);
+          if(String((window.AIWILLS_CONFIG||{}).funnel||'').toLowerCase()==='hub'){ _runBranded(); _awLinkDead(j&&j.message); }
+          else { window.__awGateNote='That sign-in link has expired. Links last one hour and work once, to keep your details safe. Log in again below.'; _runBranded(); }
         }).catch(function(){ _awStripToken(); _runBranded(); });
     } else if(_sess){
       window.AIWILLS_TOKEN=_sess;
       _awLoadState(_sess).then(function(){
+        try{ if(window.__awSessDead) window.__awGateNote='You were signed out after 10 minutes without activity, to keep your details safe. Log back in and we will bring up your saved answers.'; }catch(e){}
         _runBranded();
-        try{ if(window.__awSessDead && String((window.AIWILLS_CONFIG||{}).funnel||'')!=='hub') _awSessDeadNotice(); }catch(e){}
       });
     } else {
+      try{ if(window.__awSessDead) window.__awGateNote='You were signed out after 10 minutes without activity, to keep your details safe. Log back in and we will bring up your saved answers.'; }catch(e){}
       _runBranded();
-      try{ if(window.__awSessDead && String((window.AIWILLS_CONFIG||{}).funnel||'')!=='hub') _awSessDeadNotice(); }catch(e){}
     }
   })();
 })();
